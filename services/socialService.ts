@@ -1,17 +1,18 @@
+// TEMPORARY FIX: Simplified social service to fix TypeScript build errors
+// Complex Firestore queries with or() and and() were causing compilation issues
+// This version fetches all data and filters in memory
 
 import { User, Friendship, Message, Group, ForumThread, ForumReply, Competition } from '../types';
 import { db } from '../lib/firebase';
-import { 
-  collection, 
-  addDoc, 
-  getDocs, 
-  query, 
-  where, 
-  doc, 
-  updateDoc, 
+import {
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+  doc,
+  updateDoc,
   deleteDoc,
-  or,
-  and,
   orderBy,
   getDoc
 } from 'firebase/firestore';
@@ -20,67 +21,69 @@ import { getAllUsers } from './authService';
 // --- Friendships ---
 
 export const getFriendships = async (): Promise<Friendship[]> => {
-  // This fetches ALL friendships, ideally we filter by user in query
-  // But to keep signature compatible with legacy sync calls, we'll fetch relevant ones or return subset
-  // For a real app, this should only fetch *my* friendships
   const snapshot = await getDocs(collection(db, 'friendships'));
   return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Friendship));
 };
 
 export const getFriendsList = async (userId: string): Promise<{ user: User, friendshipId: string }[]> => {
-  const q = query(collection(db, 'friendships'), 
-    where('status', '==', 'accepted'),
-    or(where('requesterId', '==', userId), where('receiverId', '==', userId))
-  );
-  const snapshot = await getDocs(q);
+  // Fetch all friendships and filter in memory to avoid complex query syntax issues
+  const snapshot = await getDocs(collection(db, 'friendships'));
   const allUsers = await getAllUsers();
 
-  return snapshot.docs.map(doc => {
-    const f = doc.data() as Friendship;
-    const friendId = f.requesterId === userId ? f.receiverId : f.requesterId;
-    const friendUser = allUsers.find(u => u.id === friendId);
-    return friendUser ? { user: friendUser, friendshipId: doc.id } : null;
-  }).filter(Boolean) as any;
+  return snapshot.docs
+    .map(doc => {
+      const f = doc.data() as Friendship;
+      // Only include accepted friendships where user is involved
+      if (f.status !== 'accepted') return null;
+      if (f.requesterId !== userId && f.receiverId !== userId) return null;
+
+      const friendId = f.requesterId === userId ? f.receiverId : f.requesterId;
+      const friendUser = allUsers.find(u => u.id === friendId);
+      return friendUser ? { user: friendUser, friendshipId: doc.id } : null;
+    })
+    .filter(Boolean) as { user: User, friendshipId: string }[];
 };
 
 export const getPendingRequests = async (userId: string): Promise<{ user: User, friendshipId: string, type: 'received' | 'sent' }[]> => {
-  // Firestore OR queries have limitations, let's do two queries or one complex one
-  // Simplest: fetch where receiver OR requester is me, then filter in JS for pending
-  const q = query(collection(db, 'friendships'), 
-    where('status', '==', 'pending'),
-    or(where('requesterId', '==', userId), where('receiverId', '==', userId))
-  );
-  const snapshot = await getDocs(q);
+  // Fetch all pending friendships and filter in memory
+  const snapshot = await getDocs(collection(db, 'friendships'));
   const allUsers = await getAllUsers();
 
-  return snapshot.docs.map(doc => {
-    const f = doc.data() as Friendship;
-    const isReceived = f.receiverId === userId;
-    const otherId = isReceived ? f.requesterId : f.receiverId;
-    const otherUser = allUsers.find(u => u.id === otherId);
-    
-    return otherUser ? {
-      user: otherUser,
-      friendshipId: doc.id,
-      type: isReceived ? 'received' : 'sent'
-    } : null;
-  }).filter(Boolean) as any;
+  return snapshot.docs
+    .map(doc => {
+      const f = doc.data() as Friendship;
+      // Only include pending requests where user is involved
+      if (f.status !== 'pending') return null;
+      if (f.requesterId !== userId && f.receiverId !== userId) return null;
+
+      const isReceived = f.receiverId === userId;
+      const otherId = isReceived ? f.requesterId : f.receiverId;
+      const otherUser = allUsers.find(u => u.id === otherId);
+
+      return otherUser ? {
+        user: otherUser,
+        friendshipId: doc.id,
+        type: isReceived ? 'received' as const : 'sent' as const
+      } : null;
+    })
+    .filter(Boolean) as { user: User, friendshipId: string, type: 'received' | 'sent' }[];
 };
 
 export const getAvailableUsers = async (currentUserId: string): Promise<User[]> => {
   const allUsers = await getAllUsers();
-  
-  // Get my friendships
-  const q = query(collection(db, 'friendships'), or(where('requesterId', '==', currentUserId), where('receiverId', '==', currentUserId)));
-  const snapshot = await getDocs(q);
-  const friendships = snapshot.docs.map(d => d.data() as Friendship);
+
+  // Get my friendships - fetch all and filter in memory
+  const snapshot = await getDocs(collection(db, 'friendships'));
+  const friendships = snapshot.docs
+    .map(d => d.data() as Friendship)
+    .filter(f => f.requesterId === currentUserId || f.receiverId === currentUserId);
 
   return allUsers.filter(u => {
     if (u.id === currentUserId) return false;
-    if (u.role === 'admin') return false; 
+    if (u.role === 'admin') return false;
     if (u.isBlocked) return false;
 
-    const hasRelation = friendships.some(f => 
+    const hasRelation = friendships.some(f =>
       (f.requesterId === currentUserId && f.receiverId === u.id) ||
       (f.requesterId === u.id && f.receiverId === currentUserId)
     );
@@ -126,17 +129,14 @@ export const createGroup = async (name: string, adminId: string, memberIds: stri
 // --- Messages ---
 
 export const getConversation = async (userId1: string, userId2: string): Promise<Message[]> => {
-  // In a real app, use a subcollection or a 'chatId' field. 
-  // For now, simple query. Requires composite index likely.
-  const q = query(collection(db, 'messages'), 
-    or(
-      and(where('senderId', '==', userId1), where('receiverId', '==', userId2)),
-      and(where('senderId', '==', userId2), where('receiverId', '==', userId1))
-    )
-  );
-  
-  const snapshot = await getDocs(q);
-  const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Message));
+  // Fetch all messages and filter in memory to avoid complex query syntax
+  const snapshot = await getDocs(collection(db, 'messages'));
+  const msgs = snapshot.docs
+    .map(d => ({ id: d.id, ...d.data() } as Message))
+    .filter(msg =>
+      (msg.senderId === userId1 && msg.receiverId === userId2) ||
+      (msg.senderId === userId2 && msg.receiverId === userId1)
+    );
   return msgs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 
@@ -175,13 +175,12 @@ export const markAsRead = async (senderId: string, receiverId: string) => {
 
 export const getForumThreads = async (): Promise<ForumThread[]> => {
   const q = query(collection(db, 'forum_threads'), orderBy('createdAt', 'desc'));
-  // orderBy requires index, might fail initially. If so, remove orderBy.
   try {
-     const snapshot = await getDocs(q);
-     return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ForumThread));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ForumThread));
   } catch {
-     const snapshot = await getDocs(collection(db, 'forum_threads'));
-     return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ForumThread));
+    const snapshot = await getDocs(collection(db, 'forum_threads'));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ForumThread));
   }
 };
 
