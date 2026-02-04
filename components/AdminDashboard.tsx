@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, WritingSession, Project, UserSettings } from '../types';
-import { getAllUsers, toggleUserBlock, deleteUser } from '../services/authService';
+import { getAllUsers, toggleUserBlock, deleteUser, approveUser, rejectUser } from '../services/authService';
 import { getGlobalStats } from '../services/sessionService';
 import { Card } from './ui/Card';
 
@@ -42,6 +42,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
   const handleDeleteUser = async (userId: string) => {
     if (window.confirm("Esta ação removerá o usuário (apenas no banco de dados).")) {
       await deleteUser(userId);
+      loadData();
+    }
+  };
+
+  const handleApprove = async (userId: string) => {
+    await approveUser(userId);
+    loadData();
+  };
+
+  const handleReject = async (userId: string) => {
+    if (window.confirm("Tem certeza que deseja rejeitar este usuário? Ele será removido.")) {
+      await rejectUser(userId);
       loadData();
     }
   };
@@ -130,7 +142,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {user.isBlocked ? (
+                      {user.status === 'pending' ? (
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-amber-100 text-amber-800">Pendente</span>
+                      ) : user.isBlocked ? (
                         <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-rose-100 text-rose-800">Bloqueado</span>
                       ) : (
                         <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-emerald-100 text-emerald-800">Ativo</span>

@@ -1,16 +1,16 @@
 
 import { WritingSession, UserSettings, INITIAL_SETTINGS, Project } from '../types';
 import { db } from '../lib/firebase';
-import { 
-  collection, 
-  addDoc, 
-  getDocs, 
-  query, 
-  where, 
-  orderBy, 
-  doc, 
-  setDoc, 
-  getDoc, 
+import {
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+  orderBy,
+  doc,
+  setDoc,
+  getDoc,
   deleteDoc,
   writeBatch
 } from 'firebase/firestore';
@@ -24,7 +24,7 @@ export const getSessions = async (userId: string): Promise<WritingSession[]> => 
     // For now, let's fetch by user and sort in memory if needed to avoid blocking index creation
     const q = query(collection(db, 'writing_sessions'), where('userId', '==', userId));
     const querySnapshot = await getDocs(q);
-    
+
     const sessions = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
@@ -39,19 +39,24 @@ export const getSessions = async (userId: string): Promise<WritingSession[]> => 
 };
 
 export const saveSession = async (session: WritingSession, userId: string): Promise<void> => {
+  console.log('[saveSession] Iniciando salvamento:', { session, userId });
+
   try {
-    // Remove ID from object if it's auto-generated timestamp, Firestore will generate one or we can use it
-    // But since session.id comes from Date.now() in form, we can use it or let firestore gen
-    // Let's use Firestore auto-id for cleaner DB, but store the legacy ID or just ignore it.
-    // Actually, to keep types consistent, we'll strip the ID from the payload and let Firestore assign a document ID
     const { id, ...data } = session;
-    
-    await addDoc(collection(db, 'writing_sessions'), {
+
+    const docData = {
       ...data,
-      userId // Add userId to the document for querying
-    });
+      userId
+    };
+
+    console.log('[saveSession] Dados a salvar:', docData);
+
+    const docRef = await addDoc(collection(db, 'writing_sessions'), docData);
+
+    console.log('[saveSession] ✅ Sessão salva com sucesso! ID:', docRef.id);
   } catch (error) {
-    console.error("Error saving session:", error);
+    console.error("[saveSession] ❌ ERRO ao salvar sessão:", error);
+    throw error; // Re-lançar erro para não engolir
   }
 };
 
@@ -101,17 +106,17 @@ export const saveProject = async (project: Project, userId: string): Promise<voi
     const { id, ...data } = project;
     // If ID is short (Date.now from legacy), treat as new doc. If Long (Firestore UUID), update.
     // A simple check: if we passed a specific ID in the type that matches an existing doc.
-    
+
     if (project.id && project.id.length > 20) {
-       // Update existing
-       const docRef = doc(db, 'projects', project.id);
-       await setDoc(docRef, { ...data, userId }, { merge: true });
+      // Update existing
+      const docRef = doc(db, 'projects', project.id);
+      await setDoc(docRef, { ...data, userId }, { merge: true });
     } else {
-       // Create new
-       await addDoc(collection(db, 'projects'), {
-         ...data,
-         userId
-       });
+      // Create new
+      await addDoc(collection(db, 'projects'), {
+        ...data,
+        userId
+      });
     }
   } catch (error) {
     console.error(error);
@@ -125,7 +130,7 @@ export const getGlobalStats = async () => {
     // Note: Counting all documents in client SDK is expensive (reads). 
     // In production, use Aggregation Queries.
     const sessionsSnap = await getDocs(collection(db, 'writing_sessions'));
-    
+
     const totalSessions = sessionsSnap.size;
     const totalWords = sessionsSnap.docs.reduce((acc, doc) => acc + (doc.data().wordCount || 0), 0);
 
@@ -139,7 +144,7 @@ export const getGlobalStats = async () => {
 export const clearAllData = async (userId: string) => {
   try {
     const batch = writeBatch(db);
-    
+
     // Get all sessions
     const sessionsQ = query(collection(db, 'writing_sessions'), where('userId', '==', userId));
     const sessionsSnap = await getDocs(sessionsQ);

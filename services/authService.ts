@@ -1,10 +1,10 @@
 
 import { User } from '../types';
 import { auth, db } from '../lib/firebase';
-import { 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, 
-  signOut, 
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
   updateProfile,
   onAuthStateChanged
 } from 'firebase/auth';
@@ -34,16 +34,21 @@ export const register = async (name: string, email: string, password: string): P
       email,
       role: 'user',
       isBlocked: false,
+      status: 'pending',
       createdAt: new Date().toISOString()
     };
     await setDoc(userDocRef, userData);
+
+    // Fazer logout imediatamente após registro
+    await signOut(auth);
 
     return {
       id: user.uid,
       name,
       email,
       role: 'user',
-      isBlocked: false
+      isBlocked: false,
+      status: 'pending'
     };
   } catch (error: any) {
     console.error(error);
@@ -65,6 +70,19 @@ export const login = async (email: string, password: string): Promise<User> => {
 
     if (userDoc.exists()) {
       const data = userDoc.data();
+
+      // Verificar se conta está pendente de aprovação
+      if (data.status === 'pending') {
+        await signOut(auth);
+        throw new Error("Sua conta está aguardando aprovação do administrador.");
+      }
+
+      // Verificar se conta está rejeitada
+      if (data.status === 'rejected') {
+        await signOut(auth);
+        throw new Error("Sua conta foi rejeitada pelo administrador.");
+      }
+
       if (data.isBlocked) {
         await signOut(auth);
         throw new Error("Conta bloqueada pelo administrador.");
@@ -101,15 +119,15 @@ export const getCurrentUser = async (): Promise<User | null> => {
           const userDocRef = doc(db, 'users', user.uid);
           const userDoc = await getDoc(userDocRef);
           if (userDoc.exists()) {
-             resolve(mapUser(userDoc.data(), user.uid, user.email!));
+            resolve(mapUser(userDoc.data(), user.uid, user.email!));
           } else {
-             resolve({
-                id: user.uid,
-                name: user.displayName || 'Usuário',
-                email: user.email!,
-                role: 'user',
-                isBlocked: false
-             });
+            resolve({
+              id: user.uid,
+              name: user.displayName || 'Usuário',
+              email: user.email!,
+              role: 'user',
+              isBlocked: false
+            });
           }
         } catch (e) {
           console.error(e);
@@ -134,7 +152,8 @@ export const getAllUsers = async (): Promise<User[]> => {
         name: data.name || 'Unknown',
         email: data.email || '',
         role: data.role || 'user',
-        isBlocked: data.isBlocked || false
+        isBlocked: data.isBlocked || false,
+        status: data.status || 'approved' // Default para usuários antigos
       };
     });
   } catch (e) {
@@ -149,14 +168,25 @@ export const toggleUserBlock = async (userId: string, currentStatus: boolean): P
 };
 
 export const deleteUser = async (userId: string): Promise<void> => {
-   // Note: Firebase Client SDK cannot delete Auth user easily without re-auth.
-   // We will delete the Firestore document, effectively removing them from the app logic.
-   await deleteDoc(doc(db, 'users', userId));
+  // Note: Firebase Client SDK cannot delete Auth user easily without re-auth.
+  // We will delete the Firestore document, effectively removing them from the app logic.
+  await deleteDoc(doc(db, 'users', userId));
+};
+
+// Aprovar usuário pendente
+export const approveUser = async (userId: string): Promise<void> => {
+  const userRef = doc(db, 'users', userId);
+  await updateDoc(userRef, { status: 'approved' });
+};
+
+// Rejeitar usuário pendente (deleta o usuário)
+export const rejectUser = async (userId: string): Promise<void> => {
+  await deleteUser(userId);
 };
 
 export const checkUserExists = async (email: string): Promise<boolean> => {
   // Not easily possible with client SDK to check without trying to login/register
-  return true; 
+  return true;
 };
 
 export const resetPassword = async (email: string) => {

@@ -13,7 +13,7 @@ export interface WritingSession {
   id: string;
   projectId?: string; // Link to a Project
   date: string; // ISO string for the date of entry
-  
+
   // Section 1
   startTime: string;
   endTime: string;
@@ -54,6 +54,7 @@ export interface User {
   password?: string; // In a real app, never store plain text passwords
   role: 'admin' | 'user';
   isBlocked?: boolean;
+  status?: 'pending' | 'approved' | 'rejected';
 }
 
 export interface Friendship {
