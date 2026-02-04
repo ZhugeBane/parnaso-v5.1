@@ -161,7 +161,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
                         >
                           Inspecionar
                         </button>
-                        {user.role !== 'admin' && (
+                        {user.status === 'pending' ? (
+                          <>
+                            <button
+                              onClick={() => handleApprove(user.id)}
+                              className="text-emerald-600 hover:text-emerald-900 font-medium"
+                            >
+                              Aprovar
+                            </button>
+                            <button
+                              onClick={() => handleReject(user.id)}
+                              className="text-rose-600 hover:text-rose-900"
+                            >
+                              Rejeitar
+                            </button>
+                          </>
+                        ) : user.role !== 'admin' && (
                           <>
                             <button
                               onClick={() => handleToggleBlock(user.id, user.isBlocked)}
