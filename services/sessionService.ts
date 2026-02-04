@@ -114,24 +114,49 @@ export const getProjects = async (userId: string): Promise<Project[]> => {
 };
 
 export const saveProject = async (project: Project, userId: string): Promise<void> => {
+  console.log('[saveProject] Iniciando salvamento:', { project, userId });
+
   try {
     const { id, ...data } = project;
+
+    // Remover campos undefined (Firestore não aceita undefined)
+    const cleanData = Object.entries(data).reduce((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {} as any);
+
+    const docData = {
+      ...cleanData,
+      userId
+    };
+
+    console.log('[saveProject] Dados a salvar:', docData);
+    console.log('[saveProject] ID do projeto:', id);
+    console.log('[saveProject] Firestore DB instance:', db ? 'OK' : 'ERRO - DB não inicializado');
+
     // If ID is short (Date.now from legacy), treat as new doc. If Long (Firestore UUID), update.
     // A simple check: if we passed a specific ID in the type that matches an existing doc.
 
     if (project.id && project.id.length > 20) {
       // Update existing
+      console.log('[saveProject] Atualizando projeto existente com ID:', project.id);
       const docRef = doc(db, 'projects', project.id);
-      await setDoc(docRef, { ...data, userId }, { merge: true });
+      await setDoc(docRef, docData, { merge: true });
+      console.log('[saveProject] ✅ Projeto atualizado com sucesso!');
     } else {
       // Create new
-      await addDoc(collection(db, 'projects'), {
-        ...data,
-        userId
-      });
+      console.log('[saveProject] Criando novo projeto...');
+      const docRef = await addDoc(collection(db, 'projects'), docData);
+      console.log('[saveProject] ✅ Projeto criado com sucesso! ID:', docRef.id);
     }
-  } catch (error) {
-    console.error(error);
+  } catch (error: any) {
+    console.error('[saveProject] ❌ ERRO ao salvar projeto:', error);
+    console.error('[saveProject] Tipo de erro:', error?.constructor?.name);
+    console.error('[saveProject] Código do erro:', error?.code);
+    console.error('[saveProject] Mensagem:', error?.message);
+    throw error; // Re-lançar erro para não engolir
   }
 };
 
