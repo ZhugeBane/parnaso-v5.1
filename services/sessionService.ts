@@ -44,8 +44,16 @@ export const saveSession = async (session: WritingSession, userId: string): Prom
   try {
     const { id, ...data } = session;
 
+    // Remover campos undefined (Firestore não aceita undefined)
+    const cleanData = Object.entries(data).reduce((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {} as any);
+
     const docData = {
-      ...data,
+      ...cleanData,
       userId
     };
 
