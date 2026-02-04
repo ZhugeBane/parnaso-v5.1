@@ -244,6 +244,129 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   };
   const currentStreak = calculateStreak();
 
+  // --- Writing Pattern Analysis ---
+  const analyzeWritingPatterns = () => {
+    if (filteredSessions.length === 0) {
+      return {
+        preferredTimeOfDay: null,
+        mostProductiveDays: [],
+        longestStreak: 0,
+        writerProfile: null,
+        weekdayVsWeekend: null
+      };
+    }
+
+    // Analyze time of day
+    const timeOfDayCount = filteredSessions.reduce((acc, session) => {
+      const date = new Date(session.date);
+      const hour = date.getHours();
+      let period: string;
+
+      if (hour >= 6 && hour < 12) period = 'morning';
+      else if (hour >= 12 && hour < 18) period = 'afternoon';
+      else if (hour >= 18 && hour < 24) period = 'evening';
+      else period = 'night';
+
+      acc[period] = (acc[period] || 0) + session.wordCount;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const preferredTimeOfDay = Object.entries(timeOfDayCount).length > 0
+      ? Object.entries(timeOfDayCount).sort((a, b) => b[1] - a[1])[0]?.[0] || null
+      : null;
+
+    // Analyze days of week
+    const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    const dayCount = filteredSessions.reduce((acc, session) => {
+      const day = new Date(session.date).getDay();
+      acc[day] = (acc[day] || 0) + session.wordCount;
+      return acc;
+    }, {} as Record<number, number>);
+
+    const sortedDays = Object.entries(dayCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([day]) => dayNames[parseInt(day)]);
+
+    // Weekday vs Weekend
+    const weekdayWords = filteredSessions.reduce((sum, s) => {
+      const day = new Date(s.date).getDay();
+      return day >= 1 && day <= 5 ? sum + s.wordCount : sum;
+    }, 0);
+    const weekendWords = filteredSessions.reduce((sum, s) => {
+      const day = new Date(s.date).getDay();
+      return day === 0 || day === 6 ? sum + s.wordCount : sum;
+    }, 0);
+
+    let weekdayVsWeekend: string | null = null;
+    if (weekdayWords > weekendWords * 1.5) weekdayVsWeekend = 'weekday';
+    else if (weekendWords > weekdayWords * 1.5) weekdayVsWeekend = 'weekend';
+    else if (weekdayWords > 0 || weekendWords > 0) weekdayVsWeekend = 'balanced';
+
+    // Calculate longest streak
+    const sortedSessionsForStreak = [...filteredSessions].sort((a, b) =>
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+
+    const uniqueDays = new Set(
+      sortedSessionsForStreak.map(s => new Date(s.date).toDateString())
+    );
+    const sortedDates = Array.from(uniqueDays)
+      .map(d => new Date(d))
+      .sort((a, b) => b.getTime() - a.getTime());
+
+    let longestStreak = 0;
+    let tempStreak = 0;
+
+    for (let i = 0; i < sortedDates.length; i++) {
+      if (i === 0) {
+        tempStreak = 1;
+      } else {
+        const prevDate = new Date(sortedDates[i - 1]);
+        const currDate = new Date(sortedDates[i]);
+        prevDate.setHours(0, 0, 0, 0);
+        currDate.setHours(0, 0, 0, 0);
+
+        const diffDays = Math.round((prevDate.getTime() - currDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays === 1) {
+          tempStreak++;
+        } else {
+          longestStreak = Math.max(longestStreak, tempStreak);
+          tempStreak = 1;
+        }
+      }
+    }
+    longestStreak = Math.max(longestStreak, tempStreak);
+
+    // Writer profile - calculate average duration from startTime/endTime
+    const calculateDuration = (session: WritingSession) => {
+      const [startHour, startMin] = session.startTime.split(':').map(Number);
+      const [endHour, endMin] = session.endTime.split(':').map(Number);
+      const startMinutes = startHour * 60 + startMin;
+      const endMinutes = endHour * 60 + endMin;
+      return endMinutes - startMinutes;
+    };
+
+    const avgDuration = filteredSessions.reduce((sum, s) => sum + calculateDuration(s), 0) / filteredSessions.length;
+
+    let writerProfile: string | null = null;
+    const sessionCount = filteredSessions.length;
+
+    if (avgDuration > 60 && sessionCount < 10) writerProfile = 'marathoner';
+    else if (avgDuration < 30 && sessionCount > 15) writerProfile = 'sprinter';
+    else if (currentStreak >= 7) writerProfile = 'consistent';
+
+    return {
+      preferredTimeOfDay,
+      mostProductiveDays: sortedDays,
+      longestStreak,
+      writerProfile,
+      weekdayVsWeekend
+    };
+  };
+
+  const writingInsights = analyzeWritingPatterns();
+
   // Goals
   const today = new Date().toLocaleDateString('en-CA');
   const wordsToday = sessions
@@ -894,6 +1017,168 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   <div className="bg-emerald-400 h-3 rounded-full transition-all duration-1000" style={{ width: `${weeklyProgress}%` }}></div>
                 </div>
               </Card>
+            </div>
+          )}
+
+          {/* Writing Insights - Qualitative Analysis */}
+          {activeTab === 'general' && filteredSessions.length > 0 && (
+            <div className="mb-8">
+              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                Seus Padrões de Escrita
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {/* Time of Day Preference */}
+                {writingInsights.preferredTimeOfDay && (
+                  <Card>
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg">
+                        <span className="text-2xl">
+                          {writingInsights.preferredTimeOfDay === 'morning' && '🌅'}
+                          {writingInsights.preferredTimeOfDay === 'afternoon' && '☀️'}
+                          {writingInsights.preferredTimeOfDay === 'evening' && '🌆'}
+                          {writingInsights.preferredTimeOfDay === 'night' && '🌙'}
+                        </span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Período Preferido</p>
+                        <p className="text-lg font-bold text-slate-800">
+                          {writingInsights.preferredTimeOfDay === 'morning' && 'Manhã'}
+                          {writingInsights.preferredTimeOfDay === 'afternoon' && 'Tarde'}
+                          {writingInsights.preferredTimeOfDay === 'evening' && 'Noite'}
+                          {writingInsights.preferredTimeOfDay === 'night' && 'Madrugada'}
+                        </p>
+                        <p className="text-xs text-slate-600 mt-1">
+                          Você escreve mais pela{' '}
+                          {writingInsights.preferredTimeOfDay === 'morning' && 'manhã'}
+                          {writingInsights.preferredTimeOfDay === 'afternoon' && 'tarde'}
+                          {writingInsights.preferredTimeOfDay === 'evening' && 'noite'}
+                          {writingInsights.preferredTimeOfDay === 'night' && 'madrugada'}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+
+                {/* Most Productive Days */}
+                {writingInsights.mostProductiveDays.length > 0 && (
+                  <Card>
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-lg">
+                        <span className="text-2xl">📅</span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Dias Produtivos</p>
+                        <p className="text-lg font-bold text-slate-800">
+                          {writingInsights.mostProductiveDays.join(' e ')}
+                        </p>
+                        <p className="text-xs text-slate-600 mt-1">
+                          Seus dias mais produtivos
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+
+                {/* Weekday vs Weekend */}
+                {writingInsights.weekdayVsWeekend && (
+                  <Card>
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-gradient-to-br from-indigo-400 to-purple-500 rounded-lg">
+                        <span className="text-2xl">
+                          {writingInsights.weekdayVsWeekend === 'weekday' && '💼'}
+                          {writingInsights.weekdayVsWeekend === 'weekend' && '🏖️'}
+                          {writingInsights.weekdayVsWeekend === 'balanced' && '⚖️'}
+                        </span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Rotina</p>
+                        <p className="text-lg font-bold text-slate-800">
+                          {writingInsights.weekdayVsWeekend === 'weekday' && 'Dias Úteis'}
+                          {writingInsights.weekdayVsWeekend === 'weekend' && 'Fim de Semana'}
+                          {writingInsights.weekdayVsWeekend === 'balanced' && 'Equilibrado'}
+                        </p>
+                        <p className="text-xs text-slate-600 mt-1">
+                          {writingInsights.weekdayVsWeekend === 'weekday' && 'Mais produtivo durante a semana'}
+                          {writingInsights.weekdayVsWeekend === 'weekend' && 'Mais produtivo nos fins de semana'}
+                          {writingInsights.weekdayVsWeekend === 'balanced' && 'Produtividade equilibrada'}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+
+                {/* Longest Streak */}
+                {writingInsights.longestStreak > 0 && (
+                  <Card>
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-gradient-to-br from-rose-400 to-pink-500 rounded-lg">
+                        <span className="text-2xl">🔥</span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Maior Sequência</p>
+                        <p className="text-lg font-bold text-slate-800">
+                          {writingInsights.longestStreak} {writingInsights.longestStreak === 1 ? 'dia' : 'dias'}
+                        </p>
+                        <p className="text-xs text-slate-600 mt-1">
+                          Seu recorde de dias consecutivos
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+
+                {/* Writer Profile */}
+                {writingInsights.writerProfile && (
+                  <Card>
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-gradient-to-br from-emerald-400 to-green-500 rounded-lg">
+                        <span className="text-2xl">
+                          {writingInsights.writerProfile === 'marathoner' && '🏃'}
+                          {writingInsights.writerProfile === 'sprinter' && '⚡'}
+                          {writingInsights.writerProfile === 'consistent' && '🎯'}
+                        </span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Perfil</p>
+                        <p className="text-lg font-bold text-slate-800">
+                          {writingInsights.writerProfile === 'marathoner' && 'Maratonista'}
+                          {writingInsights.writerProfile === 'sprinter' && 'Velocista'}
+                          {writingInsights.writerProfile === 'consistent' && 'Consistente'}
+                        </p>
+                        <p className="text-xs text-slate-600 mt-1">
+                          {writingInsights.writerProfile === 'marathoner' && 'Sessões longas e intensas'}
+                          {writingInsights.writerProfile === 'sprinter' && 'Sessões curtas e frequentes'}
+                          {writingInsights.writerProfile === 'consistent' && 'Escreve regularmente'}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+
+                {/* Current Streak */}
+                {currentStreak > 0 && (
+                  <Card>
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-gradient-to-br from-violet-400 to-purple-500 rounded-lg">
+                        <span className="text-2xl">✨</span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Sequência Atual</p>
+                        <p className="text-lg font-bold text-slate-800">
+                          {currentStreak} {currentStreak === 1 ? 'dia' : 'dias'}
+                        </p>
+                        <p className="text-xs text-slate-600 mt-1">
+                          Continue assim! 🎉
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+              </div>
             </div>
           )}
 
