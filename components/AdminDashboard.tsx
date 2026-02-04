@@ -41,20 +41,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
 
   const handleDeleteUser = async (userId: string) => {
     if (window.confirm("Esta ação removerá o usuário (apenas no banco de dados).")) {
-      await deleteUser(userId);
-      loadData();
+      try {
+        await deleteUser(userId);
+        loadData();
+      } catch (error: any) {
+        console.error("Erro ao deletar usuário:", error);
+        alert("Erro ao deletar usuário: " + (error.message || "Erro desconhecido"));
+      }
     }
   };
 
   const handleApprove = async (userId: string) => {
-    await approveUser(userId);
-    loadData();
+    try {
+      await approveUser(userId);
+      loadData();
+    } catch (error: any) {
+      console.error("Erro ao aprovar usuário:", error);
+      alert("Erro ao aprovar usuário: " + (error.message || "Erro desconhecido"));
+    }
   };
 
   const handleReject = async (userId: string) => {
     if (window.confirm("Tem certeza que deseja rejeitar este usuário? Ele será removido.")) {
-      await rejectUser(userId);
-      loadData();
+      try {
+        await rejectUser(userId);
+        loadData();
+      } catch (error: any) {
+        console.error("Erro ao rejeitar usuário:", error);
+        alert("Erro ao rejeitar usuário: " + (error.message || "Erro desconhecido"));
+      }
     }
   };
 

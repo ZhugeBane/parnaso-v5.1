@@ -119,6 +119,29 @@ export const getCurrentUser = async (): Promise<User | null> => {
           const userDocRef = doc(db, 'users', user.uid);
           const userDoc = await getDoc(userDocRef);
           if (userDoc.exists()) {
+            const data = userDoc.data();
+
+            // Verificar se conta está pendente de aprovação
+            if (data.status === 'pending') {
+              await signOut(auth);
+              resolve(null);
+              return;
+            }
+
+            // Verificar se conta está rejeitada
+            if (data.status === 'rejected') {
+              await signOut(auth);
+              resolve(null);
+              return;
+            }
+
+            // Verificar se conta está bloqueada
+            if (data.isBlocked) {
+              await signOut(auth);
+              resolve(null);
+              return;
+            }
+
             resolve(mapUser(userDoc.data(), user.uid, user.email!));
           } else {
             resolve({
@@ -168,20 +191,35 @@ export const toggleUserBlock = async (userId: string, currentStatus: boolean): P
 };
 
 export const deleteUser = async (userId: string): Promise<void> => {
-  // Note: Firebase Client SDK cannot delete Auth user easily without re-auth.
-  // We will delete the Firestore document, effectively removing them from the app logic.
-  await deleteDoc(doc(db, 'users', userId));
+  try {
+    // Note: Firebase Client SDK cannot delete Auth user easily without re-auth.
+    // We will delete the Firestore document, effectively removing them from the app logic.
+    await deleteDoc(doc(db, 'users', userId));
+  } catch (error) {
+    console.error("Erro ao deletar usuário:", error);
+    throw new Error("Falha ao deletar usuário. Verifique as permissões.");
+  }
 };
 
 // Aprovar usuário pendente
 export const approveUser = async (userId: string): Promise<void> => {
-  const userRef = doc(db, 'users', userId);
-  await updateDoc(userRef, { status: 'approved' });
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, { status: 'approved' });
+  } catch (error) {
+    console.error("Erro ao aprovar usuário:", error);
+    throw new Error("Falha ao aprovar usuário.");
+  }
 };
 
 // Rejeitar usuário pendente (deleta o usuário)
 export const rejectUser = async (userId: string): Promise<void> => {
-  await deleteUser(userId);
+  try {
+    await deleteUser(userId);
+  } catch (error) {
+    console.error("Erro ao rejeitar usuário:", error);
+    throw new Error("Falha ao rejeitar usuário.");
+  }
 };
 
 export const checkUserExists = async (email: string): Promise<boolean> => {
