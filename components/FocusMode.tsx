@@ -11,7 +11,7 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
   const [seconds, setSeconds] = useState(0);
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [text, setText] = useState('');
-  
+
   // Ref for interval to clear it properly
   const intervalRef = useRef<number | null>(null);
 
@@ -43,11 +43,11 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
   const handleFinish = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     const endTime = new Date();
-    const formattedStart = startTime 
-      ? startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) 
+    const formattedStart = startTime
+      ? startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
       : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const formattedEnd = endTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    
+
     // Calculate simple word count
     const wordCount = text.trim().split(/\s+/).filter(w => w.length > 0).length;
 
@@ -59,11 +59,11 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
       {/* Minimal Header */}
       <div className="flex justify-between items-center p-6 border-b border-slate-800">
         <div className="flex items-center gap-3">
-            <Logo className="w-8 h-8 opacity-50 grayscale hover:grayscale-0 hover:opacity-100 transition-all" />
-            <h2 className="text-xl font-light tracking-widest uppercase text-slate-400">Modo de Foco</h2>
+          <Logo className="w-8 h-8 opacity-50 grayscale hover:grayscale-0 hover:opacity-100 transition-all" />
+          <h2 className="text-xl font-light tracking-widest uppercase text-slate-400">Modo de Foco</h2>
         </div>
-        <button 
-          onClick={() => onExit()} 
+        <button
+          onClick={() => onExit()}
           className="text-slate-500 hover:text-white transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -73,10 +73,10 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col items-center justify-center p-4">
-        
+      <div className="flex-1 flex flex-col items-center overflow-auto p-4 py-8">
+
         {/* Timer Display */}
-        <div className="mb-8 text-center">
+        <div className="mb-6 text-center">
           <div className="text-6xl md:text-8xl font-mono font-bold tracking-tighter text-teal-300 tabular-nums">
             {formatTime(seconds)}
           </div>
@@ -84,27 +84,26 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
         </div>
 
         {/* Writing Area */}
-        <div className="w-full max-w-4xl h-96 bg-slate-800 rounded-xl p-1 border border-slate-700 relative group shadow-2xl">
-           <textarea 
-             className="w-full h-full bg-slate-800/50 rounded-lg p-6 border-none outline-none resize-none text-slate-200 text-lg leading-relaxed font-serif placeholder-slate-600 focus:bg-slate-800 transition-colors"
-             placeholder="Digite aqui... Seu texto será salvo automaticamente ao encerrar a sessão."
-             value={text}
-             onChange={(e) => setText(e.target.value)}
-           ></textarea>
-           <div className="absolute bottom-4 right-4 text-xs text-slate-500 pointer-events-none">
-              {text.length > 0 ? `${text.trim().split(/\s+/).filter(w => w.length > 0).length} palavras` : 'Comece a escrever...'}
-           </div>
+        <div className="w-full max-w-4xl h-80 md:h-96 bg-slate-800 rounded-xl p-1 border border-slate-700 relative group shadow-2xl">
+          <textarea
+            className="w-full h-full bg-slate-800/50 rounded-lg p-6 border-none outline-none resize-none text-slate-200 text-lg leading-relaxed font-serif placeholder-slate-600 focus:bg-slate-800 transition-colors"
+            placeholder="Digite aqui... Seu texto será salvo automaticamente ao encerrar a sessão."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          ></textarea>
+          <div className="absolute bottom-4 right-4 text-xs text-slate-500 pointer-events-none">
+            {text.length > 0 ? `${text.trim().split(/\s+/).filter(w => w.length > 0).length} palavras` : 'Comece a escrever...'}
+          </div>
         </div>
 
         {/* Controls */}
-        <div className="mt-8 flex items-center gap-6">
-          <button 
+        <div className="mt-6 mb-8 flex items-center gap-6">
+          <button
             onClick={toggleTimer}
-            className={`h-16 w-16 rounded-full flex items-center justify-center transition-all transform hover:scale-110 shadow-lg ${
-              isActive 
-                ? 'bg-amber-500 hover:bg-amber-600 text-slate-900' 
+            className={`h-16 w-16 rounded-full flex items-center justify-center transition-all transform hover:scale-110 shadow-lg ${isActive
+                ? 'bg-amber-500 hover:bg-amber-600 text-slate-900'
                 : 'bg-teal-500 hover:bg-teal-600 text-white'
-            }`}
+              }`}
           >
             {isActive ? (
               <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
@@ -118,15 +117,15 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
           </button>
 
           {(seconds > 0 || text.length > 0) && (
-             <button 
-               onClick={handleFinish}
-               className="px-6 py-3 rounded-full bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white font-medium transition-colors flex items-center gap-2"
-             >
-               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-               </svg>
-               Salvar Sessão
-             </button>
+            <button
+              onClick={handleFinish}
+              className="px-6 py-3 rounded-full bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white font-medium transition-colors flex items-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+              </svg>
+              Salvar Sessão
+            </button>
           )}
         </div>
       </div>
