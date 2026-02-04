@@ -6,13 +6,14 @@ import { FocusMode } from './components/FocusMode';
 import { AuthPage } from './components/AuthPage';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SocialHub } from './components/SocialHub'; // CONNECTED SOCIAL HUB
+import { HelpPage } from './components/HelpPage';
 import { WritingSession, UserSettings, INITIAL_SETTINGS, Project, User } from './types';
 import { getSessions, saveSession, getSettings, saveSettings, getProjects, saveProject, clearAllData } from './services/sessionService';
 import { getCurrentUser, logout } from './services/authService';
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [view, setView] = useState<'dashboard' | 'form' | 'focus' | 'admin' | 'social' | 'inspect'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'form' | 'focus' | 'admin' | 'social' | 'inspect' | 'help'>('dashboard');
   const [sessions, setSessions] = useState<WritingSession[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [settings, setSettings] = useState<UserSettings>(INITIAL_SETTINGS);
@@ -84,6 +85,10 @@ function App() {
 
   const handleSocial = () => {
     setView('social');
+  };
+
+  const handleHelp = () => {
+    setView('help');
   };
 
   const handleSaveSession = async (session: WritingSession) => {
@@ -247,6 +252,15 @@ function App() {
     )
   }
 
+  // Help Mode
+  if (view === 'help') {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
+        <HelpPage onExit={() => setView('dashboard')} />
+      </div>
+    )
+  }
+
   // Normal User Views
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
@@ -270,6 +284,7 @@ function App() {
           onLogout={handleLogout}
           onAdminPanel={handleAdminPanel}
           onSocial={handleSocial}
+          onHelp={handleHelp}
         />
       )}
 
