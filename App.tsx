@@ -88,14 +88,34 @@ function App() {
 
   const handleSaveSession = async (session: WritingSession) => {
     if (!user) return;
-    // Optimistic Update
-    setSessions(prev => [session, ...prev]);
-    setView('dashboard');
-    // Actual Save to Firestore
-    await saveSession(session, user.id);
-    // Reload to ensure sync/IDs
-    const freshSessions = await getSessions(user.id);
-    setSessions(freshSessions);
+
+    try {
+      console.log('[App] Salvando sessão...', session);
+
+      // Optimistic Update
+      setSessions(prev => [session, ...prev]);
+      setView('dashboard');
+
+      // Actual Save to Firestore
+      await saveSession(session, user.id);
+
+      console.log('[App] ✅ Sessão salva com sucesso!');
+
+      // Reload to ensure sync/IDs
+      const freshSessions = await getSessions(user.id);
+      setSessions(freshSessions);
+
+      console.log('[App] Sessões recarregadas:', freshSessions.length);
+    } catch (error: any) {
+      console.error('[App] ❌ ERRO ao salvar sessão:', error);
+
+      // Reverter atualização otimista
+      const freshSessions = await getSessions(user.id);
+      setSessions(freshSessions);
+
+      // Mostrar erro ao usuário
+      alert('Erro ao salvar sessão: ' + (error.message || 'Erro desconhecido. Verifique sua conexão e tente novamente.'));
+    }
   };
 
   const handleSaveProject = async (project: Project) => {

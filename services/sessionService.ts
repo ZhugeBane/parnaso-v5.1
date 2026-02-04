@@ -50,12 +50,16 @@ export const saveSession = async (session: WritingSession, userId: string): Prom
     };
 
     console.log('[saveSession] Dados a salvar:', docData);
+    console.log('[saveSession] Firestore DB instance:', db ? 'OK' : 'ERRO - DB não inicializado');
 
     const docRef = await addDoc(collection(db, 'writing_sessions'), docData);
 
     console.log('[saveSession] ✅ Sessão salva com sucesso! ID:', docRef.id);
-  } catch (error) {
+  } catch (error: any) {
     console.error("[saveSession] ❌ ERRO ao salvar sessão:", error);
+    console.error("[saveSession] Tipo de erro:", error?.constructor?.name);
+    console.error("[saveSession] Código do erro:", error?.code);
+    console.error("[saveSession] Mensagem:", error?.message);
     throw error; // Re-lançar erro para não engolir
   }
 };
