@@ -7,10 +7,10 @@ import { Card } from './ui/Card';
 interface AdminDashboardProps {
   currentUser: User;
   onExit: () => void;
-  onInspectUser: (user: User, data: { sessions: WritingSession[], projects: Project[], settings: UserSettings }) => void;
+  onInspectUser: (user: User) => void;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspectUser }) => {
   const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [stats, setStats] = useState({ totalWords: 0, totalSessions: 0 });
@@ -46,8 +46,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit }) => {
     }
   };
 
-  const filteredUsers = users.filter(u => 
-    (u.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const filteredUsers = users.filter(u =>
+    (u.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (u.email || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -65,7 +65,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit }) => {
             <p className="text-slate-500 text-sm">Controle Geral (Servidor Supabase)</p>
           </div>
         </div>
-        <button 
+        <button
           onClick={onExit}
           className="flex items-center px-4 py-2 text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
         >
@@ -140,22 +140,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit }) => {
                       {user.role}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      {user.role !== 'admin' && (
-                        <div className="flex justify-end gap-2">
-                          <button 
-                            onClick={() => handleToggleBlock(user.id, user.isBlocked)}
-                            className="text-amber-600 hover:text-amber-900"
-                          >
-                            {user.isBlocked ? 'Desbloquear' : 'Bloquear'}
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteUser(user.id)}
-                            className="text-rose-600 hover:text-rose-900"
-                          >
-                            Excluir
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => onInspectUser(user)}
+                          className="text-teal-600 hover:text-teal-900 font-medium"
+                        >
+                          Inspecionar
+                        </button>
+                        {user.role !== 'admin' && (
+                          <>
+                            <button
+                              onClick={() => handleToggleBlock(user.id, user.isBlocked)}
+                              className="text-amber-600 hover:text-amber-900"
+                            >
+                              {user.isBlocked ? 'Desbloquear' : 'Bloquear'}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteUser(user.id)}
+                              className="text-rose-600 hover:text-rose-900"
+                            >
+                              Excluir
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
