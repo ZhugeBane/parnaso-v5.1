@@ -271,14 +271,5 @@ export const ptBR = {
         pomodoroMode: 'Modo Pomodoro',
     },
 
-    // Days of the week
-    days: {
-        sunday: 'Domingo',
-        monday: 'Segunda',
-        tuesday: 'Terça',
-        wednesday: 'Quarta',
-        thursday: 'Quinta',
-        friday: 'Sexta',
-        saturday: 'Sábado',
-    },
+
 };

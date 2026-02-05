@@ -271,14 +271,5 @@ export const enUS = {
         pomodoroMode: 'Pomodoro Mode',
     },
 
-    // Days of the week
-    days: {
-        sunday: 'Sunday',
-        monday: 'Monday',
-        tuesday: 'Tuesday',
-        wednesday: 'Wednesday',
-        thursday: 'Thursday',
-        friday: 'Friday',
-        saturday: 'Saturday',
-    },
+
 };
