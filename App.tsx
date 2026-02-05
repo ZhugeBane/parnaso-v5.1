@@ -1,4 +1,5 @@
 
+
 import { useState, useEffect } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { SessionForm } from './components/SessionForm';
@@ -10,6 +11,8 @@ import { HelpPage } from './components/HelpPage';
 import { WritingSession, UserSettings, INITIAL_SETTINGS, Project, User } from './types';
 import { getSessions, saveSession, getSettings, saveSettings, getProjects, saveProject, clearAllData } from './services/sessionService';
 import { getCurrentUser, logout } from './services/authService';
+import { LanguageProvider } from './i18n/LanguageContext';
+
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -317,4 +320,10 @@ function App() {
   );
 }
 
-export default App;
+const AppWithLanguage = () => (
+  <LanguageProvider>
+    <App />
+  </LanguageProvider>
+);
+
+export default AppWithLanguage;

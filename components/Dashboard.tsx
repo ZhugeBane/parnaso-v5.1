@@ -3,6 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { WritingSession, UserSettings, Project, User } from '../types';
 import { Card } from './ui/Card';
 import { Logo } from './ui/Logo';
+import { LanguageSelector } from './ui/LanguageSelector';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend
@@ -95,6 +97,7 @@ const Stat = ({ label, value, colorClass, subValue }: any) => (
 );
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, settings, onNewSession, onFocusMode, onUpdateSettings, onAddProject, onResetData, onLogout, onAdminPanel, onSocial, onHelp, readOnly = false }) => {
+  const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'general' | 'projects' | 'achievements'>('general');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilterType>('7days');
@@ -805,8 +808,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 </svg>
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-slate-800">Inspecionando: {user.name}</h1>
-                <span className="text-xs font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Modo Leitura</span>
+                <h1 className="text-2xl font-bold text-slate-800">{t('dashboard.inspecting')}: {user.name}</h1>
+                <span className="text-xs font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{t('dashboard.readOnly')}</span>
               </div>
             </div>
           ) : (
@@ -819,7 +822,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               <div>
                 <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Projeto Parnaso</h1>
                 <p className="text-slate-500 mt-1 flex items-center gap-2">
-                  Olá, <span className="font-semibold text-teal-600">{user.name}</span>. Vamos escrever?
+                  {t('dashboard.welcome')}, <span className="font-semibold text-teal-600">{user.name}</span>. {t('dashboard.letsWrite')}
                 </p>
               </div>
             </div>
@@ -827,6 +830,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         </div>
 
         <div className="flex gap-3">
+          {!readOnly && <LanguageSelector />}
           {user.role === 'admin' && !readOnly && (
             <button
               onClick={onAdminPanel}
@@ -836,7 +840,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              Painel Admin
+              {t('dashboard.adminPanel')}
             </button>
           )}
 
@@ -851,7 +855,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                   </svg>
-                  Comunidade
+                  {t('dashboard.social')}
                 </button>
               )}
               <button
@@ -880,13 +884,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
-                Modo Foco
+                {t('dashboard.focusMode')}
               </button>
               <button onClick={onNewSession} className="flex items-center justify-center px-5 py-3 bg-teal-500 hover:bg-teal-600 text-white font-medium rounded-xl shadow-lg shadow-teal-200 transition-all hover:-translate-y-0.5">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                Registrar
+                {t('dashboard.newSession')}
               </button>
               <button onClick={onLogout} className="p-3 bg-rose-50 border border-rose-100 text-rose-600 rounded-xl hover:bg-rose-100 transition-colors shadow-sm ml-2" title="Sair">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -911,7 +915,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           className={`pb-3 px-1 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${activeTab === 'general' ? 'border-teal-500 text-teal-600' : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
         >
-          Visão Geral
+          {t('dashboard.general')}
         </button>
         <button
           onClick={() => setActiveTab('projects')}
