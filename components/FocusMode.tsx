@@ -1,16 +1,21 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Logo } from './ui/Logo';
+import { PomodoroTimer } from './ui/PomodoroTimer';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface FocusModeProps {
   onExit: (sessionData?: { startTime: string; endTime: string; text: string; wordCount: number }) => void;
 }
 
 export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
+  const { t } = useLanguage();
   const [isActive, setIsActive] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [text, setText] = useState('');
+  const [timerMode, setTimerMode] = useState<'free' | 'pomodoro'>('free');
+  const [pomodoros, setPomodoros] = useState(0);
 
   // Ref for interval to clear it properly
   const intervalRef = useRef<number | null>(null);
@@ -54,6 +59,11 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
     onExit({ startTime: formattedStart, endTime: formattedEnd, text, wordCount });
   };
 
+  const handlePomodoroComplete = (count: number) => {
+    setPomodoros(count);
+  };
+
+
   return (
     <div className="fixed inset-0 bg-slate-900 text-slate-100 z-50 flex flex-col animate-fade-in">
       {/* Minimal Header */}
@@ -76,11 +86,33 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
       <div className="flex-1 flex flex-col items-center overflow-auto p-4 py-8">
 
         {/* Timer Display */}
-        <div className="mb-6 text-center">
-          <div className="text-6xl md:text-8xl font-mono font-bold tracking-tighter text-teal-300 tabular-nums">
-            {formatTime(seconds)}
+        <div className="mb-6 text-center w-full max-w-md mx-auto">
+          {/* Mode Toggle */}
+          <div className="flex justify-center mb-6 bg-slate-800 p-1 rounded-lg inline-flex">
+            <button
+              onClick={() => setTimerMode('free')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${timerMode === 'free' ? 'bg-slate-700 text-teal-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              {t('pomodoro.freeMode')}
+            </button>
+            <button
+              onClick={() => setTimerMode('pomodoro')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${timerMode === 'pomodoro' ? 'bg-slate-700 text-teal-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              {t('pomodoro.pomodoroMode')}
+            </button>
           </div>
-          <p className="text-slate-500 mt-2 text-sm uppercase tracking-wide">Tempo de Escrita</p>
+
+          {timerMode === 'free' ? (
+            <>
+              <div className="text-6xl md:text-8xl font-mono font-bold tracking-tighter text-teal-300 tabular-nums">
+                {formatTime(seconds)}
+              </div>
+              <p className="text-slate-500 mt-2 text-sm uppercase tracking-wide">Tempo de Escrita</p>
+            </>
+          ) : (
+            <PomodoroTimer onComplete={handlePomodoroComplete} />
+          )}
         </div>
 
         {/* Writing Area */}
@@ -96,38 +128,40 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
           </div>
         </div>
 
-        {/* Controls */}
-        <div className="mt-6 mb-8 flex items-center gap-6">
-          <button
-            onClick={toggleTimer}
-            className={`h-16 w-16 rounded-full flex items-center justify-center transition-all transform hover:scale-110 shadow-lg ${isActive
+        {/* Controls (Only for Free Mode) */}
+        {timerMode === 'free' && (
+          <div className="mt-6 mb-8 flex items-center gap-6">
+            <button
+              onClick={toggleTimer}
+              className={`h-16 w-16 rounded-full flex items-center justify-center transition-all transform hover:scale-110 shadow-lg ${isActive
                 ? 'bg-amber-500 hover:bg-amber-600 text-slate-900'
                 : 'bg-teal-500 hover:bg-teal-600 text-white'
-              }`}
-          >
-            {isActive ? (
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 pl-1" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-              </svg>
-            )}
-          </button>
-
-          {(seconds > 0 || text.length > 0) && (
-            <button
-              onClick={handleFinish}
-              className="px-6 py-3 rounded-full bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white font-medium transition-colors flex items-center gap-2"
+                }`}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-              </svg>
-              Salvar Sessão
+              {isActive ? (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 pl-1" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                </svg>
+              )}
             </button>
-          )}
-        </div>
+
+            {(seconds > 0 || text.length > 0) && (
+              <button
+                onClick={handleFinish}
+                className="px-6 py-3 rounded-full bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white font-medium transition-colors flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                </svg>
+                Salvar Sessão
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

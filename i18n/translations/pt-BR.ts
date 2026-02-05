@@ -142,6 +142,12 @@ export const ptBR = {
         deleteWarning: 'Esta ação não pode ser desfeita. Todos os seus registros serão permanentemente excluídos.',
         confirmDelete: 'Tem certeza? Digite "EXCLUIR" para confirmar',
         typeDelete: 'EXCLUIR',
+
+        // Heatmap
+        heatmapTitle: 'Mapa de Calor de Produtividade',
+        heatmapSubtitle: 'Seus horários mais produtivos',
+        less: 'Menos',
+        more: 'Mais',
     },
 
     // Session Form
@@ -250,5 +256,29 @@ export const ptBR = {
             title: 'O Grande Livro',
             description: '50.000 palavras no total',
         },
+    },
+
+    // Pomodoro Timer
+    pomodoro: {
+        title: 'Pomodoro',
+        work: 'Trabalho',
+        shortBreak: 'Pausa Curta',
+        longBreak: 'Pausa Longa',
+        completed: 'Concluídos',
+        skip: 'Pular',
+        reset: 'Reiniciar',
+        freeMode: 'Modo Livre',
+        pomodoroMode: 'Modo Pomodoro',
+    },
+
+    // Days of the week
+    days: {
+        sunday: 'Domingo',
+        monday: 'Segunda',
+        tuesday: 'Terça',
+        wednesday: 'Quarta',
+        thursday: 'Quinta',
+        friday: 'Sexta',
+        saturday: 'Sábado',
     },
 };

@@ -4,6 +4,7 @@ import { WritingSession, UserSettings, Project, User } from '../types';
 import { Card } from './ui/Card';
 import { Logo } from './ui/Logo';
 import { LanguageSelector } from './ui/LanguageSelector';
+import { HeatmapChart } from './ui/HeatmapChart';
 import { useLanguage } from '../i18n/LanguageContext';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -493,6 +494,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     setSelectedProjectId(null);
   }
 
+  // --- Heatmap Data Processing ---
+  const heatmapData = useMemo(() => {
+    const dataMap = new Map<string, number>();
+
+    filteredSessions.forEach(session => {
+      const date = new Date(session.date);
+      const day = date.getDay(); // 0-6 (Sunday-Saturday)
+
+      // Extract hour from startTime (format: "HH:MM")
+      const hourMatch = session.startTime?.match(/^(\d{1,2})/);
+      if (hourMatch) {
+        const hour = parseInt(hourMatch[1], 10);
+        const key = `${day}-${hour}`;
+        dataMap.set(key, (dataMap.get(key) || 0) + session.wordCount);
+      }
+    });
+
+    // Convert map to array format
+    const result: { day: number; hour: number; wordCount: number }[] = [];
+    dataMap.forEach((wordCount, key) => {
+      const [day, hour] = key.split('-').map(Number);
+      result.push({ day, hour, wordCount });
+    });
+
+    return result;
+  }, [filteredSessions]);
+
   // --- Render Functions ---
 
   const renderKPIs = () => (
@@ -671,6 +699,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         </Card>
       </div>
     </div>
+  );
+
+  const renderHeatmap = () => (
+    <Card title={t('dashboard.heatmapTitle')} subtitle={t('dashboard.heatmapSubtitle')} className="mb-8">
+      <HeatmapChart data={heatmapData} />
+    </Card>
   );
 
   const renderSessionList = () => (
@@ -1188,6 +1222,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
           {renderKPIs()}
           {renderCharts()}
+          {renderHeatmap()}
           {renderSessionList()}
         </>
       )}

@@ -142,6 +142,12 @@ export const enUS = {
         deleteWarning: 'This action cannot be undone. All your records will be permanently deleted.',
         confirmDelete: 'Are you sure? Type DELETE to confirm',
         typeDelete: 'DELETE',
+
+        // Heatmap
+        heatmapTitle: 'Productivity Heatmap',
+        heatmapSubtitle: 'Your most productive hours',
+        less: 'Less',
+        more: 'More',
     },
 
     // Session Form
@@ -250,5 +256,29 @@ export const enUS = {
             title: 'The Great Book',
             description: '50,000 total words',
         },
+    },
+
+    // Pomodoro Timer
+    pomodoro: {
+        title: 'Pomodoro',
+        work: 'Work',
+        shortBreak: 'Short Break',
+        longBreak: 'Long Break',
+        completed: 'Completed',
+        skip: 'Skip',
+        reset: 'Reset',
+        freeMode: 'Free Mode',
+        pomodoroMode: 'Pomodoro Mode',
+    },
+
+    // Days of the week
+    days: {
+        sunday: 'Sunday',
+        monday: 'Monday',
+        tuesday: 'Tuesday',
+        wednesday: 'Wednesday',
+        thursday: 'Thursday',
+        friday: 'Friday',
+        saturday: 'Saturday',
     },
 };
