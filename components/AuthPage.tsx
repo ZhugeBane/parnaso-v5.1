@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { register, login, resetPassword } from '../services/authService';
+import { register, login, resetPassword, logout } from '../services/authService';
 import { User } from '../types';
 import { Logo } from './ui/Logo';
 import { PendingApproval } from './PendingApproval';
@@ -47,6 +47,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
       else if (mode === 'register') {
         if (!name) throw new Error("Nome é obrigatório.");
         await register(name, email, password);
+        await logout(); // Ensuring session handles are cleared locally if register didn't
         // Não logar automaticamente. Mostrar tela de pendente.
         setMode('pending');
       }

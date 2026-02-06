@@ -16,7 +16,8 @@ const mapUser = (docData: any, uid: string, email: string): User => ({
   name: docData.name || 'Usuário',
   email: email,
   role: docData.role || 'user',
-  isBlocked: docData.isBlocked || false
+  isBlocked: docData.isBlocked || false,
+  status: docData.status // Important to carry this over
 });
 
 export const register = async (name: string, email: string, password: string): Promise<User> => {
@@ -149,7 +150,8 @@ export const getCurrentUser = async (): Promise<User | null> => {
               name: user.displayName || 'Usuário',
               email: user.email!,
               role: 'user',
-              isBlocked: false
+              isBlocked: false,
+              status: 'approved' // Default legacy behavior
             });
           }
         } catch (e) {

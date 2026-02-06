@@ -66,6 +66,11 @@ function App() {
   };
 
   const handleLoginSuccess = async (loggedInUser: User) => {
+    if (loggedInUser.status === 'pending') {
+      alert("Sua conta aguarda aprovação.");
+      await logout();
+      return;
+    }
     setUser(loggedInUser);
     await loadUserData(loggedInUser.id);
     setView('dashboard');
