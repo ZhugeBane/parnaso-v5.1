@@ -5,6 +5,7 @@ import { Dashboard } from './components/Dashboard';
 import { SessionForm } from './components/SessionForm';
 import { FocusMode } from './components/FocusMode';
 import { AuthPage } from './components/AuthPage';
+import { PendingApproval } from './components/PendingApproval';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SocialHub } from './components/SocialHub'; // CONNECTED SOCIAL HUB
 import { HelpPage } from './components/HelpPage';
@@ -219,6 +220,16 @@ function App() {
       <div className="relative">
         <AuthPage onLoginSuccess={handleLoginSuccess} />
       </div>
+    );
+  }
+
+  // Defesa: se por acaso o usuário logado ainda estiver pendente (ex: trocou de aba e o status mudou, ou bug no login)
+  if (user.status === 'pending') {
+    return (
+      <PendingApproval onBack={() => {
+        logout();
+        setUser(null);
+      }} />
     );
   }
 
