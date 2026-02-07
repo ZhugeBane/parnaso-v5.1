@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { WritingSession, UserSettings, Project, User } from '../types';
 import { Card } from './ui/Card';
 import { Logo } from './ui/Logo';
+import { SessionDetailsModal } from './SessionDetailsModal';
 import { LanguageSelector } from './ui/LanguageSelector';
 import { HeatmapChart } from './ui/HeatmapChart';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -102,6 +103,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const [activeTab, setActiveTab] = useState<'general' | 'projects' | 'achievements'>('general');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilterType>('7days');
+  const [selectedSession, setSelectedSession] = useState<WritingSession | null>(null);
 
   // Settings Modal State
   const [showSettings, setShowSettings] = useState(false);
@@ -723,8 +725,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             {sortedSessions.slice().reverse().slice(0, 5).map((session) => {
               const proj = projects.find(p => p.id === session.projectId);
               return (
-                <tr key={session.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 text-slate-600">{new Date(session.date).toLocaleDateString()}</td>
+                <tr
+                  key={session.id}
+                  className="hover:bg-slate-50 transition-colors cursor-pointer"
+                  onClick={() => setSelectedSession(session)}
+                >
+                  <td className="px-4 py-3 text-slate-600">
+                    <div className="font-medium">{new Date(session.date).toLocaleDateString()}</div>
+                    <div className="text-xs text-slate-400">{session.startTime} - {session.endTime}</div>
+                  </td>
                   <td className="px-4 py-3 text-slate-500 truncate max-w-[120px]">
                     {proj ? (
                       <div className="flex items-center gap-2">
@@ -1331,6 +1340,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             </form>
           </div>
         </div>
+      )}
+      {/* Session Details Modal */}
+      {selectedSession && (
+        <SessionDetailsModal
+          session={selectedSession}
+          onClose={() => setSelectedSession(null)}
+          isPrivateView={readOnly}
+        />
       )}
     </div>
   );
