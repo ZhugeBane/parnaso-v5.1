@@ -858,7 +858,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           ) : (
             <div className="flex items-center gap-4">
               <div className="relative group">
-                <div className="absolute inset-0 bg-teal-400 rounded-full blur opacity-20 group-hover:opacity-30 transition-opacity"></div>
+                <div className="absolute inset-0 bg-teal-400 rounded-full blur opacity-20 group-hover:opacity-30 transition-opacity pointer-events-none"></div>
                 {/* Replaced img with Logo Component */}
                 <Logo className="relative w-20 h-20 drop-shadow-md transform transition-transform group-hover:scale-105" />
               </div>

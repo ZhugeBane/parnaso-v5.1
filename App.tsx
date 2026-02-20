@@ -295,7 +295,7 @@ function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
       {isLoadingData && (
-        <div className="fixed top-0 left-0 w-full h-1 bg-slate-200 z-50">
+        <div className="fixed top-0 left-0 w-full h-1 bg-slate-200 z-50 pointer-events-none">
           <div className="h-full bg-teal-500 animate-pulse w-1/3"></div>
         </div>
       )}

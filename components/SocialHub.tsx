@@ -55,6 +55,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
   // Guild Data
   const [guilds, setGuilds] = useState<Guild[]>([]);
+  const [memberStats, setMemberStats] = useState<Record<string, number>>({}); // UserID -> Total Words
   const [showCreateGuild, setShowCreateGuild] = useState(false);
   const [newGuildName, setNewGuildName] = useState('');
   const [newGroupDesc, setNewGroupDesc] = useState('');
@@ -120,7 +121,19 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     const comps = await getCompetitions();
     setCompetitions(comps);
 
-    // Calculate stats asynchronously
+    // Calculate guild member stats
+    const allGuilds = await getUserGuilds(currentUser.id);
+    const uniqueMemberIds = Array.from(new Set(allGuilds.flatMap(g => g.members)));
+    const newMemberStats: Record<string, number> = {};
+
+    for (const memberId of uniqueMemberIds) {
+      const userSessions = await getSessions(memberId);
+      const total = userSessions.reduce((acc, s) => acc + s.wordCount, 0);
+      newMemberStats[memberId] = total;
+    }
+    setMemberStats(newMemberStats);
+
+    // Calculate stats asynchronously for competitions
     const newStats: Record<string, Record<string, { current: number, percent: number }>> = {};
     for (const comp of comps) {
       newStats[comp.id] = {};
@@ -681,15 +694,38 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
             {selectedChat.type === 'group' && guildSubTab === 'chat' && (
               <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50">
-                <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mb-6 flex items-start gap-3">
-                  <div className="p-2 bg-white rounded-lg shadow-sm text-indigo-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                {/* Guild Summary & Members Production */}
+                <div className="bg-indigo-50 border border-indigo-100 rounded-2xl overflow-hidden mb-6 shadow-sm">
+                  <div className="p-4 bg-indigo-600 text-white flex justify-between items-center">
+                    <h3 className="text-xs font-black uppercase tracking-widest">Produção da Guilda</h3>
+                    <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-full">
+                      {Math.round(Object.values(memberStats).reduce((a, b) => a + b, 0)).toLocaleString()} Palavras Totais
+                    </span>
                   </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-indigo-800 uppercase mb-1">Sobre esta Guilda</h4>
-                    <p className="text-xs text-indigo-700 leading-relaxed italic">
+
+                  <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3 bg-white">
+                    {(selectedChat.target as Guild).members.map(memberId => (
+                      <div key={memberId} className="flex items-center gap-2 p-2 rounded-xl bg-slate-50 border border-slate-100 shadow-sm">
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs ring-2 ring-white">
+                          {getUserName(memberId).charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold text-slate-700 truncate">{getUserName(memberId)}</p>
+                          <p className="text-[10px] font-medium text-indigo-600">
+                            {memberStats[memberId]?.toLocaleString() || 0} <span className="text-slate-400 font-normal">palavras</span>
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="px-4 py-2 bg-indigo-50/50 flex items-center gap-2">
+                    <div className="p-1 bg-white rounded shadow-xs text-indigo-600">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-[10px] text-indigo-700 leading-tight italic truncate">
                       {(selectedChat.target as Guild).description || "Bem-vindos à nossa guilda! Juntos somos mais fortes."}
                     </p>
                   </div>
