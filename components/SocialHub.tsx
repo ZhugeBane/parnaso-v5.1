@@ -2,7 +2,7 @@
 
 
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Message, Group, ForumThread, ForumReply, Competition, WritingSession } from '../types';
+import { User, Message, Guild, GuildForumThread, GuildForumReply, Competition, WritingSession, ForumThread, ForumReply } from '../types';
 import {
   getFriendsList,
   getPendingRequests,
@@ -13,6 +13,8 @@ import {
   getConversation,
   sendMessage,
   markAsRead,
+  getUserGuilds,
+  createGuild,
   getUserGroups,
   createGroup,
   getGroupMessages,
@@ -26,7 +28,12 @@ import {
   joinCompetition,
   deleteForumThread,
   deleteForumReply,
-  deleteCompetition
+  deleteCompetition,
+  updateGuildEmblem,
+  getGuildThreads,
+  createGuildThread,
+  getGuildReplies,
+  replyToGuildThread
 } from '../services/socialService';
 import { getSessions } from '../services/sessionService';
 import { getAllUsers } from '../services/authService';
@@ -37,7 +44,7 @@ interface SocialHubProps {
 }
 
 export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => {
-  const [activeTab, setActiveTab] = useState<'friends' | 'groups' | 'forum' | 'competitions' | 'find'>('friends');
+  const [activeTab, setActiveTab] = useState<'friends' | 'guilds' | 'forum' | 'competitions' | 'find'>('friends');
   const [allUsers, setAllUsers] = useState<User[]>([]);
 
   // Friends Data
@@ -46,11 +53,20 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Group Data
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [selectedGroupMembers, setSelectedGroupMembers] = useState<string[]>([]);
+  // Guild Data
+  const [guilds, setGuilds] = useState<Guild[]>([]);
+  const [showCreateGuild, setShowCreateGuild] = useState(false);
+  const [newGuildName, setNewGuildName] = useState('');
+  const [newGroupDesc, setNewGroupDesc] = useState('');
+  const [selectedGuildMembers, setSelectedGuildMembers] = useState<string[]>([]);
+  const [guildSubTab, setGuildSubTab] = useState<'chat' | 'forum' | 'audio'>('chat');
+
+  // Guild Forum State
+  const [guildThreads, setGuildThreads] = useState<GuildForumThread[]>([]);
+  const [selectedGuildThread, setSelectedGuildThread] = useState<GuildForumThread | null>(null);
+  const [guildReplies, setGuildReplies] = useState<GuildForumReply[]>([]);
+  const [showCreateGuildThread, setShowCreateGuildThread] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Forum Data
   const [threads, setThreads] = useState<ForumThread[]>([]);
@@ -73,7 +89,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [newCompDuration, setNewCompDuration] = useState(7);
 
   // Chat State (Direct & Group)
-  const [selectedChat, setSelectedChat] = useState<{ type: 'direct' | 'group', target: User | Group } | null>(null);
+  const [selectedChat, setSelectedChat] = useState<{ type: 'direct' | 'group', target: User | Guild } | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -87,7 +103,10 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     init();
 
     // Simulate real-time by refreshing every 3 seconds
-    const interval = setInterval(refreshChatIfActive, 3000);
+    const interval = setInterval(() => {
+      refreshData();
+      refreshChatIfActive();
+    }, 3000);
     return () => clearInterval(interval);
   }, [selectedChat, selectedThread]);
 
@@ -95,7 +114,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     setFriends(await getFriendsList(currentUser.id));
     setRequests(await getPendingRequests(currentUser.id));
     setAvailableUsers(await getAvailableUsers(currentUser.id));
-    setGroups(await getUserGroups(currentUser.id));
+    setGuilds(await getUserGuilds(currentUser.id));
     setThreads(await getForumThreads());
 
     const comps = await getCompetitions();
@@ -142,8 +161,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         const user = selectedChat.target as User;
         convo = await getConversation(currentUser.id, user.id);
       } else {
-        const group = selectedChat.target as Group;
-        convo = await getGroupMessages(group.id);
+        const guild = selectedChat.target as Guild;
+        convo = await getGroupMessages(guild.id);
       }
       setMessages(prev => {
         if (prev.length !== convo.length) return convo;
@@ -172,8 +191,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
           setMessages(convo);
           markAsRead(user.id, currentUser.id);
         } else {
-          const group = selectedChat.target as Group;
-          const convo = await getGroupMessages(group.id);
+          const guild = selectedChat.target as Guild;
+          const convo = await getGroupMessages(guild.id);
           setMessages(convo);
         }
         scrollToBottom();
@@ -231,25 +250,67 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
       await sendMessage(currentUser.id, user.id, newMessage);
       setMessages(await getConversation(currentUser.id, user.id));
     } else {
-      const group = selectedChat.target as Group;
-      await sendGroupMessage(currentUser.id, group.id, newMessage);
-      setMessages(await getGroupMessages(group.id));
+      const guild = selectedChat.target as Guild;
+      await sendGroupMessage(currentUser.id, guild.id, newMessage);
+      setMessages(await getGroupMessages(guild.id));
     }
     setNewMessage('');
   };
 
-  // --- Handlers: Groups ---
-  const handleCreateGroup = async () => {
-    if (!newGroupName || selectedGroupMembers.length === 0) return;
-    await createGroup(newGroupName, currentUser.id, selectedGroupMembers);
-    setShowCreateGroup(false);
-    setNewGroupName('');
-    setSelectedGroupMembers([]);
+  // --- Handlers: Guilds ---
+  const handleCreateGuild = async () => {
+    if (!newGuildName.trim() || selectedGuildMembers.length === 0) return;
+    await createGuild(newGuildName, currentUser.id, selectedGuildMembers, newGroupDesc);
+    setShowCreateGuild(false);
+    setNewGuildName('');
+    setNewGroupDesc('');
+    setSelectedGuildMembers([]);
     await refreshData();
   };
 
-  const toggleGroupMember = (userId: string) => {
-    setSelectedGroupMembers(prev =>
+  const handleUpdateEmblem = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && selectedChat?.type === 'group') {
+      const guild = selectedChat.target as Guild;
+      await updateGuildEmblem(guild.id, file);
+      await refreshData();
+      const updatedGuilds = await getUserGuilds(currentUser.id);
+      const updated = updatedGuilds.find(g => g.id === guild.id);
+      if (updated) setSelectedChat({ ...selectedChat, target: updated });
+    }
+  };
+
+  // Guild Forum Handlers
+  const fetchGuildThreadData = async (guildId: string) => {
+    setGuildThreads(await getGuildThreads(guildId));
+  };
+
+  const handleCreateGuildThread = async () => {
+    if (selectedChat?.type === 'group' && newThreadTitle.trim()) {
+      const guild = selectedChat.target as Guild;
+      await createGuildThread(guild.id, currentUser.id, newThreadTitle, newThreadContent);
+      setNewThreadTitle('');
+      setNewThreadContent('');
+      setShowCreateGuildThread(false);
+      await fetchGuildThreadData(guild.id);
+    }
+  };
+
+  const handleSelectGuildThread = async (thread: GuildForumThread) => {
+    setSelectedGuildThread(thread);
+    setGuildReplies(await getGuildReplies(thread.id));
+  };
+
+  const handleReplyGuildThread = async () => {
+    if (selectedGuildThread && newReplyContent.trim()) {
+      await replyToGuildThread(currentUser.id, selectedGuildThread.id, newReplyContent);
+      setNewReplyContent('');
+      setGuildReplies(await getGuildReplies(selectedGuildThread.id));
+    }
+  };
+
+  const toggleGuildMember = (userId: string) => {
+    setSelectedGuildMembers(prev =>
       prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
     );
   };
@@ -340,7 +401,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
           <div className="grid grid-cols-5 bg-slate-200 rounded-lg p-1 gap-1">
             <button onClick={() => { setActiveTab('friends'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'friends' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Amigos</button>
-            <button onClick={() => { setActiveTab('groups'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'groups' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Grupos</button>
+            <button onClick={() => { setActiveTab('guilds'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'guilds' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Guildas</button>
             <button onClick={() => { setActiveTab('forum'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'forum' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Fórum</button>
             <button onClick={() => { setActiveTab('competitions'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'competitions' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Desafios</button>
             <button onClick={() => { setActiveTab('find'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'find' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Buscar</button>
@@ -381,24 +442,33 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             </div>
           )}
 
-          {/* TAB: GROUPS */}
-          {activeTab === 'groups' && (
+          {/* TAB: GUILDS */}
+          {activeTab === 'guilds' && (
             <div className="space-y-2">
-              <button onClick={() => setShowCreateGroup(true)} className="w-full text-left px-3 py-2 text-xs text-teal-600 hover:bg-teal-50 rounded-lg border border-dashed border-teal-200 flex items-center justify-center">
-                + Criar Novo Grupo
+              <button onClick={() => setShowCreateGuild(true)} className="w-full text-left px-3 py-2 text-xs text-indigo-600 hover:bg-indigo-50 rounded-lg border border-dashed border-indigo-200 flex items-center justify-center">
+                + Fundar Nova Guilda
               </button>
-              {groups.map(group => (
+              {guilds.map(guild => (
                 <button
-                  key={group.id}
-                  onClick={() => { setSelectedChat({ type: 'group', target: group }); setSelectedThread(null); }}
-                  className={`w-full flex items-center p-3 rounded-xl transition-colors ${selectedChat?.target.id === group.id ? 'bg-purple-50 border border-purple-100' : 'hover:bg-slate-50'}`}
+                  key={guild.id}
+                  onClick={() => {
+                    setSelectedChat({ type: 'group', target: guild });
+                    setSelectedThread(null);
+                    setGuildSubTab('chat');
+                    fetchGuildThreadData(guild.id);
+                  }}
+                  className={`w-full flex items-center p-3 rounded-xl transition-colors ${selectedChat?.target.id === guild.id ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-50'}`}
                 >
-                  <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-bold mr-3">
-                    G
-                  </div>
+                  {guild.emblemUrl ? (
+                    <img src={guild.emblemUrl} alt="Emblem" className="w-10 h-10 rounded-full object-cover mr-3 border-2 border-indigo-200" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold mr-3 border-2 border-white shadow-sm">
+                      {guild.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   <div className="text-left flex-1 min-w-0">
-                    <div className="font-medium text-slate-800 truncate">{group.name}</div>
-                    <div className="text-xs text-slate-500 truncate">{group.members.length} membros</div>
+                    <div className="font-medium text-slate-800 truncate">{guild.name}</div>
+                    <div className="text-xs text-slate-500 truncate">{guild.members.length} membros</div>
                   </div>
                 </button>
               ))}
@@ -561,66 +631,246 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         {/* VIEW: CHAT (DIRECT OR GROUP) */}
         {selectedChat && (
           <>
-            <div className="h-16 bg-white border-b border-slate-200 flex items-center px-6 justify-between flex-shrink-0">
+            <div className="h-20 bg-white border-b border-slate-200 flex items-center px-6 justify-between flex-shrink-0">
               <div className="flex items-center">
                 <button onClick={() => setSelectedChat(null)} className="md:hidden mr-3 text-slate-500">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                   </svg>
                 </button>
-                <div className={`w-10 h-10 rounded-full ${selectedChat.type === 'direct' ? 'bg-teal-500' : 'bg-purple-500'} text-white flex items-center justify-center font-bold text-lg mr-3 shadow-sm`}>
-                  {selectedChat.type === 'direct'
-                    ? (selectedChat.target as User).name.charAt(0).toUpperCase()
-                    : 'G'}
-                </div>
+                {selectedChat.type === 'group' && (selectedChat.target as Guild).emblemUrl ? (
+                  <img src={(selectedChat.target as Guild).emblemUrl} alt="Emblem" className="w-12 h-12 rounded-full object-cover mr-3 border-2 border-indigo-200 shadow-sm" />
+                ) : (
+                  <div className={`w-12 h-12 rounded-full ${selectedChat.type === 'direct' ? 'bg-teal-500' : 'bg-indigo-600'} text-white flex items-center justify-center font-bold text-xl mr-3 shadow-md border-2 border-white`}>
+                    {selectedChat.type === 'direct'
+                      ? (selectedChat.target as User).name.charAt(0).toUpperCase()
+                      : (selectedChat.target as Guild).name.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div>
-                  <h3 className="font-bold text-slate-800">
-                    {selectedChat.type === 'direct' ? (selectedChat.target as User).name : (selectedChat.target as Group).name}
+                  <h3 className="font-bold text-slate-800 text-lg">
+                    {selectedChat.type === 'direct' ? (selectedChat.target as User).name : (selectedChat.target as Guild).name}
                   </h3>
-                  {selectedChat.type === 'direct' && (
-                    <span className="text-xs text-green-500 flex items-center gap-1">Online</span>
+                  {selectedChat.type === 'direct' ? (
+                    <span className="text-xs text-green-500 flex items-center gap-1 font-medium">Online</span>
+                  ) : (
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">Guilda</span>
+                      {(selectedChat.target as Guild).adminId === currentUser.id && (
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className="text-[10px] text-slate-400 hover:text-indigo-600 underline"
+                        >
+                          Mudar Brasão
+                        </button>
+                      )}
+                      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleUpdateEmblem} />
+                    </div>
                   )}
                 </div>
               </div>
+
+              {selectedChat.type === 'group' && (
+                <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
+                  <button onClick={() => setGuildSubTab('chat')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'chat' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Chat</button>
+                  <button onClick={() => { setGuildSubTab('forum'); fetchGuildThreadData((selectedChat.target as Guild).id); }} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'forum' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Fórum</button>
+                  <button onClick={() => setGuildSubTab('audio')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'audio' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Áudio</button>
+                </div>
+              )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50">
-              {messages.map((msg) => {
-                const isMe = msg.senderId === currentUser.id;
-                return (
-                  <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                    {!isMe && selectedChat.type === 'group' && (
-                      <div className="text-[10px] text-slate-400 mr-2 self-end mb-1">{getUserName(msg.senderId)}</div>
-                    )}
-                    <div className={`max-w-[75%] md:max-w-[60%] rounded-2xl px-4 py-3 shadow-sm ${isMe
-                      ? 'bg-teal-500 text-white rounded-tr-none'
-                      : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'
-                      }`}>
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                      <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-teal-100' : 'text-slate-400'}`}>
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {selectedChat.type === 'group' && guildSubTab === 'chat' && (
+              <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50">
+                <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mb-6 flex items-start gap-3">
+                  <div className="p-2 bg-white rounded-lg shadow-sm text-indigo-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-indigo-800 uppercase mb-1">Sobre esta Guilda</h4>
+                    <p className="text-xs text-indigo-700 leading-relaxed italic">
+                      {(selectedChat.target as Guild).description || "Bem-vindos à nossa guilda! Juntos somos mais fortes."}
+                    </p>
+                  </div>
+                </div>
+                {messages.map((msg) => {
+                  const isMe = msg.senderId === currentUser.id;
+                  return (
+                    <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                      {!isMe && (
+                        <div className="text-[10px] text-slate-400 mr-2 self-end mb-1 font-medium">{getUserName(msg.senderId)}</div>
+                      )}
+                      <div className={`max-w-[75%] md:max-w-[60%] rounded-2xl px-4 py-3 shadow-sm ${isMe
+                        ? 'bg-indigo-600 text-white rounded-tr-none'
+                        : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'
+                        }`}>
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                        <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-indigo-200' : 'text-slate-400'}`}>
+                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+
+            {selectedChat.type === 'group' && guildSubTab === 'forum' && (
+              <div className="flex-1 overflow-y-auto bg-slate-50 flex flex-col">
+                {selectedGuildThread ? (
+                  <div className="flex flex-col h-full bg-white animate-slide-in">
+                    <div className="p-6 border-b border-slate-100">
+                      <button onClick={() => setSelectedGuildThread(null)} className="text-xs text-indigo-600 font-bold mb-4 flex items-center gap-1">
+                        ← Voltar para o Fórum da Guilda
+                      </button>
+                      <h3 className="text-xl font-black text-slate-800 mb-2">{selectedGuildThread.title}</h3>
+                      <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100 italic">
+                        {selectedGuildThread.content}
                       </p>
                     </div>
+                    <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                      {guildReplies.map(reply => (
+                        <div key={reply.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm relative group">
+                          <div className="flex justify-between mb-1">
+                            <span className="font-bold text-xs text-slate-700">{getUserName(reply.authorId)}</span>
+                            <span className="text-[10px] text-slate-400">{new Date(reply.createdAt).toLocaleDateString()}</span>
+                          </div>
+                          <p className="text-sm text-slate-600">{reply.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="p-4 border-t border-slate-100">
+                      <div className="flex gap-2">
+                        <textarea
+                          placeholder="Sua resposta..."
+                          value={newReplyContent}
+                          onChange={(e) => setNewReplyContent(e.target.value)}
+                          className="flex-1 bg-slate-100 rounded-xl px-4 py-3 text-sm outline-none focus:bg-white border border-transparent focus:border-indigo-200"
+                          rows={1}
+                        />
+                        <button onClick={handleReplyGuildThread} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold">Responder</button>
+                      </div>
+                    </div>
                   </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
-            </div>
+                ) : (
+                  <div className="p-6 space-y-4">
+                    <div className="flex justify-between items-center mb-6">
+                      <h3 className="font-black text-slate-800 text-xl uppercase tracking-tight">Fórum da Guilda</h3>
+                      <button onClick={() => setShowCreateGuildThread(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
+                        + Novo Tópico Interno
+                      </button>
+                    </div>
 
-            <div className="p-4 bg-white border-t border-slate-200 flex-shrink-0">
-              <form onSubmit={handleSendMessage} className="flex gap-2">
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Digite sua mensagem..."
-                  className="flex-1 bg-slate-100 border-transparent focus:bg-white border focus:border-teal-400 rounded-xl px-4 py-3 outline-none transition-all"
-                />
-                <button type="submit" disabled={!newMessage.trim()} className="bg-teal-500 hover:bg-teal-600 text-white rounded-xl px-5 py-3 font-medium transition-colors disabled:opacity-50">
-                  Enviar
+                    {showCreateGuildThread && (
+                      <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-xl mb-8 animate-fade-in">
+                        <input
+                          type="text"
+                          placeholder="Título do Tópico"
+                          value={newThreadTitle}
+                          onChange={(e) => setNewThreadTitle(e.target.value)}
+                          className="w-full px-4 py-3 bg-slate-50 rounded-xl mb-3 font-bold outline-none border border-transparent focus:border-indigo-200"
+                        />
+                        <textarea
+                          placeholder="Conteúdo..."
+                          value={newThreadContent}
+                          onChange={(e) => setNewThreadContent(e.target.value)}
+                          className="w-full px-4 py-3 bg-slate-50 rounded-xl mb-4 outline-none border border-transparent focus:border-indigo-200"
+                          rows={4}
+                        />
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setShowCreateGuildThread(false)} className="px-4 py-2 text-slate-500 font-bold text-xs">Cancelar</button>
+                          <button onClick={handleCreateGuildThread} className="px-6 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl">Publicar</button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                      {guildThreads.map(thread => (
+                        <button
+                          key={thread.id}
+                          onClick={() => handleSelectGuildThread(thread)}
+                          className="w-full text-left p-4 bg-white rounded-2xl border border-slate-100 hover:border-indigo-200 hover:shadow-md transition-all group"
+                        >
+                          <h4 className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{thread.title}</h4>
+                          <div className="flex items-center gap-2 mt-2">
+                            <div className="w-5 h-5 rounded-full bg-indigo-50 flex items-center justify-center text-[10px] font-bold text-indigo-600 border border-indigo-100">
+                              {getUserName(thread.authorId).charAt(0)}
+                            </div>
+                            <span className="text-[10px] text-slate-400">por {getUserName(thread.authorId)} • {new Date(thread.createdAt).toLocaleDateString()}</span>
+                          </div>
+                        </button>
+                      ))}
+                      {guildThreads.length === 0 && (
+                        <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200">
+                          <p className="text-slate-400 text-sm font-medium">Nenhum tópico no fórum da guilda ainda.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {selectedChat.type === 'group' && guildSubTab === 'audio' && (
+              <div className="flex-1 bg-slate-50 flex flex-col items-center justify-center p-10 text-center">
+                <div className="w-32 h-32 bg-indigo-100 rounded-full flex items-center justify-center mb-6 shadow-inner animate-pulse">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <h3 className="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">Sala de Voz da Guilda</h3>
+                <p className="text-slate-500 max-w-md mx-auto mb-8 leading-relaxed">
+                  Conecte-se com seus companheiros de guilda em tempo real para discutir estratégias de escrita.
+                </p>
+                <button className="px-8 py-3 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-100 hover:scale-105 transition-transform">
+                  ENTRAR NA SALA
                 </button>
-              </form>
-            </div>
+                <p className="mt-6 text-[10px] text-slate-400 font-bold uppercase tracking-widest">Acesso restrito aos membros da guilda</p>
+              </div>
+            )}
+
+            {selectedChat.type === 'direct' && (
+              <>
+                <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50">
+                  {messages.map((msg) => {
+                    const isMe = msg.senderId === currentUser.id;
+                    return (
+                      <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[75%] md:max-w-[60%] rounded-2xl px-4 py-3 shadow-sm ${isMe
+                          ? 'bg-teal-500 text-white rounded-tr-none'
+                          : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'
+                          }`}>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                          <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-teal-100' : 'text-slate-400'}`}>
+                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div ref={messagesEndRef} />
+                </div>
+              </>
+            )}
+
+            {guildSubTab === 'chat' && (
+              <div className="p-4 bg-white border-t border-slate-200 flex-shrink-0">
+                <form onSubmit={handleSendMessage} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Digite sua mensagem..."
+                    className="flex-1 bg-slate-100 border-transparent focus:bg-white border focus:border-indigo-400 rounded-xl px-4 py-3 outline-none transition-all"
+                  />
+                  <button type="submit" disabled={!newMessage.trim()} className={`${selectedChat.type === 'direct' ? 'bg-teal-500 hover:bg-teal-600' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-xl px-5 py-3 font-medium transition-colors disabled:opacity-50 shadow-md shadow-slate-100`}>
+                    Enviar
+                  </button>
+                </form>
+              </div>
+            )}
           </>
         )}
 
@@ -713,33 +963,41 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         )}
       </div>
 
-      {/* MODAL: CREATE GROUP */}
-      {showCreateGroup && (
+      {/* MODAL: CREATE GUILD */}
+      {showCreateGuild && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
-            <h3 className="font-bold text-lg mb-4">Criar Grupo</h3>
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl animate-fade-in border-2 border-indigo-100">
+            <h3 className="font-black text-xl mb-4 text-indigo-900 uppercase tracking-tight">Fundar Guilda</h3>
             <input
-              className="w-full mb-4 px-3 py-2 border rounded-lg"
-              placeholder="Nome do Grupo"
-              value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
+              className="w-full mb-3 px-3 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-100 outline-none border-slate-200"
+              placeholder="Nome da Guilda"
+              value={newGuildName}
+              onChange={(e) => setNewGuildName(e.target.value)}
             />
-            <p className="text-xs font-bold text-slate-500 mb-2">Selecionar Membros:</p>
-            <div className="max-h-40 overflow-y-auto mb-4 border rounded-lg p-2">
+            <textarea
+              className="w-full mb-4 px-3 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-100 outline-none border-slate-200 text-sm h-24 resize-none"
+              placeholder="Descrição da Guilda..."
+              value={newGroupDesc}
+              onChange={(e) => setNewGroupDesc(e.target.value)}
+            />
+            <p className="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">Selecionar Fundadores:</p>
+            <div className="max-h-40 overflow-y-auto mb-6 border rounded-xl p-3 bg-slate-50 space-y-2">
               {friends.map(({ user }) => (
-                <div key={user.id} className="flex items-center gap-2 mb-2">
+                <div key={user.id} className="flex items-center gap-3">
                   <input
                     type="checkbox"
-                    checked={selectedGroupMembers.includes(user.id)}
-                    onChange={() => toggleGroupMember(user.id)}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                    checked={selectedGuildMembers.includes(user.id)}
+                    onChange={() => toggleGuildMember(user.id)}
                   />
-                  <span className="text-sm">{user.name}</span>
+                  <span className="text-sm font-medium text-slate-700">{user.name}</span>
                 </div>
               ))}
+              {friends.length === 0 && <p className="text-[10px] text-slate-400 italic">Você precisa de amigos para fundar uma guilda.</p>}
             </div>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowCreateGroup(false)} className="px-3 py-1.5 text-slate-500">Cancelar</button>
-              <button onClick={handleCreateGroup} className="px-3 py-1.5 bg-teal-500 text-white rounded-lg">Criar</button>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowCreateGuild(false)} className="px-4 py-2 text-slate-500 font-bold text-xs uppercase transition-colors hover:text-slate-800">Cancelar</button>
+              <button onClick={handleCreateGuild} className="px-6 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">Fundar</button>
             </div>
           </div>
         </div>

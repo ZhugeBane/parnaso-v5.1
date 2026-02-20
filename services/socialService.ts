@@ -2,8 +2,8 @@
 // Complex Firestore queries with or() and and() were causing compilation issues
 // This version fetches all data and filters in memory
 
-import { User, Friendship, Message, Group, ForumThread, ForumReply, Competition } from '../types';
-import { db } from '../lib/firebase';
+import { User, Friendship, Message, Guild, GuildForumThread, GuildForumReply, Competition, ForumThread, ForumReply } from '../types';
+import { db, storage } from '../lib/firebase';
 import {
   collection,
   addDoc,
@@ -16,6 +16,7 @@ import {
   orderBy,
   getDoc
 } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getAllUsers } from './authService';
 
 // --- Friendships ---
@@ -109,19 +110,76 @@ export const removeFriendship = async (friendshipId: string) => {
   await deleteDoc(doc(db, 'friendships', friendshipId));
 };
 
-// --- GROUPS ---
+// --- GUILDS (Previously Groups) ---
 
-export const getUserGroups = async (userId: string): Promise<Group[]> => {
+export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
+  // We use the same 'groups' collection for legacy compatibility
   const q = query(collection(db, 'groups'), where('members', 'array-contains', userId));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Group));
+  return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Guild));
 };
 
-export const createGroup = async (name: string, adminId: string, memberIds: string[]) => {
-  await addDoc(collection(db, 'groups'), {
+// Legacy alias
+export const getUserGroups = getUserGuilds;
+
+export const createGuild = async (name: string, adminId: string, memberIds: string[], description?: string) => {
+  return await addDoc(collection(db, 'groups'), {
     name,
     adminId,
+    description: description || '',
     members: [adminId, ...memberIds],
+    createdAt: new Date().toISOString()
+  });
+};
+
+// Legacy alias
+export const createGroup = createGuild;
+
+export const updateGuildEmblem = async (guildId: string, file: File) => {
+  const storageRef = ref(storage, `guilds/${guildId}/emblem_${Date.now()}`);
+  await uploadBytes(storageRef, file);
+  const downloadURL = await getDownloadURL(storageRef);
+
+  await updateDoc(doc(db, 'groups', guildId), {
+    emblemUrl: downloadURL
+  });
+
+  return downloadURL;
+};
+
+// --- GUILD FORUM ---
+
+export const getGuildThreads = async (guildId: string): Promise<GuildForumThread[]> => {
+  const q = query(
+    collection(db, 'guild_threads'),
+    where('guildId', '==', guildId),
+    orderBy('createdAt', 'desc')
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GuildForumThread));
+};
+
+export const createGuildThread = async (guildId: string, authorId: string, title: string, content: string) => {
+  await addDoc(collection(db, 'guild_threads'), {
+    guildId,
+    authorId,
+    title,
+    content,
+    createdAt: new Date().toISOString()
+  });
+};
+
+export const getGuildReplies = async (threadId: string): Promise<GuildForumReply[]> => {
+  const q = query(collection(db, 'guild_replies'), where('threadId', '==', threadId));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GuildForumReply));
+};
+
+export const replyToGuildThread = async (authorId: string, threadId: string, content: string) => {
+  await addDoc(collection(db, 'guild_replies'), {
+    threadId,
+    authorId,
+    content,
     createdAt: new Date().toISOString()
   });
 };

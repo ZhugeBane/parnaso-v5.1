@@ -65,11 +65,33 @@ export interface Friendship {
   createdAt: string;
 }
 
-export interface Group {
+export interface Guild {
   id: string;
   name: string;
+  description?: string;
+  emblemUrl?: string; // URL for the coat of arms
   adminId: string;
   members: string[]; // User IDs
+  createdAt: string;
+}
+
+// Alias for compatibility
+export type Group = Guild;
+
+export interface GuildForumThread {
+  id: string;
+  guildId: string;
+  authorId: string;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface GuildForumReply {
+  id: string;
+  threadId: string;
+  authorId: string;
+  content: string;
   createdAt: string;
 }
 
