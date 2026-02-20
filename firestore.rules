@@ -48,11 +48,41 @@ service cloud.firestore {
     }
     
     match /groups/{groupId} {
-      allow read, write: if isSignedIn();
+      // Allow read if user is a member OR is an admin
+      allow read: if isSignedIn() && (request.auth.uid in resource.data.members || isAdmin());
+      // Allow create if user is the admin (creator)
+      allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
+      // Allow update if user is the group admin OR app admin
+      allow update: if isSignedIn() && (resource.data.adminId == request.auth.uid || isAdmin());
+      // Allow delete if user is group admin OR app admin
+      allow delete: if isSignedIn() && (resource.data.adminId == request.auth.uid || isAdmin());
     }
     
     match /messages/{messageId} {
-      allow read, write: if isSignedIn();
+      // Allow read if:
+      // 1. It's a direct message and user is sender or receiver
+      // 2. It's a group message and user is a member of that group
+      // 3. User is an app admin
+      allow read: if isSignedIn() && (
+        resource.data.senderId == request.auth.uid || 
+        resource.data.receiverId == request.auth.uid ||
+        (resource.data.groupId != null && request.auth.uid in get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.members) ||
+        isAdmin()
+      );
+      
+      // Allow create if:
+      // 1. Sending a direct message as self
+      // 2. Sending a group message to a group where user is a member
+      allow create: if isSignedIn() && (
+        (request.resource.data.senderId == request.auth.uid) && (
+          request.resource.data.receiverId != null ||
+          (request.resource.data.groupId != null && request.auth.uid in get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.members)
+        )
+      );
+      
+      // Messages are generally not updated or deleted by users in this app's current flow, 
+      // but we'll allow app admins or owners if needed for moderation.
+      allow update, delete: if isAdmin();
     }
     
     match /forum_threads/{threadId} {
