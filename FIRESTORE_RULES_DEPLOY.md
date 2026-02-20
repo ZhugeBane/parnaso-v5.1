@@ -19,7 +19,7 @@ Como o Firebase CLI não está instalado, você precisa copiar e colar as regras
 
 ### Passo 2: Copiar as Regras
 
-Abra o arquivo [`firestore.rules`](file:///c:/Users/Jacinto%20Junior/Downloads/parnaso-v5/firestore.rules) e copie TODO o conteúdo.
+Abra o arquivo [`firestore.rules`](file:///cx:/Users/Jacinto%20Junior/Downloads/parnaso-v5/firestore.rules) e copie TODO o conteúdo.
 
 Ou copie diretamente daqui:
 

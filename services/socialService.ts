@@ -247,3 +247,17 @@ export const joinCompetition = async (competitionId: string, userId: string) => 
     }
   }
 };
+
+// --- DELETE OPERATIONS (Admin) ---
+
+export const deleteForumThread = async (threadId: string) => {
+  await deleteDoc(doc(db, 'forum_threads', threadId));
+};
+
+export const deleteForumReply = async (replyId: string) => {
+  await deleteDoc(doc(db, 'forum_replies', replyId));
+};
+
+export const deleteCompetition = async (competitionId: string) => {
+  await deleteDoc(doc(db, 'competitions', competitionId));
+};
