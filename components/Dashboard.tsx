@@ -7,6 +7,7 @@ import { SessionDetailsModal } from './SessionDetailsModal';
 import { LanguageSelector } from './ui/LanguageSelector';
 import { HeatmapChart } from './ui/HeatmapChart';
 import { useLanguage } from '../i18n/LanguageContext';
+import { updateUserProfilePicture } from '../services/authService';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend
@@ -109,6 +110,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const [showSettings, setShowSettings] = useState(false);
   const [tempSettings, setTempSettings] = useState<UserSettings>(settings);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // New Project Modal State
   const [showNewProject, setShowNewProject] = useState(false);
@@ -137,6 +140,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     setNewProjectDesc('');
     setNewProjectGoal('');
     setNewProjectColor(DEFAULT_PROJECT_COLORS[Math.floor(Math.random() * DEFAULT_PROJECT_COLORS.length)]);
+  };
+
+  const handleUpdateAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || readOnly) return;
+
+    try {
+      setIsUpdatingAvatar(true);
+      await updateUserProfilePicture(user.id, file);
+      // Recarregar a página ou notificar o pai para atualizar os dados do usuário
+      window.location.reload();
+    } catch (error) {
+      console.error("Erro ao atualizar foto:", error);
+      alert("Erro ao enviar foto. Tente novamente.");
+    } finally {
+      setIsUpdatingAvatar(false);
+    }
   };
 
   // --- Filtering Logic ---
@@ -857,10 +877,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             </div>
           ) : (
             <div className="flex items-center gap-4">
-              <div className="relative group">
-                <div className="absolute inset-0 bg-teal-400 rounded-full blur opacity-20 group-hover:opacity-30 transition-opacity pointer-events-none"></div>
-                {/* Replaced img with Logo Component */}
-                <Logo className="relative w-20 h-20 drop-shadow-md transform transition-transform group-hover:scale-105" />
+              <div className="relative group cursor-pointer" onClick={() => !readOnly && fileInputRef.current?.click()}>
+                <div className="absolute inset-0 bg-teal-400 rounded-full blur opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none"></div>
+                {user.photoURL ? (
+                  <img
+                    src={user.photoURL}
+                    alt={user.name}
+                    className={`relative w-20 h-20 rounded-full object-cover border-4 border-white shadow-xl transform transition-transform group-hover:scale-105 ${isUpdatingAvatar ? 'opacity-50' : ''}`}
+                  />
+                ) : (
+                  <div className="relative w-20 h-20 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-full border-4 border-white shadow-xl flex items-center justify-center text-white text-3xl font-black transform transition-transform group-hover:scale-105">
+                    {user.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                {!readOnly && (
+                  <div className="absolute -bottom-1 -right-1 bg-white p-1.5 rounded-full shadow-lg border border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </div>
+                )}
+                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleUpdateAvatar} />
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Projeto Parnaso</h1>

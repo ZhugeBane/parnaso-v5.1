@@ -55,6 +55,7 @@ export interface User {
   role: 'admin' | 'user';
   isBlocked?: boolean;
   status?: 'pending' | 'approved' | 'rejected';
+  photoURL?: string; // NEW: User profile picture
 }
 
 export interface Friendship {
@@ -69,10 +70,24 @@ export interface Guild {
   id: string;
   name: string;
   description?: string;
-  emblemUrl?: string; // URL for the coat of arms
-  adminId: string;
-  members: string[]; // User IDs
+  emblemUrl?: string;
+  adminId: string; // Owner
+  adminIds?: string[]; // Additional administrators
+  members: string[];
+  statsResetDate?: string; // Date to filter member word counts
+  challenges?: GuildChallenge[];
   createdAt: string;
+}
+
+export interface GuildChallenge {
+  id: string;
+  title: string;
+  description: string;
+  type: 'word_count' | 'days_streak';
+  target: number;
+  durationDays: number;
+  createdAt: string;
+  status: 'active' | 'completed';
 }
 
 // Alias for compatibility

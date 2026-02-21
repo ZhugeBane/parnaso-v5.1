@@ -33,7 +33,12 @@ import {
   getGuildThreads,
   createGuildThread,
   getGuildReplies,
-  replyToGuildThread
+  replyToGuildThread,
+  promoteMemberToAdmin,
+  resetGuildStats,
+  createGuildChallenge,
+  deleteGuildForumThread,
+  deleteGuildForumReply
 } from '../services/socialService';
 import { getSessions } from '../services/sessionService';
 import { getAllUsers } from '../services/authService';
@@ -60,13 +65,22 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [newGuildName, setNewGuildName] = useState('');
   const [newGroupDesc, setNewGroupDesc] = useState('');
   const [selectedGuildMembers, setSelectedGuildMembers] = useState<string[]>([]);
-  const [guildSubTab, setGuildSubTab] = useState<'chat' | 'forum' | 'audio'>('chat');
+  const [guildSubTab, setGuildSubTab] = useState<'home' | 'chat' | 'forum' | 'audio'>('home');
+  const [showCreateChallenge, setShowCreateChallenge] = useState(false);
+  const [newChallengeTitle, setNewChallengeTitle] = useState('');
+  const [newChallengeDesc, setNewChallengeDesc] = useState('');
+  const [newChallengeTarget, setNewChallengeTarget] = useState(1000);
+  const [newChallengeDuration, setNewChallengeDuration] = useState(7);
 
   // Guild Forum State
   const [guildThreads, setGuildThreads] = useState<GuildForumThread[]>([]);
   const [selectedGuildThread, setSelectedGuildThread] = useState<GuildForumThread | null>(null);
   const [guildReplies, setGuildReplies] = useState<GuildForumReply[]>([]);
   const [showCreateGuildThread, setShowCreateGuildThread] = useState(false);
+  const [isUpdatingEmblem, setIsUpdatingEmblem] = useState(false);
+  const [forumError, setForumError] = useState<string | null>(null);
+  const [audioPermission, setAudioPermission] = useState<'pending' | 'granted' | 'denied'>('pending');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Forum Data
@@ -128,7 +142,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
     for (const memberId of uniqueMemberIds) {
       const userSessions = await getSessions(memberId);
-      const total = userSessions.reduce((acc, s) => acc + s.wordCount, 0);
+      // Filter sessions by guild reset date if applicable
+      const guildWithMember = allGuilds.find(g => g.members.includes(memberId));
+      const resetTime = guildWithMember?.statsResetDate ? new Date(guildWithMember.statsResetDate).getTime() : 0;
+
+      const total = userSessions
+        .filter(s => new Date(s.date).getTime() >= resetTime)
+        .reduce((acc, s) => acc + s.wordCount, 0);
       newMemberStats[memberId] = total;
     }
     setMemberStats(newMemberStats);
@@ -284,12 +304,23 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const handleUpdateEmblem = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && selectedChat?.type === 'group') {
-      const guild = selectedChat.target as Guild;
-      await updateGuildEmblem(guild.id, file);
-      await refreshData();
-      const updatedGuilds = await getUserGuilds(currentUser.id);
-      const updated = updatedGuilds.find(g => g.id === guild.id);
-      if (updated) setSelectedChat({ ...selectedChat, target: updated });
+      try {
+        setIsUpdatingEmblem(true);
+        const guild = selectedChat.target as Guild;
+        const downloadURL = await updateGuildEmblem(guild.id, file);
+
+        // Update local state immediately
+        const updatedGuild = { ...guild, emblemUrl: downloadURL };
+        setGuilds(prev => prev.map(g => g.id === guild.id ? updatedGuild : g));
+        setSelectedChat({ ...selectedChat, target: updatedGuild });
+
+        await refreshData();
+      } catch (error) {
+        console.error("Erro ao atualizar brasão:", error);
+        alert("Erro ao enviar brasão. Tente novamente.");
+      } finally {
+        setIsUpdatingEmblem(false);
+      }
     }
   };
 
@@ -300,12 +331,18 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
   const handleCreateGuildThread = async () => {
     if (selectedChat?.type === 'group' && newThreadTitle.trim()) {
-      const guild = selectedChat.target as Guild;
-      await createGuildThread(guild.id, currentUser.id, newThreadTitle, newThreadContent);
-      setNewThreadTitle('');
-      setNewThreadContent('');
-      setShowCreateGuildThread(false);
-      await fetchGuildThreadData(guild.id);
+      try {
+        setForumError(null);
+        const guild = selectedChat.target as Guild;
+        await createGuildThread(guild.id, currentUser.id, newThreadTitle, newThreadContent);
+        setNewThreadTitle('');
+        setNewThreadContent('');
+        setShowCreateGuildThread(false);
+        await fetchGuildThreadData(guild.id);
+        await refreshData();
+      } catch (error) {
+        setForumError("Erro ao publicar no fórum.");
+      }
     }
   };
 
@@ -330,12 +367,36 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
   // --- Handlers: Forum ---
   const handleCreateThread = async () => {
-    if (!newThreadTitle || !newThreadContent) return;
-    await createForumThread(currentUser.id, newThreadTitle, newThreadContent, newThreadCategory);
-    setShowCreateThread(false);
-    setNewThreadTitle('');
-    setNewThreadContent('');
-    await refreshData();
+    if (!newThreadTitle.trim() || !newThreadContent.trim()) {
+      setForumError("Título e conteúdo são obrigatórios.");
+      return;
+    }
+    try {
+      setForumError(null);
+      await createForumThread(currentUser.id, newThreadTitle, newThreadContent, newThreadCategory);
+      setShowCreateThread(false);
+      setNewThreadTitle('');
+      setNewThreadContent('');
+      await refreshData();
+    } catch (error) {
+      console.error("Erro ao criar tópico:", error);
+      setForumError("Erro ao criar tópico no fórum.");
+    }
+  };
+
+  const handleJoinAudio = async () => {
+    try {
+      setAudioPermission('pending');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Stop the stream immediately, we just wanted to check permission
+      stream.getTracks().forEach(track => track.stop());
+      setAudioPermission('granted');
+      alert("Microfone autorizado! Conectando à sala...");
+    } catch (err) {
+      console.error("Erro ao acessar microfone:", err);
+      setAudioPermission('denied');
+      alert("Erro ao acessar microfone. Certifique-se de dar permissão no navegador.");
+    }
   };
 
   const handleReplyThread = async () => {
@@ -353,6 +414,58 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     setNewCompTitle('');
     setNewCompDesc('');
     await refreshData();
+  };
+
+  const isOwnerOrAdmin = (guild: Guild) => {
+    return guild.adminId === currentUser.id || (guild.adminIds || []).includes(currentUser.id);
+  };
+
+  const handleResetStats = async (guildId: string) => {
+    if (confirm("Tem certeza que deseja zerar as estatísticas da guilda? Isso não apagará as sessões individuais, mas a contagem da guilda recomeçará de hoje.")) {
+      await resetGuildStats(guildId);
+      await refreshData();
+    }
+  };
+
+  const handlePromoteAdmin = async (guildId: string, userId: string) => {
+    await promoteMemberToAdmin(guildId, userId);
+    await refreshData();
+    alert("Membro promovido a administrador!");
+  };
+
+  const handleCreateChallenge = async () => {
+    if (!newChallengeTitle.trim() || !selectedChat || selectedChat.type !== 'group') return;
+    const guild = selectedChat.target as Guild;
+    await createGuildChallenge(guild.id, {
+      title: newChallengeTitle,
+      description: newChallengeDesc,
+      type: 'word_count', // Simplified for now
+      target: newChallengeTarget,
+      durationDays: newChallengeDuration
+    });
+    setNewChallengeTitle('');
+    setNewChallengeDesc('');
+    setShowCreateChallenge(false);
+    await refreshData();
+  };
+
+  const handleDeleteGuildThread = async (threadId: string) => {
+    if (confirm("Excluir este tópico permanentemente?")) {
+      await deleteGuildForumThread(threadId);
+      if (selectedChat?.type === 'group') {
+        const guild = selectedChat.target as Guild;
+        await fetchGuildThreadData(guild.id);
+      }
+    }
+  };
+
+  const handleDeleteGuildReply = async (replyId: string) => {
+    if (confirm("Excluir esta resposta?")) {
+      await deleteGuildForumReply(replyId);
+      if (selectedGuildThread) {
+        setGuildReplies(await getGuildReplies(selectedGuildThread.id));
+      }
+    }
   };
 
   const handleJoinCompetition = async (compId: string) => {
@@ -386,9 +499,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   };
 
   // Helper to get User Name
-  const getUserName = (id: string) => {
-    if (id === currentUser.id) return 'Você';
-    return allUsers.find(u => u.id === id)?.name || 'Desconhecido';
+  const getUserName = (userId: string) => {
+    return allUsers.find(u => u.id === userId)?.name || 'Usuário';
+  };
+
+  const getUserPhotoURL = (userId: string) => {
+    return allUsers.find(u => u.id === userId)?.photoURL;
   };
 
   const filteredAvailable = availableUsers.filter(u =>
@@ -443,8 +559,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   onClick={() => { setSelectedChat({ type: 'direct', target: user }); setSelectedThread(null); }}
                   className={`w-full flex items-center p-3 rounded-xl transition-colors ${selectedChat?.target.id === user.id ? 'bg-teal-50 border border-teal-100' : 'hover:bg-slate-50'}`}
                 >
-                  <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold mr-3">
-                    {user.name.charAt(0).toUpperCase()}
+                  <div className={`w-10 h-10 rounded-full ${user.photoURL ? '' : 'bg-slate-200'} flex items-center justify-center text-slate-600 font-bold mr-3 overflow-hidden border border-slate-100`}>
+                    {user.photoURL ? (
+                      <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" />
+                    ) : (
+                      user.name.charAt(0).toUpperCase()
+                    )}
                   </div>
                   <div className="text-left flex-1 min-w-0">
                     <div className="font-medium text-slate-800 truncate">{user.name}</div>
@@ -652,7 +772,20 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   </svg>
                 </button>
                 {selectedChat.type === 'group' && (selectedChat.target as Guild).emblemUrl ? (
-                  <img src={(selectedChat.target as Guild).emblemUrl} alt="Emblem" className="w-12 h-12 rounded-full object-cover mr-3 border-2 border-indigo-200 shadow-sm" />
+                  <div className="relative group/emblem">
+                    <img
+                      src={(selectedChat.target as Guild).emblemUrl}
+                      alt="Emblem"
+                      className={`w-20 h-20 rounded-full object-cover mr-3 border-4 border-white shadow-xl transform transition-transform group-hover/emblem:scale-105 ${isUpdatingEmblem ? 'opacity-50' : ''}`}
+                    />
+                    {isUpdatingEmblem && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                      </div>
+                    )}
+                  </div>
+                ) : selectedChat.type === 'direct' && (selectedChat.target as User).photoURL ? (
+                  <img src={(selectedChat.target as User).photoURL} alt={(selectedChat.target as User).name} className="w-12 h-12 rounded-full object-cover mr-3 border-2 border-teal-200 shadow-sm" />
                 ) : (
                   <div className={`w-12 h-12 rounded-full ${selectedChat.type === 'direct' ? 'bg-teal-500' : 'bg-indigo-600'} text-white flex items-center justify-center font-bold text-xl mr-3 shadow-md border-2 border-white`}>
                     {selectedChat.type === 'direct'
@@ -685,12 +818,140 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
               {selectedChat.type === 'group' && (
                 <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
+                  <button onClick={() => setGuildSubTab('home')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'home' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Home</button>
                   <button onClick={() => setGuildSubTab('chat')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'chat' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Chat</button>
                   <button onClick={() => { setGuildSubTab('forum'); fetchGuildThreadData((selectedChat.target as Guild).id); }} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'forum' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Fórum</button>
                   <button onClick={() => setGuildSubTab('audio')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'audio' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Áudio</button>
                 </div>
               )}
             </div>
+
+            {selectedChat.type === 'group' && guildSubTab === 'home' && (
+              <div className="flex-1 overflow-y-auto bg-slate-50 p-6 md:p-10">
+                <div className="max-w-4xl mx-auto space-y-8">
+
+                  {/* HERO SECTION */}
+                  <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col md:flex-row items-center gap-8 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-60"></div>
+
+                    <div className="relative">
+                      {(selectedChat.target as Guild).emblemUrl ? (
+                        <img
+                          src={(selectedChat.target as Guild).emblemUrl}
+                          alt="Emblem"
+                          className="w-32 h-32 md:w-40 md:h-40 rounded-full object-cover border-8 border-white shadow-2xl"
+                        />
+                      ) : (
+                        <div className="w-32 h-32 md:w-40 md:h-40 rounded-full bg-indigo-600 flex items-center justify-center text-white text-5xl font-black shadow-2xl border-8 border-white">
+                          {(selectedChat.target as Guild).name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex-1 text-center md:text-left relative">
+                      <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-2 leading-tight">{(selectedChat.target as Guild).name}</h2>
+                      <p className="text-slate-500 italic mb-6">{(selectedChat.target as Guild).description || "Nenhuma descrição definida para esta guilda."}</p>
+
+                      {isOwnerOrAdmin(selectedChat.target as Guild) && (
+                        <div className="flex flex-wrap gap-2 justify-center md:justify-start">
+                          <button
+                            onClick={() => handleResetStats((selectedChat.target as Guild).id)}
+                            className="px-4 py-2 bg-rose-50 text-rose-600 font-bold text-xs rounded-xl hover:bg-rose-100 transition-colors uppercase tracking-wider"
+                          >
+                            Zerar Estatísticas
+                          </button>
+                          <button
+                            onClick={() => setShowCreateChallenge(true)}
+                            className="px-4 py-2 bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl hover:bg-indigo-200 transition-colors uppercase tracking-wider"
+                          >
+                            Propor Desafio
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* STATS & MEMBERS */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                    {/* LEADERBOARD */}
+                    <div className="lg:col-span-2 space-y-4">
+                      <div className="flex items-center justify-between px-2">
+                        <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm">Produção dos Membros</h3>
+                        {(selectedChat.target as Guild).statsResetDate && (
+                          <span className="text-[10px] text-slate-400 font-bold italic">Desde: {new Date((selectedChat.target as Guild).statsResetDate!).toLocaleDateString()}</span>
+                        )}
+                      </div>
+
+                      <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-4">
+                        {(selectedChat.target as Guild).members.map((memberId, index) => (
+                          <div key={memberId} className="flex items-center gap-4 group/member">
+                            <span className="text-xs font-black text-slate-300 w-4">{index + 1}</span>
+                            <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden ring-2 ring-white shadow-sm flex-shrink-0">
+                              {getUserPhotoURL(memberId) ? (
+                                <img src={getUserPhotoURL(memberId)} alt={getUserName(memberId)} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center font-bold text-slate-500 text-xs">
+                                  {getUserName(memberId).charAt(0)}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-slate-700 text-sm truncate">{getUserName(memberId)}</p>
+                              <p className="text-xs text-indigo-500 font-bold italic">{memberStats[memberId]?.toLocaleString() || 0} palavras</p>
+                            </div>
+
+                            {isOwnerOrAdmin(selectedChat.target as Guild) && memberId !== currentUser.id && memberId !== (selectedChat.target as Guild).adminId && !(selectedChat.target as Guild).adminIds?.includes(memberId) && (
+                              <button
+                                onClick={() => handlePromoteAdmin((selectedChat.target as Guild).id, memberId)}
+                                className="opacity-0 group-hover/member:opacity-100 px-3 py-1 bg-teal-50 text-teal-600 rounded-lg text-[10px] font-black uppercase tracking-tighter transition-opacity"
+                              >
+                                Tornar Admin
+                              </button>
+                            )}
+                            {(selectedChat.target as Guild).adminIds?.includes(memberId) && (
+                              <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold uppercase">Admin</span>
+                            )}
+                            {memberId === (selectedChat.target as Guild).adminId && (
+                              <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded font-bold uppercase">Líder</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* CHALLENGES */}
+                    <div className="space-y-4">
+                      <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm px-2 text-center md:text-left">Desafios</h3>
+                      <div className="space-y-3">
+                        {(selectedChat.target as Guild).challenges?.length ? (selectedChat.target as Guild).challenges?.map(challenge => (
+                          <div key={challenge.id} className="bg-indigo-600 text-white p-5 rounded-3xl shadow-lg relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 p-3 opacity-20 transform translate-x-1 translate-y--1 group-hover:scale-110 transition-transform">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                              </svg>
+                            </div>
+                            <h4 className="font-black text-sm mb-1 uppercase tracking-tight">{challenge.title}</h4>
+                            <p className="text-[10px] text-indigo-100 mb-3 leading-tight opacity-80">{challenge.description}</p>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-black bg-white/20 px-2 py-1 rounded-lg">{challenge.target.toLocaleString()} PALAVRAS</span>
+                              <span className="text-[10px] font-bold text-indigo-200">{challenge.durationDays} dias</span>
+                            </div>
+                          </div>
+                        )) : (
+                          <div className="bg-white rounded-3xl p-6 border border-slate-100 text-center shadow-sm">
+                            <span className="text-2xl mb-2 block">🎯</span>
+                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Nenhum desafio ativo</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+              </div>
+            )}
 
             {selectedChat.type === 'group' && guildSubTab === 'chat' && (
               <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50">
@@ -706,8 +967,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3 bg-white">
                     {(selectedChat.target as Guild).members.map(memberId => (
                       <div key={memberId} className="flex items-center gap-2 p-2 rounded-xl bg-slate-50 border border-slate-100 shadow-sm">
-                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs ring-2 ring-white">
-                          {getUserName(memberId).charAt(0).toUpperCase()}
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs ring-2 ring-white overflow-hidden">
+                          {getUserPhotoURL(memberId) ? (
+                            <img src={getUserPhotoURL(memberId)} alt={getUserName(memberId)} className="w-full h-full object-cover" />
+                          ) : (
+                            getUserName(memberId).charAt(0).toUpperCase()
+                          )}
                         </div>
                         <div className="min-w-0">
                           <p className="text-[10px] font-bold text-slate-700 truncate">{getUserName(memberId)}</p>
@@ -769,6 +1034,16 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     <div className="flex-1 overflow-y-auto p-6 space-y-4">
                       {guildReplies.map(reply => (
                         <div key={reply.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm relative group">
+                          {selectedChat?.type === 'group' && isOwnerOrAdmin(selectedChat.target as Guild) && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteGuildReply(reply.id); }}
+                              className="absolute top-2 right-2 p-1 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          )}
                           <div className="flex justify-between mb-1">
                             <span className="font-bold text-xs text-slate-700">{getUserName(reply.authorId)}</span>
                             <span className="text-[10px] text-slate-400">{new Date(reply.createdAt).toLocaleDateString()}</span>
@@ -815,6 +1090,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                           className="w-full px-4 py-3 bg-slate-50 rounded-xl mb-4 outline-none border border-transparent focus:border-indigo-200"
                           rows={4}
                         />
+                        {forumError && <p className="text-rose-500 text-[10px] mb-2 font-bold uppercase tracking-wider">{forumError}</p>}
                         <div className="flex justify-end gap-2">
                           <button onClick={() => setShowCreateGuildThread(false)} className="px-4 py-2 text-slate-500 font-bold text-xs">Cancelar</button>
                           <button onClick={handleCreateGuildThread} className="px-6 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl">Publicar</button>
@@ -824,19 +1100,34 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
                     <div className="space-y-3">
                       {guildThreads.map(thread => (
-                        <button
-                          key={thread.id}
-                          onClick={() => handleSelectGuildThread(thread)}
-                          className="w-full text-left p-4 bg-white rounded-2xl border border-slate-100 hover:border-indigo-200 hover:shadow-md transition-all group"
-                        >
-                          <h4 className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{thread.title}</h4>
-                          <div className="flex items-center gap-2 mt-2">
-                            <div className="w-5 h-5 rounded-full bg-indigo-50 flex items-center justify-center text-[10px] font-bold text-indigo-600 border border-indigo-100">
-                              {getUserName(thread.authorId).charAt(0)}
+                        <div key={thread.id} className="relative group/thread">
+                          <button
+                            onClick={() => handleSelectGuildThread(thread)}
+                            className="w-full text-left p-4 bg-white rounded-2xl border border-slate-100 hover:border-indigo-200 hover:shadow-md transition-all"
+                          >
+                            <h4 className="font-bold text-slate-800 group-hover/thread:text-indigo-600 transition-colors">{thread.title}</h4>
+                            <div className="flex items-center gap-2 mt-2">
+                              <div className="w-5 h-5 rounded-full bg-indigo-50 flex items-center justify-center text-[10px] font-bold text-indigo-600 border border-indigo-100 overflow-hidden">
+                                {getUserPhotoURL(thread.authorId) ? (
+                                  <img src={getUserPhotoURL(thread.authorId)} alt={getUserName(thread.authorId)} className="w-full h-full object-cover" />
+                                ) : (
+                                  getUserName(thread.authorId).charAt(0)
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-400">por {getUserName(thread.authorId)} • {new Date(thread.createdAt).toLocaleDateString()}</span>
                             </div>
-                            <span className="text-[10px] text-slate-400">por {getUserName(thread.authorId)} • {new Date(thread.createdAt).toLocaleDateString()}</span>
-                          </div>
-                        </button>
+                          </button>
+                          {selectedChat?.type === 'group' && isOwnerOrAdmin(selectedChat.target as Guild) && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteGuildThread(thread.id); }}
+                              className="absolute top-4 right-4 p-1 text-slate-300 hover:text-rose-500 opacity-0 group-hover/thread:opacity-100 transition-opacity"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
                       ))}
                       {guildThreads.length === 0 && (
                         <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200">
@@ -860,8 +1151,16 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 <p className="text-slate-500 max-w-md mx-auto mb-8 leading-relaxed">
                   Conecte-se com seus companheiros de guilda em tempo real para discutir estratégias de escrita.
                 </p>
-                <button className="px-8 py-3 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-100 hover:scale-105 transition-transform">
-                  ENTRAR NA SALA
+                <button
+                  onClick={handleJoinAudio}
+                  className={`px-8 py-3 ${audioPermission === 'granted' ? 'bg-emerald-600' : 'bg-indigo-600'} text-white font-black rounded-2xl shadow-xl shadow-indigo-100 hover:scale-105 transition-transform flex items-center gap-3`}
+                >
+                  {audioPermission === 'granted' ? (
+                    <>
+                      <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
+                      CONECTADO
+                    </>
+                  ) : 'ENTRAR NA SALA'}
                 </button>
                 <p className="mt-6 text-[10px] text-slate-400 font-bold uppercase tracking-widest">Acesso restrito aos membros da guilda</p>
               </div>
@@ -1066,6 +1365,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               value={newThreadContent}
               onChange={(e) => setNewThreadContent(e.target.value)}
             />
+            {forumError && <p className="text-rose-500 text-xs mb-3 font-bold">{forumError}</p>}
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowCreateThread(false)} className="px-3 py-1.5 text-slate-500">Cancelar</button>
               <button onClick={handleCreateThread} className="px-3 py-1.5 bg-teal-500 text-white rounded-lg">Publicar</button>
@@ -1120,6 +1420,74 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         </div>
       )}
 
+      {/* MODAL: CREATE GUILD CHALLENGE */}
+      {showCreateChallenge && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl animate-fade-in border border-indigo-50">
+            <h3 className="font-black text-2xl mb-6 text-indigo-900 uppercase tracking-tighter flex items-center gap-3">
+              <span className="p-2 bg-indigo-100 rounded-xl text-xl">🎯</span> Propor Desafio
+            </h3>
+
+            <div className="space-y-4 mb-8">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Nome do Desafio</label>
+                <input
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-bold"
+                  placeholder="Ex: Maratona de Inverno"
+                  value={newChallengeTitle}
+                  onChange={(e) => setNewChallengeTitle(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Descrição Curta</label>
+                <textarea
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm h-24 resize-none leading-relaxed"
+                  placeholder="Explique o que os membros devem fazer..."
+                  value={newChallengeDesc}
+                  onChange={(e) => setNewChallengeDesc(e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Meta de Palavras</label>
+                  <input
+                    type="number"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-black text-indigo-600"
+                    value={newChallengeTarget}
+                    onChange={(e) => setNewChallengeTarget(Number(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Duração (Dias)</label>
+                  <input
+                    type="number"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-black text-indigo-600"
+                    value={newChallengeDuration}
+                    onChange={(e) => setNewChallengeDuration(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCreateChallenge(false)}
+                className="flex-1 py-3 text-slate-500 font-bold text-xs uppercase tracking-widest hover:bg-slate-50 rounded-2xl transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreateChallenge}
+                className="flex-[2] py-3 bg-indigo-600 text-white font-black text-xs rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all uppercase tracking-widest"
+              >
+                Lançar Desafio
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

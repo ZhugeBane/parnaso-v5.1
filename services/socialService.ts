@@ -2,7 +2,7 @@
 // Complex Firestore queries with or() and and() were causing compilation issues
 // This version fetches all data and filters in memory
 
-import { User, Friendship, Message, Guild, GuildForumThread, GuildForumReply, Competition, ForumThread, ForumReply } from '../types';
+import { User, Friendship, Message, Guild, GuildForumThread, GuildForumReply, Competition, ForumThread, ForumReply, GuildChallenge } from '../types';
 import { db, storage } from '../lib/firebase';
 import {
   collection,
@@ -147,6 +147,44 @@ export const updateGuildEmblem = async (guildId: string, file: File) => {
   return downloadURL;
 };
 
+export const promoteMemberToAdmin = async (guildId: string, userId: string) => {
+  const guildRef = doc(db, 'groups', guildId);
+  const snap = await getDoc(guildRef);
+  if (snap.exists()) {
+    const data = snap.data() as Guild;
+    const adminIds = data.adminIds || [];
+    if (!adminIds.includes(userId)) {
+      await updateDoc(guildRef, {
+        adminIds: [...adminIds, userId]
+      });
+    }
+  }
+};
+
+export const resetGuildStats = async (guildId: string) => {
+  await updateDoc(doc(db, 'groups', guildId), {
+    statsResetDate: new Date().toISOString()
+  });
+};
+
+export const createGuildChallenge = async (guildId: string, challenge: Omit<GuildChallenge, 'id' | 'createdAt' | 'status'>) => {
+  const guildRef = doc(db, 'groups', guildId);
+  const snap = await getDoc(guildRef);
+  if (snap.exists()) {
+    const data = snap.data() as Guild;
+    const challenges = data.challenges || [];
+    const newChallenge: GuildChallenge = {
+      ...challenge,
+      id: Math.random().toString(36).substr(2, 9),
+      createdAt: new Date().toISOString(),
+      status: 'active'
+    };
+    await updateDoc(guildRef, {
+      challenges: [...challenges, newChallenge]
+    });
+  }
+};
+
 // --- GUILD FORUM ---
 
 export const getGuildThreads = async (guildId: string): Promise<GuildForumThread[]> => {
@@ -182,6 +220,14 @@ export const replyToGuildThread = async (authorId: string, threadId: string, con
     content,
     createdAt: new Date().toISOString()
   });
+};
+
+export const deleteGuildForumThread = async (threadId: string) => {
+  await deleteDoc(doc(db, 'guild_threads', threadId));
+};
+
+export const deleteGuildForumReply = async (replyId: string) => {
+  await deleteDoc(doc(db, 'guild_replies', replyId));
 };
 
 // --- Messages ---

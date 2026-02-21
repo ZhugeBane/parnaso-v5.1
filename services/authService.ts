@@ -17,7 +17,8 @@ const mapUser = (docData: any, uid: string, email: string): User => ({
   email: email,
   role: docData.role || 'user',
   isBlocked: docData.isBlocked || false,
-  status: docData.status // Important to carry this over
+  status: docData.status, // Important to carry this over
+  photoURL: docData.photoURL
 });
 
 export const register = async (name: string, email: string, password: string): Promise<User> => {
@@ -178,7 +179,8 @@ export const getAllUsers = async (): Promise<User[]> => {
         email: data.email || '',
         role: data.role || 'user',
         isBlocked: data.isBlocked || false,
-        status: data.status || 'approved' // Default para usuários antigos
+        status: data.status || 'approved', // Default para usuários antigos
+        photoURL: data.photoURL
       };
     });
   } catch (e) {
@@ -232,4 +234,23 @@ export const checkUserExists = async (email: string): Promise<boolean> => {
 export const resetPassword = async (email: string) => {
   // auth.sendPasswordResetEmail(email); needs import
   // Leaving placeholder to match interface
+};
+
+import { storage } from '../lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
+export const updateUserProfilePicture = async (userId: string, file: File): Promise<string> => {
+  const storageRef = ref(storage, `profiles/${userId}/avatar_${Date.now()}`);
+  await uploadBytes(storageRef, file);
+  const downloadURL = await getDownloadURL(storageRef);
+
+  const userRef = doc(db, 'users', userId);
+  await updateDoc(userRef, { photoURL: downloadURL });
+
+  // Também atualizar o Auth Profile para consistência
+  if (auth.currentUser && auth.currentUser.uid === userId) {
+    await updateProfile(auth.currentUser, { photoURL: downloadURL });
+  }
+
+  return downloadURL;
 };
