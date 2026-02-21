@@ -898,7 +898,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     </svg>
                   </div>
                 )}
-                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleUpdateAvatar} />
+                <input type="file" ref={fileInputRef} className="hidden" accept="image/png, image/jpeg" onChange={handleUpdateAvatar} />
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Projeto Parnaso</h1>

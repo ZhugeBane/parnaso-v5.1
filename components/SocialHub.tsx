@@ -65,7 +65,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [newGuildName, setNewGuildName] = useState('');
   const [newGroupDesc, setNewGroupDesc] = useState('');
   const [selectedGuildMembers, setSelectedGuildMembers] = useState<string[]>([]);
-  const [guildSubTab, setGuildSubTab] = useState<'home' | 'chat' | 'forum' | 'audio'>('home');
+  const [guildSubTab, setGuildSubTab] = useState<'home' | 'chat' | 'forum' | 'agora'>('home');
   const [showCreateChallenge, setShowCreateChallenge] = useState(false);
   const [newChallengeTitle, setNewChallengeTitle] = useState('');
   const [newChallengeDesc, setNewChallengeDesc] = useState('');
@@ -82,6 +82,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [audioPermission, setAudioPermission] = useState<'pending' | 'granted' | 'denied'>('pending');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
 
   // Forum Data
   const [threads, setThreads] = useState<ForumThread[]>([]);
@@ -388,15 +389,21 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     try {
       setAudioPermission('pending');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Stop the stream immediately, we just wanted to check permission
-      stream.getTracks().forEach(track => track.stop());
+      audioStreamRef.current = stream;
       setAudioPermission('granted');
-      alert("Microfone autorizado! Conectando à sala...");
     } catch (err) {
       console.error("Erro ao acessar microfone:", err);
       setAudioPermission('denied');
       alert("Erro ao acessar microfone. Certifique-se de dar permissão no navegador.");
     }
+  };
+
+  const handleStopAudio = () => {
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach(track => track.stop());
+      audioStreamRef.current = null;
+    }
+    setAudioPermission('pending');
   };
 
   const handleReplyThread = async () => {
@@ -587,7 +594,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   onClick={() => {
                     setSelectedChat({ type: 'group', target: guild });
                     setSelectedThread(null);
-                    setGuildSubTab('chat');
+                    setGuildSubTab('home');
                     fetchGuildThreadData(guild.id);
                   }}
                   className={`w-full flex items-center p-3 rounded-xl transition-colors ${selectedChat?.target.id === guild.id ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-50'}`}
@@ -810,7 +817,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                           Mudar Brasão
                         </button>
                       )}
-                      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleUpdateEmblem} />
+                      <input type="file" ref={fileInputRef} className="hidden" accept="image/png, image/jpeg" onChange={handleUpdateEmblem} />
                     </div>
                   )}
                 </div>
@@ -821,7 +828,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <button onClick={() => setGuildSubTab('home')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'home' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Home</button>
                   <button onClick={() => setGuildSubTab('chat')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'chat' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Chat</button>
                   <button onClick={() => { setGuildSubTab('forum'); fetchGuildThreadData((selectedChat.target as Guild).id); }} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'forum' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Fórum</button>
-                  <button onClick={() => setGuildSubTab('audio')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'audio' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Áudio</button>
+                  <button onClick={() => setGuildSubTab('agora')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'agora' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Ágora</button>
                 </div>
               )}
             </div>
@@ -1140,28 +1147,39 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               </div>
             )}
 
-            {selectedChat.type === 'group' && guildSubTab === 'audio' && (
+            {selectedChat.type === 'group' && guildSubTab === 'agora' && (
               <div className="flex-1 bg-slate-50 flex flex-col items-center justify-center p-10 text-center">
                 <div className="w-32 h-32 bg-indigo-100 rounded-full flex items-center justify-center mb-6 shadow-inner animate-pulse">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-11a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                 </div>
-                <h3 className="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">Sala de Voz da Guilda</h3>
+                <h3 className="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">Ágora da Guilda</h3>
                 <p className="text-slate-500 max-w-md mx-auto mb-8 leading-relaxed">
                   Conecte-se com seus companheiros de guilda em tempo real para discutir estratégias de escrita.
                 </p>
-                <button
-                  onClick={handleJoinAudio}
-                  className={`px-8 py-3 ${audioPermission === 'granted' ? 'bg-emerald-600' : 'bg-indigo-600'} text-white font-black rounded-2xl shadow-xl shadow-indigo-100 hover:scale-105 transition-transform flex items-center gap-3`}
-                >
-                  {audioPermission === 'granted' ? (
-                    <>
-                      <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
-                      CONECTADO
-                    </>
-                  ) : 'ENTRAR NA SALA'}
-                </button>
+                <div className="flex flex-col gap-4">
+                  <button
+                    onClick={handleJoinAudio}
+                    className={`px-8 py-3 ${audioPermission === 'granted' ? 'bg-emerald-600' : 'bg-indigo-600'} text-white font-black rounded-2xl shadow-xl shadow-indigo-100 hover:scale-105 transition-transform flex items-center gap-3`}
+                  >
+                    {audioPermission === 'granted' ? (
+                      <>
+                        <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
+                        CONECTADO
+                      </>
+                    ) : 'ENTRAR NA SALA'}
+                  </button>
+
+                  {audioPermission === 'granted' && (
+                    <button
+                      onClick={handleStopAudio}
+                      className="px-8 py-3 bg-rose-100 text-rose-600 font-bold rounded-2xl hover:bg-rose-200 transition-colors uppercase text-xs tracking-widest"
+                    >
+                      Parar Áudio
+                    </button>
+                  )}
+                </div>
                 <p className="mt-6 text-[10px] text-slate-400 font-bold uppercase tracking-widest">Acesso restrito aos membros da guilda</p>
               </div>
             )}
