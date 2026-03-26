@@ -19,6 +19,13 @@ import {
   createGroup,
   getGroupMessages,
   sendGroupMessage,
+  updateGuildEmblem,
+  getGuildThreads,
+  createGuildThread,
+  getGuildReplies,
+  replyToGuildThread,
+  deleteGuildForumThread,
+  deleteGuildForumReply,
   getForumThreads,
   getForumReplies,
   createForumThread,
@@ -29,17 +36,12 @@ import {
   deleteForumThread,
   deleteForumReply,
   deleteCompetition,
-  updateGuildEmblem,
-  getGuildThreads,
-  createGuildThread,
-  getGuildReplies,
-  replyToGuildThread,
   promoteMemberToAdmin,
   resetGuildStats,
-  createGuildChallenge,
-  deleteGuildForumThread,
-  deleteGuildForumReply
+  createGuildChallenge
 } from '../services/socialService';
+import { compressImage } from '../utils/imageProcessor';
+import { useLanguage } from '../i18n/LanguageContext';
 import { getSessions } from '../services/sessionService';
 import { getAllUsers } from '../services/authService';
 
@@ -49,6 +51,7 @@ interface SocialHubProps {
 }
 
 export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => {
+  const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'friends' | 'guilds' | 'forum' | 'competitions' | 'find'>('friends');
   const [allUsers, setAllUsers] = useState<User[]>([]);
 
@@ -258,7 +261,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     try {
       await sendFriendRequest(currentUser.id, userId);
       await refreshData();
-      alert("Solicitação enviada!");
+      alert(t('social.friends.requestSent'));
     } catch (e: any) {
       alert(e.message);
     }
@@ -308,7 +311,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
       try {
         setIsUpdatingEmblem(true);
         const guild = selectedChat.target as Guild;
-        const downloadURL = await updateGuildEmblem(guild.id, file);
+        
+        // Compress emblem to 512x512
+        const compressedBlob = await compressImage(file, 512, 512, 0.7);
+        
+        const downloadURL = await updateGuildEmblem(guild.id, compressedBlob);
 
         // Update local state immediately
         const updatedGuild = { ...guild, emblemUrl: downloadURL };
@@ -318,7 +325,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         await refreshData();
       } catch (error) {
         console.error("Erro ao atualizar brasão:", error);
-        alert("Erro ao enviar brasão. Tente novamente.");
+        alert(t('social.guilds.errorEmblem'));
       } finally {
         setIsUpdatingEmblem(false);
       }
@@ -342,7 +349,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         await fetchGuildThreadData(guild.id);
         await refreshData();
       } catch (error) {
-        setForumError("Erro ao publicar no fórum.");
+        setForumError(t('social.forum.errorPublish'));
       }
     }
   };
@@ -369,7 +376,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   // --- Handlers: Forum ---
   const handleCreateThread = async () => {
     if (!newThreadTitle.trim() || !newThreadContent.trim()) {
-      setForumError("Título e conteúdo são obrigatórios.");
+      setForumError(t('social.forum.titleContentRequired'));
       return;
     }
     try {
@@ -381,7 +388,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
       await refreshData();
     } catch (error) {
       console.error("Erro ao criar tópico:", error);
-      setForumError("Erro ao criar tópico no fórum.");
+      setForumError(t('social.forum.errorCreateThread'));
     }
   };
 
@@ -394,7 +401,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     } catch (err) {
       console.error("Erro ao acessar microfone:", err);
       setAudioPermission('denied');
-      alert("Erro ao acessar microfone. Certifique-se de dar permissão no navegador.");
+      alert(t('social.forum.errorMicrophone'));
     }
   };
 
@@ -428,7 +435,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   };
 
   const handleResetStats = async (guildId: string) => {
-    if (confirm("Tem certeza que deseja zerar as estatísticas da guilda? Isso não apagará as sessões individuais, mas a contagem da guilda recomeçará de hoje.")) {
+    if (confirm(t('social.guilds.resetConfirm'))) {
       await resetGuildStats(guildId);
       await refreshData();
     }
@@ -437,7 +444,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const handlePromoteAdmin = async (guildId: string, userId: string) => {
     await promoteMemberToAdmin(guildId, userId);
     await refreshData();
-    alert("Membro promovido a administrador!");
+    alert(t('social.guilds.promotedAdmin'));
   };
 
   const handleCreateChallenge = async () => {
@@ -457,7 +464,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   };
 
   const handleDeleteGuildThread = async (threadId: string) => {
-    if (confirm("Excluir este tópico permanentemente?")) {
+    if (confirm(t('social.forum.confirmDeleteThreadPerm'))) {
       await deleteGuildForumThread(threadId);
       if (selectedChat?.type === 'group') {
         const guild = selectedChat.target as Guild;
@@ -467,7 +474,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   };
 
   const handleDeleteGuildReply = async (replyId: string) => {
-    if (confirm("Excluir esta resposta?")) {
+    if (confirm(t('social.forum.confirmDeleteReply'))) {
       await deleteGuildForumReply(replyId);
       if (selectedGuildThread) {
         setGuildReplies(await getGuildReplies(selectedGuildThread.id));
@@ -530,17 +537,17 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
-              Comunidade
+              {t('social.title')}
             </h2>
             <button onClick={onExit} className="text-xs text-slate-500 hover:text-slate-800 font-medium">Voltar</button>
           </div>
 
           <div className="grid grid-cols-5 bg-slate-200 rounded-lg p-1 gap-1">
-            <button onClick={() => { setActiveTab('friends'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'friends' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Amigos</button>
-            <button onClick={() => { setActiveTab('guilds'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'guilds' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Guildas</button>
-            <button onClick={() => { setActiveTab('forum'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'forum' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Fórum</button>
-            <button onClick={() => { setActiveTab('competitions'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'competitions' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Desafios</button>
-            <button onClick={() => { setActiveTab('find'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'find' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Buscar</button>
+            <button onClick={() => { setActiveTab('friends'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'friends' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>{t('social.tabs.friends')}</button>
+            <button onClick={() => { setActiveTab('guilds'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'guilds' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>{t('social.tabs.guilds')}</button>
+            <button onClick={() => { setActiveTab('forum'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'forum' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>{t('social.tabs.forum')}</button>
+            <button onClick={() => { setActiveTab('competitions'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'competitions' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>{t('social.tabs.competitions')}</button>
+            <button onClick={() => { setActiveTab('find'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'find' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>{t('social.tabs.find')}</button>
           </div>
         </div>
 
@@ -552,11 +559,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             <div className="space-y-1">
               <div className="mb-2">
                 <button onClick={() => setActiveTab('find')} className="w-full text-left px-3 py-2 text-xs text-teal-600 hover:bg-teal-50 rounded-lg border border-dashed border-teal-200 flex items-center justify-center">
-                  + Adicionar Amigo
+                  {t('social.friends.addFriend')}
                 </button>
                 {requests.length > 0 && (
                   <div className="mt-2 text-xs bg-indigo-50 text-indigo-700 p-2 rounded-lg cursor-pointer" onClick={() => setActiveTab('find')}>
-                    {requests.length} Solicitações Pendentes (Ver em Buscar)
+                    {requests.length} {t('social.friends.pendingRequests')}
                   </div>
                 )}
               </div>
@@ -575,7 +582,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   </div>
                   <div className="text-left flex-1 min-w-0">
                     <div className="font-medium text-slate-800 truncate">{user.name}</div>
-                    <div className="text-xs text-slate-500 truncate">Clique para conversar</div>
+                    <div className="text-xs text-slate-500 truncate">{t('social.friends.clickToChat')}</div>
                   </div>
                 </button>
               ))}
@@ -586,7 +593,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
           {activeTab === 'guilds' && (
             <div className="space-y-2">
               <button onClick={() => setShowCreateGuild(true)} className="w-full text-left px-3 py-2 text-xs text-indigo-600 hover:bg-indigo-50 rounded-lg border border-dashed border-indigo-200 flex items-center justify-center">
-                + Fundar Nova Guilda
+                {t('social.guilds.foundNewGuild')}
               </button>
               {guilds.map(guild => (
                 <button
@@ -608,7 +615,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   )}
                   <div className="text-left flex-1 min-w-0">
                     <div className="font-medium text-slate-800 truncate">{guild.name}</div>
-                    <div className="text-xs text-slate-500 truncate">{guild.members.length} membros</div>
+                    <div className="text-xs text-slate-500 truncate">{guild.members.length} {t('social.guilds.members')}</div>
                   </div>
                 </button>
               ))}
@@ -619,7 +626,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
           {activeTab === 'forum' && (
             <div className="space-y-2">
               <button onClick={() => setShowCreateThread(true)} className="w-full text-left px-3 py-2 text-xs text-teal-600 hover:bg-teal-50 rounded-lg border border-dashed border-teal-200 flex items-center justify-center">
-                + Novo Tópico
+                {t('social.forum.newThread')}
               </button>
               {threads.map(thread => (
                 <div key={thread.id} className="relative group">
@@ -629,13 +636,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   >
                     <span className="text-[10px] uppercase font-bold text-slate-400">{thread.category}</span>
                     <h3 className="font-bold text-slate-800 text-sm leading-tight mb-1">{thread.title}</h3>
-                    <p className="text-xs text-slate-500 truncate">por {getUserName(thread.authorId)}</p>
+                    <p className="text-xs text-slate-500 truncate">{t('social.forum.by')} {getUserName(thread.authorId)}</p>
                   </button>
                   {currentUser.role === 'admin' && (
                     <button
                       onClick={(e) => handleDeleteThread(e, thread.id)}
                       className="absolute top-2 right-2 p-1 text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Excluir Tópico"
+                      title={t('social.forum.deleteThread')}
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -651,7 +658,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
           {activeTab === 'competitions' && (
             <div className="space-y-3">
               <button onClick={() => setShowCreateComp(true)} className="w-full text-left px-3 py-2 text-xs text-teal-600 hover:bg-teal-50 rounded-lg border border-dashed border-teal-200 flex items-center justify-center">
-                + Criar Novo Desafio
+                {t('social.competitions.createNewChallenge')}
               </button>
               {competitions.map(comp => {
                 const isParticipant = comp.participants.includes(currentUser.id);
@@ -659,13 +666,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <div key={comp.id} className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm relative group">
                     <div className="flex justify-between items-start mb-2">
                       <h3 className="font-bold text-slate-800 text-sm pr-6">{comp.title}</h3>
-                      <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 uppercase">{comp.type === 'word_count' ? 'Palavras' : 'Streak'}</span>
+                      <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 uppercase">{comp.type === 'word_count' ? t('social.competitions.wordType') : t('social.competitions.streakType')}</span>
                     </div>
                     {currentUser.role === 'admin' && (
                       <button
                         onClick={() => handleDeleteCompetition(comp.id)}
                         className="absolute top-3 right-12 p-1 text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Excluir Desafio"
+                        title={t('social.competitions.deleteChallenge')}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -694,7 +701,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       </div>
                     ) : (
                       <button onClick={() => handleJoinCompetition(comp.id)} className="w-full py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-slate-900">
-                        Entrar no Desafio
+                        {t('social.competitions.joinChallenge')}
                       </button>
                     )}
                   </div>
@@ -710,17 +717,17 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               {/* Pending Requests Section */}
               {requests.length > 0 && (
                 <div className="mb-4 space-y-2">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase">Solicitações ({requests.length})</h3>
+                  <h3 className="text-xs font-bold text-slate-400 uppercase">{t('social.friends.requests')} ({requests.length})</h3>
                   {requests.map(({ user, friendshipId, type }) => (
                     <div key={user.id} className="bg-white border border-slate-200 p-2 rounded-lg shadow-sm flex items-center justify-between">
-                      <span className="text-sm font-bold text-slate-700">{user.name} <span className="text-xs font-normal text-slate-400">({type === 'received' ? 'recebido' : 'enviado'})</span></span>
+                      <span className="text-sm font-bold text-slate-700">{user.name} <span className="text-xs font-normal text-slate-400">({type === 'received' ? t('social.friends.received') : t('social.friends.sent')})</span></span>
                       {type === 'received' ? (
                         <div className="flex gap-1">
-                          <button onClick={() => handleAccept(friendshipId)} className="p-1 bg-teal-100 text-teal-700 rounded text-xs">Aceitar</button>
+                          <button onClick={() => handleAccept(friendshipId)} className="p-1 bg-teal-100 text-teal-700 rounded text-xs">{t('social.friends.accept')}</button>
                           <button onClick={() => handleReject(friendshipId)} className="p-1 bg-slate-100 text-slate-700 rounded text-xs">X</button>
                         </div>
                       ) : (
-                        <button onClick={() => handleReject(friendshipId)} className="text-xs text-rose-500">Cancelar</button>
+                        <button onClick={() => handleReject(friendshipId)} className="text-xs text-rose-500">{t('social.friends.cancel')}</button>
                       )}
                     </div>
                   ))}
@@ -729,7 +736,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
               <input
                 type="text"
-                placeholder="Buscar escritor..."
+                placeholder={t('social.friends.searchWriter')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-100 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-200 mb-4"
@@ -747,7 +754,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     <button
                       onClick={() => handleSendRequest(user.id)}
                       className="p-1.5 bg-teal-50 text-teal-600 rounded-lg hover:bg-teal-100"
-                      title="Adicionar"
+                      title={t('social.friends.add')}
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
@@ -756,7 +763,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   </div>
                 ))}
                 {filteredAvailable.length === 0 && (
-                  <p className="text-center text-slate-400 text-xs mt-4">Nenhum escritor encontrado.</p>
+                  <p className="text-center text-slate-400 text-xs mt-4">{t('social.friends.noWritersFound')}</p>
                 )}
               </div>
             </div>
@@ -805,7 +812,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     {selectedChat.type === 'direct' ? (selectedChat.target as User).name : (selectedChat.target as Guild).name}
                   </h3>
                   {selectedChat.type === 'direct' ? (
-                    <span className="text-xs text-green-500 flex items-center gap-1 font-medium">Online</span>
+                    <span className="text-xs text-green-500 flex items-center gap-1 font-medium">{t('social.chat.online')}</span>
                   ) : (
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">Guilda</span>
@@ -814,7 +821,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                           onClick={() => fileInputRef.current?.click()}
                           className="text-[10px] text-slate-400 hover:text-indigo-600 underline"
                         >
-                          Mudar Brasão
+                          {t('social.guilds.changeEmblem')}
                         </button>
                       )}
                       <input type="file" ref={fileInputRef} className="hidden" accept="image/png, image/jpeg" onChange={handleUpdateEmblem} />
@@ -825,10 +832,10 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
               {selectedChat.type === 'group' && (
                 <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
-                  <button onClick={() => setGuildSubTab('home')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'home' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Home</button>
-                  <button onClick={() => setGuildSubTab('chat')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'chat' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Chat</button>
-                  <button onClick={() => { setGuildSubTab('forum'); fetchGuildThreadData((selectedChat.target as Guild).id); }} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'forum' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Fórum</button>
-                  <button onClick={() => setGuildSubTab('agora')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'agora' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Ágora</button>
+                  <button onClick={() => setGuildSubTab('home')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'home' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>{t('social.tabs.home')}</button>
+                  <button onClick={() => setGuildSubTab('chat')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'chat' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>{t('social.tabs.chat')}</button>
+                  <button onClick={() => { setGuildSubTab('forum'); fetchGuildThreadData((selectedChat.target as Guild).id); }} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'forum' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>{t('social.tabs.forum')}</button>
+                  <button onClick={() => setGuildSubTab('agora')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'agora' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>{t('social.tabs.agora')}</button>
                 </div>
               )}
             </div>
@@ -857,7 +864,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
                     <div className="flex-1 text-center md:text-left relative">
                       <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-2 leading-tight">{(selectedChat.target as Guild).name}</h2>
-                      <p className="text-slate-500 italic mb-6">{(selectedChat.target as Guild).description || "Nenhuma descrição definida para esta guilda."}</p>
+                      <p className="text-slate-500 italic mb-6">{(selectedChat.target as Guild).description || t('social.guilds.noDescription')}</p>
 
                       {isOwnerOrAdmin(selectedChat.target as Guild) && (
                         <div className="flex flex-wrap gap-2 justify-center md:justify-start">
@@ -865,13 +872,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             onClick={() => handleResetStats((selectedChat.target as Guild).id)}
                             className="px-4 py-2 bg-rose-50 text-rose-600 font-bold text-xs rounded-xl hover:bg-rose-100 transition-colors uppercase tracking-wider"
                           >
-                            Zerar Estatísticas
+                            {t('social.guilds.resetStats')}
                           </button>
                           <button
                             onClick={() => setShowCreateChallenge(true)}
                             className="px-4 py-2 bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl hover:bg-indigo-200 transition-colors uppercase tracking-wider"
                           >
-                            Propor Desafio
+                            {t('social.guilds.proposeChallenge')}
                           </button>
                         </div>
                       )}
@@ -884,9 +891,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     {/* LEADERBOARD */}
                     <div className="lg:col-span-2 space-y-4">
                       <div className="flex items-center justify-between px-2">
-                        <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm">Produção dos Membros</h3>
+                        <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm">{t('social.guilds.memberProduction')}</h3>
                         {(selectedChat.target as Guild).statsResetDate && (
-                          <span className="text-[10px] text-slate-400 font-bold italic">Desde: {new Date((selectedChat.target as Guild).statsResetDate!).toLocaleDateString()}</span>
+                          <span className="text-[10px] text-slate-400 font-bold italic">{t('social.guilds.since')} {new Date((selectedChat.target as Guild).statsResetDate!).toLocaleDateString()}</span>
                         )}
                       </div>
 
@@ -905,7 +912,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="font-bold text-slate-700 text-sm truncate">{getUserName(memberId)}</p>
-                              <p className="text-xs text-indigo-500 font-bold italic">{memberStats[memberId]?.toLocaleString() || 0} palavras</p>
+                              <p className="text-xs text-indigo-500 font-bold italic">{memberStats[memberId]?.toLocaleString() || 0} {t('social.guilds.words')}</p>
                             </div>
 
                             {isOwnerOrAdmin(selectedChat.target as Guild) && memberId !== currentUser.id && memberId !== (selectedChat.target as Guild).adminId && !(selectedChat.target as Guild).adminIds?.includes(memberId) && (
@@ -913,14 +920,14 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                 onClick={() => handlePromoteAdmin((selectedChat.target as Guild).id, memberId)}
                                 className="opacity-0 group-hover/member:opacity-100 px-3 py-1 bg-teal-50 text-teal-600 rounded-lg text-[10px] font-black uppercase tracking-tighter transition-opacity"
                               >
-                                Tornar Admin
+                                {t('social.guilds.makeAdmin')}
                               </button>
                             )}
                             {(selectedChat.target as Guild).adminIds?.includes(memberId) && (
-                              <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold uppercase">Admin</span>
+                              <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold uppercase">{t('social.guilds.admin')}</span>
                             )}
                             {memberId === (selectedChat.target as Guild).adminId && (
-                              <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded font-bold uppercase">Líder</span>
+                              <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded font-bold uppercase">{t('social.guilds.leader')}</span>
                             )}
                           </div>
                         ))}
@@ -929,7 +936,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
                     {/* CHALLENGES */}
                     <div className="space-y-4">
-                      <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm px-2 text-center md:text-left">Desafios</h3>
+                      <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm px-2 text-center md:text-left">{t('social.guilds.challenges')}</h3>
                       <div className="space-y-3">
                         {(selectedChat.target as Guild).challenges?.length ? (selectedChat.target as Guild).challenges?.map(challenge => (
                           <div key={challenge.id} className="bg-indigo-600 text-white p-5 rounded-3xl shadow-lg relative overflow-hidden group">
@@ -941,14 +948,14 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             <h4 className="font-black text-sm mb-1 uppercase tracking-tight">{challenge.title}</h4>
                             <p className="text-[10px] text-indigo-100 mb-3 leading-tight opacity-80">{challenge.description}</p>
                             <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-black bg-white/20 px-2 py-1 rounded-lg">{challenge.target.toLocaleString()} PALAVRAS</span>
-                              <span className="text-[10px] font-bold text-indigo-200">{challenge.durationDays} dias</span>
+                              <span className="text-[10px] font-black bg-white/20 px-2 py-1 rounded-lg">{challenge.target.toLocaleString()} {t('social.competitions.wordType').toUpperCase()}</span>
+                              <span className="text-[10px] font-bold text-indigo-200">{challenge.durationDays} {t('social.competitions.daysLabel').toLowerCase()}</span>
                             </div>
                           </div>
                         )) : (
                           <div className="bg-white rounded-3xl p-6 border border-slate-100 text-center shadow-sm">
                             <span className="text-2xl mb-2 block">🎯</span>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Nenhum desafio ativo</p>
+                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{t('social.guilds.noActiveChallenges')}</p>
                           </div>
                         )}
                       </div>
@@ -965,9 +972,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 {/* Guild Summary & Members Production */}
                 <div className="bg-indigo-50 border border-indigo-100 rounded-2xl overflow-hidden mb-6 shadow-sm">
                   <div className="p-4 bg-indigo-600 text-white flex justify-between items-center">
-                    <h3 className="text-xs font-black uppercase tracking-widest">Produção da Guilda</h3>
+                    <h3 className="text-xs font-black uppercase tracking-widest">{t('social.guilds.guildProduction')}</h3>
                     <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-full">
-                      {Math.round(Object.values(memberStats).reduce((a, b) => a + b, 0)).toLocaleString()} Palavras Totais
+                      {Math.round(Object.values(memberStats).reduce((a, b) => a + b, 0)).toLocaleString()} {t('social.guilds.totalWords')}
                     </span>
                   </div>
 
@@ -984,7 +991,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         <div className="min-w-0">
                           <p className="text-[10px] font-bold text-slate-700 truncate">{getUserName(memberId)}</p>
                           <p className="text-[10px] font-medium text-indigo-600">
-                            {memberStats[memberId]?.toLocaleString() || 0} <span className="text-slate-400 font-normal">palavras</span>
+                            {memberStats[memberId]?.toLocaleString() || 0} <span className="text-slate-400 font-normal">{t('social.guilds.words')}</span>
                           </p>
                         </div>
                       </div>
@@ -998,7 +1005,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       </svg>
                     </div>
                     <p className="text-[10px] text-indigo-700 leading-tight italic truncate">
-                      {(selectedChat.target as Guild).description || "Bem-vindos à nossa guilda! Juntos somos mais fortes."}
+                      {(selectedChat.target as Guild).description || t('social.guilds.welcomeMessage')}
                     </p>
                   </div>
                 </div>
@@ -1031,7 +1038,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <div className="flex flex-col h-full bg-white animate-slide-in">
                     <div className="p-6 border-b border-slate-100">
                       <button onClick={() => setSelectedGuildThread(null)} className="text-xs text-indigo-600 font-bold mb-4 flex items-center gap-1">
-                        ← Voltar para o Fórum da Guilda
+                        {t('social.guilds.backToForum')}
                       </button>
                       <h3 className="text-xl font-black text-slate-800 mb-2">{selectedGuildThread.title}</h3>
                       <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100 italic">
@@ -1062,22 +1069,22 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     <div className="p-4 border-t border-slate-100">
                       <div className="flex gap-2">
                         <textarea
-                          placeholder="Sua resposta..."
+                          placeholder={t('social.forum.addReplyPlaceholder')}
                           value={newReplyContent}
                           onChange={(e) => setNewReplyContent(e.target.value)}
                           className="flex-1 bg-slate-100 rounded-xl px-4 py-3 text-sm outline-none focus:bg-white border border-transparent focus:border-indigo-200"
                           rows={1}
                         />
-                        <button onClick={handleReplyGuildThread} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold">Responder</button>
+                        <button onClick={handleReplyGuildThread} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold">{t('social.forum.replyButton')}</button>
                       </div>
                     </div>
                   </div>
                 ) : (
                   <div className="p-6 space-y-4">
                     <div className="flex justify-between items-center mb-6">
-                      <h3 className="font-black text-slate-800 text-xl uppercase tracking-tight">Fórum da Guilda</h3>
+                      <h3 className="font-black text-slate-800 text-xl uppercase tracking-tight">{t('social.guilds.guildForum')}</h3>
                       <button onClick={() => setShowCreateGuildThread(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
-                        + Novo Tópico Interno
+                        {t('social.guilds.newInternalThread')}
                       </button>
                     </div>
 
@@ -1085,13 +1092,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-xl mb-8 animate-fade-in">
                         <input
                           type="text"
-                          placeholder="Título do Tópico"
+                          placeholder={t('social.forum.threadTitlePlaceholder')}
                           value={newThreadTitle}
                           onChange={(e) => setNewThreadTitle(e.target.value)}
                           className="w-full px-4 py-3 bg-slate-50 rounded-xl mb-3 font-bold outline-none border border-transparent focus:border-indigo-200"
                         />
                         <textarea
-                          placeholder="Conteúdo..."
+                          placeholder={t('social.forum.contentPlaceholder')}
                           value={newThreadContent}
                           onChange={(e) => setNewThreadContent(e.target.value)}
                           className="w-full px-4 py-3 bg-slate-50 rounded-xl mb-4 outline-none border border-transparent focus:border-indigo-200"
@@ -1099,8 +1106,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         />
                         {forumError && <p className="text-rose-500 text-[10px] mb-2 font-bold uppercase tracking-wider">{forumError}</p>}
                         <div className="flex justify-end gap-2">
-                          <button onClick={() => setShowCreateGuildThread(false)} className="px-4 py-2 text-slate-500 font-bold text-xs">Cancelar</button>
-                          <button onClick={handleCreateGuildThread} className="px-6 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl">Publicar</button>
+                          <button onClick={() => setShowCreateGuildThread(false)} className="px-4 py-2 text-slate-500 font-bold text-xs">{t('social.friends.cancel')}</button>
+                          <button onClick={handleCreateGuildThread} className="px-6 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl">{t('social.forum.publishButton')}</button>
                         </div>
                       </div>
                     )}
@@ -1121,7 +1128,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                   getUserName(thread.authorId).charAt(0)
                                 )}
                               </div>
-                              <span className="text-[10px] text-slate-400">por {getUserName(thread.authorId)} • {new Date(thread.createdAt).toLocaleDateString()}</span>
+                              <span className="text-[10px] text-slate-400">{t('social.forum.by')} {getUserName(thread.authorId)} • {new Date(thread.createdAt).toLocaleDateString()}</span>
                             </div>
                           </button>
                           {selectedChat?.type === 'group' && isOwnerOrAdmin(selectedChat.target as Guild) && (
@@ -1138,7 +1145,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       ))}
                       {guildThreads.length === 0 && (
                         <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200">
-                          <p className="text-slate-400 text-sm font-medium">Nenhum tópico no fórum da guilda ainda.</p>
+                          <p className="text-slate-400 text-sm font-medium">{t('social.guilds.noForumThreads')}</p>
                         </div>
                       )}
                     </div>
@@ -1154,9 +1161,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-11a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                 </div>
-                <h3 className="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">Ágora da Guilda</h3>
+                <h3 className="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">{t('social.guilds.guildAgora')}</h3>
                 <p className="text-slate-500 max-w-md mx-auto mb-8 leading-relaxed">
-                  Conecte-se com seus companheiros de guilda em tempo real para discutir estratégias de escrita.
+                  {t('social.guilds.agoraDescription')}
                 </p>
                 <div className="flex flex-col gap-4">
                   <button
@@ -1166,9 +1173,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     {audioPermission === 'granted' ? (
                       <>
                         <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
-                        CONECTADO
+                        {t('social.guilds.connected')}
                       </>
-                    ) : 'ENTRAR NA SALA'}
+                    ) : t('social.guilds.joinRoom')}
                   </button>
 
                   {audioPermission === 'granted' && (
@@ -1176,11 +1183,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       onClick={handleStopAudio}
                       className="px-8 py-3 bg-rose-100 text-rose-600 font-bold rounded-2xl hover:bg-rose-200 transition-colors uppercase text-xs tracking-widest"
                     >
-                      Parar Áudio
+                      {t('social.guilds.stopAudio')}
                     </button>
                   )}
                 </div>
-                <p className="mt-6 text-[10px] text-slate-400 font-bold uppercase tracking-widest">Acesso restrito aos membros da guilda</p>
+                <p className="mt-6 text-[10px] text-slate-400 font-bold uppercase tracking-widest">{t('social.guilds.restrictedAccess')}</p>
               </div>
             )}
 
@@ -1215,11 +1222,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder="Digite sua mensagem..."
+                    placeholder={t('social.chat.typeMessage')}
                     className="flex-1 bg-slate-100 border-transparent focus:bg-white border focus:border-indigo-400 rounded-xl px-4 py-3 outline-none transition-all"
                   />
                   <button type="submit" disabled={!newMessage.trim()} className={`${selectedChat.type === 'direct' ? 'bg-teal-500 hover:bg-teal-600' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-xl px-5 py-3 font-medium transition-colors disabled:opacity-50 shadow-md shadow-slate-100`}>
-                    Enviar
+                    {t('social.chat.send')}
                   </button>
                 </form>
               </div>
@@ -1241,7 +1248,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <button
                     onClick={(e) => handleDeleteThread(e, selectedThread.id)}
                     className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
-                    title="Excluir Tópico"
+                    title={t('social.forum.deleteThread')}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1251,7 +1258,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               </div>
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold">{getUserName(selectedThread.authorId).charAt(0)}</div>
-                <span className="text-xs text-slate-500">Postado por {getUserName(selectedThread.authorId)} em {new Date(selectedThread.createdAt).toLocaleDateString()}</span>
+                <span className="text-xs text-slate-500">{t('social.forum.postedBy')} {getUserName(selectedThread.authorId)} {t('social.forum.on')} {new Date(selectedThread.createdAt).toLocaleDateString()}</span>
               </div>
               <div className="max-h-60 overflow-y-auto pr-2">
                 <p className="text-slate-700 leading-relaxed whitespace-pre-wrap p-4 bg-slate-50 rounded-lg">{selectedThread.content}</p>
@@ -1259,7 +1266,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              <h3 className="text-sm font-bold text-slate-400 uppercase">Respostas</h3>
+              <h3 className="text-sm font-bold text-slate-400 uppercase">{t('social.forum.replies')}</h3>
               {threadReplies.map(reply => (
                 <div key={reply.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm relative group">
                   <div className="flex justify-between mb-2">
@@ -1270,7 +1277,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         <button
                           onClick={() => handleDeleteReply(reply.id)}
                           className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Excluir Resposta"
+                          title={t('social.forum.deleteReply')}
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1282,7 +1289,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <p className="text-sm text-slate-600">{reply.content}</p>
                 </div>
               ))}
-              {threadReplies.length === 0 && <p className="text-slate-400 text-sm italic">Seja o primeiro a responder.</p>}
+              {threadReplies.length === 0 && <p className="text-slate-400 text-sm italic">{t('social.forum.beTheFirst')}</p>}
             </div>
 
             <div className="p-4 bg-white border-t border-slate-200">
@@ -1290,12 +1297,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 <textarea
                   value={newReplyContent}
                   onChange={(e) => setNewReplyContent(e.target.value)}
-                  placeholder="Adicionar uma resposta..."
+                  placeholder={t('social.forum.addReplyPlaceholder')}
                   className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-teal-200 outline-none resize-none"
                   rows={2}
                 />
                 <button onClick={handleReplyThread} disabled={!newReplyContent.trim()} className="bg-slate-800 text-white px-4 rounded-lg text-sm font-bold hover:bg-slate-900 disabled:opacity-50">
-                  Responder
+                  {t('social.forum.replyButton')}
                 </button>
               </div>
             </div>
@@ -1310,8 +1317,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
               </svg>
             </div>
-            <h3 className="text-xl font-medium text-slate-600 mb-2">Hub Social</h3>
-            <p className="max-w-md text-center">Selecione uma categoria ao lado para interagir.</p>
+            <h3 className="text-xl font-medium text-slate-600 mb-2">{t('social.title')}</h3>
+            <p className="max-w-md text-center">{t('social.chat.selectChat')}</p>
           </div>
         )}
       </div>
@@ -1320,20 +1327,20 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
       {showCreateGuild && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl animate-fade-in border-2 border-indigo-100">
-            <h3 className="font-black text-xl mb-4 text-indigo-900 uppercase tracking-tight">Fundar Guilda</h3>
+            <h3 className="font-black text-xl mb-4 text-indigo-900 uppercase tracking-tight">{t('social.guilds.createGuildTitle')}</h3>
             <input
               className="w-full mb-3 px-3 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-100 outline-none border-slate-200"
-              placeholder="Nome da Guilda"
+              placeholder={t('social.guilds.guildName')}
               value={newGuildName}
               onChange={(e) => setNewGuildName(e.target.value)}
             />
             <textarea
               className="w-full mb-4 px-3 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-100 outline-none border-slate-200 text-sm h-24 resize-none"
-              placeholder="Descrição da Guilda..."
+              placeholder={t('social.guilds.guildDescription')}
               value={newGroupDesc}
               onChange={(e) => setNewGroupDesc(e.target.value)}
             />
-            <p className="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">Selecionar Fundadores:</p>
+            <p className="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">{t('social.guilds.selectFounders')}</p>
             <div className="max-h-40 overflow-y-auto mb-6 border rounded-xl p-3 bg-slate-50 space-y-2">
               {friends.map(({ user }) => (
                 <div key={user.id} className="flex items-center gap-3">
@@ -1346,11 +1353,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <span className="text-sm font-medium text-slate-700">{user.name}</span>
                 </div>
               ))}
-              {friends.length === 0 && <p className="text-[10px] text-slate-400 italic">Você precisa de amigos para fundar uma guilda.</p>}
+              {friends.length === 0 && <p className="text-[10px] text-slate-400 italic">{t('social.guilds.needFriends')}</p>}
             </div>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setShowCreateGuild(false)} className="px-4 py-2 text-slate-500 font-bold text-xs uppercase transition-colors hover:text-slate-800">Cancelar</button>
-              <button onClick={handleCreateGuild} className="px-6 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">Fundar</button>
+              <button onClick={() => setShowCreateGuild(false)} className="px-4 py-2 text-slate-500 font-bold text-xs uppercase transition-colors hover:text-slate-800">{t('social.friends.cancel')}</button>
+              <button onClick={handleCreateGuild} className="px-6 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">{t('social.guilds.foundButton')}</button>
             </div>
           </div>
         </div>
@@ -1360,10 +1367,10 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
       {showCreateThread && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl">
-            <h3 className="font-bold text-lg mb-4">Novo Tópico no Fórum</h3>
+            <h3 className="font-bold text-lg mb-4">{t('social.forum.newForumThread')}</h3>
             <input
               className="w-full mb-3 px-3 py-2 border rounded-lg"
-              placeholder="Título do Tópico"
+              placeholder={t('social.forum.threadTitlePlaceholder')}
               value={newThreadTitle}
               onChange={(e) => setNewThreadTitle(e.target.value)}
             />
@@ -1379,14 +1386,14 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             </select>
             <textarea
               className="w-full mb-4 px-3 py-2 border rounded-lg h-32 resize-none"
-              placeholder="Conteúdo..."
+              placeholder={t('social.forum.contentPlaceholder')}
               value={newThreadContent}
               onChange={(e) => setNewThreadContent(e.target.value)}
             />
             {forumError && <p className="text-rose-500 text-xs mb-3 font-bold">{forumError}</p>}
             <div className="flex justify-end gap-2">
-              <button onClick={() => setShowCreateThread(false)} className="px-3 py-1.5 text-slate-500">Cancelar</button>
-              <button onClick={handleCreateThread} className="px-3 py-1.5 bg-teal-500 text-white rounded-lg">Publicar</button>
+              <button onClick={() => setShowCreateThread(false)} className="px-3 py-1.5 text-slate-500">{t('social.friends.cancel')}</button>
+              <button onClick={handleCreateThread} className="px-3 py-1.5 bg-teal-500 text-white rounded-lg">{t('social.forum.publishButton')}</button>
             </div>
           </div>
         </div>
@@ -1397,42 +1404,42 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
             <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-              <span className="text-xl">🏆</span> Criar Desafio Literário
+              <span className="text-xl">🏆</span> {t('social.competitions.createLiteraryChallenge')}
             </h3>
             <input
               className="w-full mb-3 px-3 py-2 border rounded-lg"
-              placeholder="Nome do Desafio"
+              placeholder={t('social.competitions.challengeNamePlaceholder')}
               value={newCompTitle}
               onChange={(e) => setNewCompTitle(e.target.value)}
             />
             <textarea
               className="w-full mb-3 px-3 py-2 border rounded-lg"
-              placeholder="Regras / Descrição"
+              placeholder={t('social.competitions.rulesDescription')}
               value={newCompDesc}
               onChange={(e) => setNewCompDesc(e.target.value)}
               rows={2}
             />
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
-                <label className="text-xs font-bold text-slate-500">Tipo</label>
+                <label className="text-xs font-bold text-slate-500">{t('social.competitions.typeLabel')}</label>
                 <select className="w-full border rounded-lg p-2" value={newCompType} onChange={(e) => setNewCompType(e.target.value as any)}>
-                  <option value="word_count">Contagem de Palavras</option>
-                  <option value="days_streak">Dias de Frequência</option>
+                  <option value="word_count">{t('social.competitions.wordCountOption')}</option>
+                  <option value="days_streak">{t('social.competitions.streakOption')}</option>
                 </select>
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-500">Duração (Dias)</label>
+                <label className="text-xs font-bold text-slate-500">{t('social.competitions.durationDaysLabel')}</label>
                 <input type="number" className="w-full border rounded-lg p-2" value={newCompDuration} onChange={(e) => setNewCompDuration(Number(e.target.value))} />
               </div>
             </div>
             <div className="mb-4">
-              <label className="text-xs font-bold text-slate-500">Meta ({newCompType === 'word_count' ? 'Palavras' : 'Dias'})</label>
+              <label className="text-xs font-bold text-slate-500">{t('social.competitions.targetLabel')} ({newCompType === 'word_count' ? t('social.competitions.wordType') : t('social.competitions.daysLabel')})</label>
               <input type="number" className="w-full border rounded-lg p-2" value={newCompTarget} onChange={(e) => setNewCompTarget(Number(e.target.value))} />
             </div>
 
             <div className="flex justify-end gap-2">
-              <button onClick={() => setShowCreateComp(false)} className="px-3 py-1.5 text-slate-500">Cancelar</button>
-              <button onClick={handleCreateCompetition} className="px-3 py-1.5 bg-amber-500 text-white rounded-lg">Lançar Desafio</button>
+              <button onClick={() => setShowCreateComp(false)} className="px-3 py-1.5 text-slate-500">{t('social.friends.cancel')}</button>
+              <button onClick={handleCreateCompetition} className="px-3 py-1.5 bg-amber-500 text-white rounded-lg">{t('social.competitions.launchChallenge')}</button>
             </div>
           </div>
         </div>
@@ -1443,25 +1450,25 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl animate-fade-in border border-indigo-50">
             <h3 className="font-black text-2xl mb-6 text-indigo-900 uppercase tracking-tighter flex items-center gap-3">
-              <span className="p-2 bg-indigo-100 rounded-xl text-xl">🎯</span> Propor Desafio
+              <span className="p-2 bg-indigo-100 rounded-xl text-xl">🎯</span> {t('social.guilds.createChallengeTitle')}
             </h3>
 
             <div className="space-y-4 mb-8">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Nome do Desafio</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">{t('social.guilds.challengeNameLabel')}</label>
                 <input
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-bold"
-                  placeholder="Ex: Maratona de Inverno"
+                  placeholder={t('social.guilds.challengeNamePlaceholder')}
                   value={newChallengeTitle}
                   onChange={(e) => setNewChallengeTitle(e.target.value)}
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Descrição Curta</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">{t('social.guilds.shortDescriptionLabel')}</label>
                 <textarea
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm h-24 resize-none leading-relaxed"
-                  placeholder="Explique o que os membros devem fazer..."
+                  placeholder={t('social.guilds.shortDescriptionPlaceholder')}
                   value={newChallengeDesc}
                   onChange={(e) => setNewChallengeDesc(e.target.value)}
                 />
@@ -1469,7 +1476,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Meta de Palavras</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">{t('social.guilds.wordTarget')}</label>
                   <input
                     type="number"
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-black text-indigo-600"
@@ -1478,7 +1485,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Duração (Dias)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">{t('social.guilds.durationDays')}</label>
                   <input
                     type="number"
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-black text-indigo-600"
@@ -1494,13 +1501,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 onClick={() => setShowCreateChallenge(false)}
                 className="flex-1 py-3 text-slate-500 font-bold text-xs uppercase tracking-widest hover:bg-slate-50 rounded-2xl transition-colors"
               >
-                Cancelar
+                {t('social.friends.cancel')}
               </button>
               <button
                 onClick={handleCreateChallenge}
                 className="flex-[2] py-3 bg-indigo-600 text-white font-black text-xs rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all uppercase tracking-widest"
               >
-                Lançar Desafio
+                {t('social.guilds.launchChallenge')}
               </button>
             </div>
           </div>

@@ -2,12 +2,14 @@
 import React, { useState } from 'react';
 import { ArrowLeft, BookOpen, Target, Users, Settings, Lightbulb, HelpCircle, Feather, Clock, BarChart3, Sparkles } from 'lucide-react';
 import { Logo } from './ui/Logo';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface HelpPageProps {
     onExit: () => void;
 }
 
 export const HelpPage: React.FC<HelpPageProps> = ({ onExit }) => {
+    const { t } = useLanguage();
     const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
     const toggleSection = (section: string) => {
@@ -24,12 +26,12 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onExit }) => {
                         className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5" />
-                        <span className="font-medium">Voltar</span>
+                        <span className="font-medium">{t('help.back')}</span>
                     </button>
                     <div className="flex items-center gap-3">
                         <Logo className="w-10 h-10" />
                         <h1 className="text-2xl font-bold bg-gradient-to-r from-teal-600 to-purple-600 bg-clip-text text-transparent">
-                            Ajuda & Sobre
+                            {t('help.title')}
                         </h1>
                     </div>
                     <div className="w-24"></div> {/* Spacer for centering */}
@@ -45,53 +47,51 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onExit }) => {
                             <Feather className="w-8 h-8 text-white" />
                         </div>
                         <div>
-                            <h2 className="text-3xl font-bold text-slate-800 mb-2">Bem-vindo ao Parnaso</h2>
+                            <h2 className="text-3xl font-bold text-slate-800 mb-2">{t('help.welcomeTitle')}</h2>
                             <p className="text-lg text-slate-600">
-                                Seu companheiro para uma jornada de escrita mais produtiva e inspiradora
+                                {t('help.welcomeSubtitle')}
                             </p>
                         </div>
                     </div>
                     <p className="text-slate-700 leading-relaxed">
-                        O <strong>Parnaso</strong> é uma plataforma completa para escritores que desejam acompanhar seu progresso,
-                        manter o foco e se conectar com outros apaixonados pela escrita. Aqui você encontra ferramentas para
-                        registrar suas sessões, organizar projetos e cultivar o hábito da escrita criativa.
+                        {t('help.description')}
                     </p>
                 </div>
 
                 {/* Features Section */}
                 <h3 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
                     <Sparkles className="w-6 h-6 text-purple-500" />
-                    Funcionalidades Principais
+                    {t('help.featuresTitle')}
                 </h3>
 
                 <div className="space-y-4 mb-12">
                     {/* Sessões de Escrita */}
                     <FeatureCard
                         icon={<Clock className="w-6 h-6" />}
-                        title="📝 Sessões de Escrita"
+                        title={t('help.sections.sessions.title')}
                         color="teal"
                         expanded={expandedSection === 'sessions'}
                         onToggle={() => toggleSection('sessions')}
                     >
                         <p className="text-slate-700 mb-3">
-                            Registre cada momento que você dedica à escrita. Acompanhe seu tempo, palavras escritas e progresso ao longo do tempo.
+                            {t('help.sections.sessions.desc')}
                         </p>
                         <ul className="space-y-2 text-slate-600">
                             <li className="flex items-start gap-2">
                                 <span className="text-teal-500 font-bold">•</span>
-                                <span>Registre horário de início e fim de cada sessão</span>
+                                <span>{t('help.sections.sessions.item1')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-teal-500 font-bold">•</span>
-                                <span>Conte palavras automaticamente</span>
+                                <span>{t('help.sections.sessions.item2')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-teal-500 font-bold">•</span>
-                                <span>Adicione notas e reflexões sobre cada sessão</span>
+                                <span>{t('help.sections.sessions.item3')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-teal-500 font-bold">•</span>
-                                <span>Vincule sessões a projetos específicos</span>
+                                <span>{t('help.sections.sessions.item4')}</span>
                             </li>
                         </ul>
                     </FeatureCard>
@@ -99,30 +99,30 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onExit }) => {
                     {/* Modo Foco */}
                     <FeatureCard
                         icon={<Target className="w-6 h-6" />}
-                        title="🎯 Modo Foco"
+                        title={t('help.sections.focus.title')}
                         color="purple"
                         expanded={expandedSection === 'focus'}
                         onToggle={() => toggleSection('focus')}
                     >
                         <p className="text-slate-700 mb-3">
-                            Um ambiente minimalista e sem distrações para você se concentrar apenas na escrita.
+                            {t('help.sections.focus.desc')}
                         </p>
                         <ul className="space-y-2 text-slate-600">
                             <li className="flex items-start gap-2">
                                 <span className="text-purple-500 font-bold">•</span>
-                                <span>Interface limpa e sem distrações</span>
+                                <span>{t('help.sections.focus.item1')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-purple-500 font-bold">•</span>
-                                <span>Contador de palavras em tempo real</span>
+                                <span>{t('help.sections.focus.item2')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-purple-500 font-bold">•</span>
-                                <span>Timer automático de sessão</span>
+                                <span>{t('help.sections.focus.item3')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-purple-500 font-bold">•</span>
-                                <span>Salve seu progresso ao finalizar</span>
+                                <span>{t('help.sections.focus.item4')}</span>
                             </li>
                         </ul>
                     </FeatureCard>
@@ -130,30 +130,30 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onExit }) => {
                     {/* Projetos */}
                     <FeatureCard
                         icon={<BookOpen className="w-6 h-6" />}
-                        title="📚 Projetos"
+                        title={t('help.sections.projects.title')}
                         color="indigo"
                         expanded={expandedSection === 'projects'}
                         onToggle={() => toggleSection('projects')}
                     >
                         <p className="text-slate-700 mb-3">
-                            Organize suas obras literárias e acompanhe o progresso de cada projeto.
+                            {t('help.sections.projects.desc')}
                         </p>
                         <ul className="space-y-2 text-slate-600">
                             <li className="flex items-start gap-2">
                                 <span className="text-indigo-500 font-bold">•</span>
-                                <span>Crie projetos para romances, contos, poemas, etc.</span>
+                                <span>{t('help.sections.projects.item1')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-indigo-500 font-bold">•</span>
-                                <span>Defina metas de palavras para cada projeto</span>
+                                <span>{t('help.sections.projects.item2')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-indigo-500 font-bold">•</span>
-                                <span>Visualize estatísticas e progresso</span>
+                                <span>{t('help.sections.projects.item3')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-indigo-500 font-bold">•</span>
-                                <span>Associe sessões de escrita aos seus projetos</span>
+                                <span>{t('help.sections.projects.item4')}</span>
                             </li>
                         </ul>
                     </FeatureCard>
@@ -161,30 +161,30 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onExit }) => {
                     {/* Social Hub */}
                     <FeatureCard
                         icon={<Users className="w-6 h-6" />}
-                        title="👥 Social Hub"
+                        title={t('help.sections.social.title')}
                         color="rose"
                         expanded={expandedSection === 'social'}
                         onToggle={() => toggleSection('social')}
                     >
                         <p className="text-slate-700 mb-3">
-                            Conecte-se com outros escritores, compartilhe seu progresso e encontre inspiração.
+                            {t('help.sections.social.desc')}
                         </p>
                         <ul className="space-y-2 text-slate-600">
                             <li className="flex items-start gap-2">
                                 <span className="text-rose-500 font-bold">•</span>
-                                <span>Compartilhe suas conquistas e marcos</span>
+                                <span>{t('help.sections.social.item1')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-rose-500 font-bold">•</span>
-                                <span>Veja o que outros escritores estão criando</span>
+                                <span>{t('help.sections.social.item2')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-rose-500 font-bold">•</span>
-                                <span>Interaja através de curtidas e comentários</span>
+                                <span>{t('help.sections.social.item3')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-rose-500 font-bold">•</span>
-                                <span>Encontre motivação na comunidade</span>
+                                <span>{t('help.sections.social.item4')}</span>
                             </li>
                         </ul>
                     </FeatureCard>
@@ -192,30 +192,30 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onExit }) => {
                     {/* Estatísticas */}
                     <FeatureCard
                         icon={<BarChart3 className="w-6 h-6" />}
-                        title="📊 Estatísticas"
+                        title={t('help.sections.stats.title')}
                         color="emerald"
                         expanded={expandedSection === 'stats'}
                         onToggle={() => toggleSection('stats')}
                     >
                         <p className="text-slate-700 mb-3">
-                            Visualize seu progresso através de gráficos e métricas detalhadas.
+                            {t('help.sections.stats.desc')}
                         </p>
                         <ul className="space-y-2 text-slate-600">
                             <li className="flex items-start gap-2">
                                 <span className="text-emerald-500 font-bold">•</span>
-                                <span>Total de palavras escritas</span>
+                                <span>{t('help.sections.stats.item1')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-emerald-500 font-bold">•</span>
-                                <span>Tempo total dedicado à escrita</span>
+                                <span>{t('help.sections.stats.item2')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-emerald-500 font-bold">•</span>
-                                <span>Média de palavras por sessão</span>
+                                <span>{t('help.sections.stats.item3')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-emerald-500 font-bold">•</span>
-                                <span>Sequência de dias escrevendo</span>
+                                <span>{t('help.sections.stats.item4')}</span>
                             </li>
                         </ul>
                     </FeatureCard>
@@ -223,26 +223,26 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onExit }) => {
                     {/* Configurações */}
                     <FeatureCard
                         icon={<Settings className="w-6 h-6" />}
-                        title="⚙️ Configurações"
+                        title={t('help.sections.settings.title')}
                         color="slate"
                         expanded={expandedSection === 'settings'}
                         onToggle={() => toggleSection('settings')}
                     >
                         <p className="text-slate-700 mb-3">
-                            Personalize sua experiência no Parnaso de acordo com suas preferências.
+                            {t('help.sections.settings.desc')}
                         </p>
                         <ul className="space-y-2 text-slate-600">
                             <li className="flex items-start gap-2">
                                 <span className="text-slate-500 font-bold">•</span>
-                                <span>Defina sua meta diária de palavras</span>
+                                <span>{t('help.sections.settings.item1')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-slate-500 font-bold">•</span>
-                                <span>Configure notificações e lembretes</span>
+                                <span>{t('help.sections.settings.item2')}</span>
                             </li>
                             <li className="flex items-start gap-2">
                                 <span className="text-slate-500 font-bold">•</span>
-                                <span>Ajuste preferências de privacidade</span>
+                                <span>{t('help.sections.settings.item3')}</span>
                             </li>
                         </ul>
                     </FeatureCard>
@@ -252,24 +252,24 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onExit }) => {
                 <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl shadow-lg p-8 mb-8 border border-amber-200">
                     <h3 className="text-2xl font-bold text-slate-800 mb-4 flex items-center gap-2">
                         <Lightbulb className="w-6 h-6 text-amber-500" />
-                        Dicas para Aproveitar ao Máximo
+                        {t('help.tipsTitle')}
                     </h3>
                     <ul className="space-y-3 text-slate-700">
                         <li className="flex items-start gap-3">
                             <span className="text-2xl">✍️</span>
-                            <span><strong>Escreva todos os dias:</strong> Mesmo que por poucos minutos, a consistência é fundamental para desenvolver o hábito da escrita.</span>
+                            <span><strong>{t('help.tips.tip1Title')}</strong> {t('help.tips.tip1Desc')}</span>
                         </li>
                         <li className="flex items-start gap-3">
                             <span className="text-2xl">🎯</span>
-                            <span><strong>Use o Modo Foco:</strong> Quando precisar de concentração total, ative o Modo Foco para eliminar distrações.</span>
+                            <span><strong>{t('help.tips.tip2Title')}</strong> {t('help.tips.tip2Desc')}</span>
                         </li>
                         <li className="flex items-start gap-3">
                             <span className="text-2xl">📊</span>
-                            <span><strong>Acompanhe seu progresso:</strong> Revise suas estatísticas regularmente para ver o quanto você evoluiu.</span>
+                            <span><strong>{t('help.tips.tip3Title')}</strong> {t('help.tips.tip3Desc')}</span>
                         </li>
                         <li className="flex items-start gap-3">
                             <span className="text-2xl">🤝</span>
-                            <span><strong>Conecte-se com a comunidade:</strong> Compartilhe suas conquistas e inspire-se com outros escritores.</span>
+                            <span><strong>{t('help.tips.tip4Title')}</strong> {t('help.tips.tip4Desc')}</span>
                         </li>
                     </ul>
                 </div>
@@ -278,36 +278,36 @@ export const HelpPage: React.FC<HelpPageProps> = ({ onExit }) => {
                 <div className="bg-white rounded-2xl shadow-lg p-8 border border-slate-200">
                     <h3 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
                         <HelpCircle className="w-6 h-6 text-teal-500" />
-                        Perguntas Frequentes
+                        {t('help.faqTitle')}
                     </h3>
                     <div className="space-y-4">
                         <FAQItem
-                            question="Como faço para registrar uma sessão de escrita?"
-                            answer="Clique no botão 'Nova Sessão' no Dashboard. Você pode usar o Modo Foco para escrever e o sistema registrará automaticamente o tempo e contagem de palavras, ou pode registrar manualmente uma sessão já concluída."
+                            question={t('help.faq.q1')}
+                            answer={t('help.faq.a1')}
                         />
                         <FAQItem
-                            question="Posso editar ou excluir sessões antigas?"
-                            answer="Atualmente, as sessões são registradas de forma permanente para manter a integridade do seu histórico. Se precisar fazer correções, entre em contato com o suporte."
+                            question={t('help.faq.q2')}
+                            answer={t('help.faq.a2')}
                         />
                         <FAQItem
-                            question="Como funciona o Social Hub?"
-                            answer="No Social Hub, você pode compartilhar suas conquistas, ver posts de outros escritores e interagir através de curtidas e comentários. É uma forma de se manter motivado e conectado com a comunidade."
+                            question={t('help.faq.q3')}
+                            answer={t('help.faq.a3')}
                         />
                         <FAQItem
-                            question="Meus dados estão seguros?"
-                            answer="Sim! Todos os seus dados são armazenados de forma segura no Firebase/Firestore com autenticação e regras de segurança. Apenas você tem acesso às suas sessões e projetos privados."
+                            question={t('help.faq.q4')}
+                            answer={t('help.faq.a4')}
                         />
                         <FAQItem
-                            question="Como defino metas para meus projetos?"
-                            answer="Ao criar ou editar um projeto, você pode definir uma meta de palavras. O sistema acompanhará automaticamente seu progresso conforme você registra sessões vinculadas a esse projeto."
+                            question={t('help.faq.q5')}
+                            answer={t('help.faq.a5')}
                         />
                     </div>
                 </div>
 
                 {/* Footer */}
                 <div className="mt-12 text-center text-slate-500">
-                    <p className="mb-2">Feito com 💜 para escritores apaixonados</p>
-                    <p className="text-sm">Parnaso - Sua jornada literária começa aqui</p>
+                    <p className="mb-2">{t('help.footer1')}</p>
+                    <p className="text-sm">{t('help.footer2')}</p>
                 </div>
             </div>
         </div>

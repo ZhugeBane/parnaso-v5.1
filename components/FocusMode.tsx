@@ -48,10 +48,11 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
   const handleFinish = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     const endTime = new Date();
+    const locale = t('common.save') === 'Salvar' ? 'pt-BR' : 'en-US';
     const formattedStart = startTime
-      ? startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-      : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const formattedEnd = endTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      ? startTime.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+      : new Date().toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+    const formattedEnd = endTime.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
 
     // Calculate simple word count
     const wordCount = text.trim().split(/\s+/).filter(w => w.length > 0).length;
@@ -70,7 +71,7 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
       <div className="flex justify-between items-center p-6 border-b border-slate-800">
         <div className="flex items-center gap-3">
           <Logo className="w-8 h-8 opacity-50 grayscale hover:grayscale-0 hover:opacity-100 transition-all" />
-          <h2 className="text-xl font-light tracking-widest uppercase text-slate-400">Modo de Foco</h2>
+          <h2 className="text-xl font-light tracking-widest uppercase text-slate-400">{t('focusMode.title')}</h2>
         </div>
         <button
           onClick={() => onExit()}
@@ -108,7 +109,7 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
               <div className="text-6xl md:text-8xl font-mono font-bold tracking-tighter text-teal-300 tabular-nums">
                 {formatTime(seconds)}
               </div>
-              <p className="text-slate-500 mt-2 text-sm uppercase tracking-wide">Tempo de Escrita</p>
+              <p className="text-slate-500 mt-2 text-sm uppercase tracking-wide">{t('focusMode.writingTime')}</p>
             </>
           ) : (
             <PomodoroTimer onComplete={handlePomodoroComplete} />
@@ -119,12 +120,12 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
         <div className="w-full max-w-4xl h-80 md:h-96 bg-slate-800 rounded-xl p-1 border border-slate-700 relative group shadow-2xl">
           <textarea
             className="w-full h-full bg-slate-800/50 rounded-lg p-6 border-none outline-none resize-none text-slate-200 text-lg leading-relaxed font-serif placeholder-slate-600 focus:bg-slate-800 transition-colors"
-            placeholder="Digite aqui... Seu texto será salvo automaticamente ao encerrar a sessão."
+            placeholder={t('focusMode.placeholder')}
             value={text}
             onChange={(e) => setText(e.target.value)}
           ></textarea>
           <div className="absolute bottom-4 right-4 text-xs text-slate-500 pointer-events-none">
-            {text.length > 0 ? `${text.trim().split(/\s+/).filter(w => w.length > 0).length} palavras` : 'Comece a escrever...'}
+            {text.length > 0 ? `${text.trim().split(/\s+/).filter(w => w.length > 0).length} ${t('dashboard.words')}` : t('focusMode.startWritingPrompt')}
           </div>
         </div>
 
@@ -157,7 +158,7 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
                 </svg>
-                Salvar Sessão
+                {t('sessionForm.saveSession')}
               </button>
             )}
           </div>

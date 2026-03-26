@@ -1,26 +1,19 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { WritingSession, Project } from '../types';
 import { Card } from './ui/Card';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface SessionFormProps {
   onSubmit: (session: WritingSession) => void;
   onCancel: () => void;
   initialValues?: Partial<WritingSession>;
   projects: Project[];
+  onAddProject?: (project: Project) => void;
 }
 
-const MOTIVATIONAL_MESSAGES = [
-  "A escrita é a pintura da voz. Ótimo trabalho!",
-  "A inspiração existe, mas ela precisa te encontrar trabalhando.",
-  "Mais um passo dado na sua jornada literária.",
-  "O segredo é a constância. Continue assim!",
-  "Você está construindo mundos, palavra por palavra.",
-  "Nenhum dia sem uma linha. Parabéns pelo foco!",
-  "Sua história está ganhando vida.",
-  "Escrever é reescrever. Bom progresso!",
-  "A disciplina é a mãe da criatividade.",
-  "Cada palavra conta. Você foi longe hoje!"
+const DEFAULT_PROJECT_COLORS = [
+  '#f87171', '#fb923c', '#fbbf24', '#a3e635', '#34d399',
+  '#22d3ee', '#818cf8', '#e879f9', '#f43f5e', '#64748b'
 ];
 
 // --- Helper Components ---
@@ -89,10 +82,31 @@ const InputField = ({ label, type = "text", value, onChange, placeholder, requir
 
 // --- Main Component ---
 
-export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, initialValues, projects }) => {
+export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, initialValues, projects, onAddProject }) => {
+  const { t } = useLanguage();
   const [showSuccess, setShowSuccess] = useState(false);
   const [pendingSession, setPendingSession] = useState<WritingSession | null>(null);
   const [randomMessage, setRandomMessage] = useState("");
+
+  // New Project State
+  const [showNewProjectForm, setShowNewProjectForm] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectDesc, setNewProjectDesc] = useState('');
+  const [newProjectGoal, setNewProjectGoal] = useState('');
+  const [newProjectColor, setNewProjectColor] = useState(DEFAULT_PROJECT_COLORS[Math.floor(Math.random() * DEFAULT_PROJECT_COLORS.length)]);
+
+  const motivationalMessages = useMemo(() => [
+    t('sessionForm.motivation1'),
+    t('sessionForm.motivation2'),
+    t('sessionForm.motivation3'),
+    t('sessionForm.motivation4'),
+    t('sessionForm.motivation5'),
+    t('sessionForm.motivation6'),
+    t('sessionForm.motivation7'),
+    t('sessionForm.motivation8'),
+    t('sessionForm.motivation9'),
+    t('sessionForm.motivation10')
+  ], [t]);
   
   useEffect(() => {
     if (showSuccess && pendingSession) {
@@ -133,7 +147,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.startTime || !formData.endTime) {
-      alert("Por favor, preencha os horários.");
+      alert(t('sessionForm.fillTimes'));
       return;
     }
     
@@ -160,10 +174,33 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       sessionRating: formData.sessionRating!
     };
     
-    const msg = MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)];
+    const msg = motivationalMessages[Math.floor(Math.random() * motivationalMessages.length)];
     setRandomMessage(msg);
     setPendingSession(newSession);
     setShowSuccess(true);
+  };
+
+  const handleCreateProject = () => {
+    if (!newProjectName || !onAddProject) return;
+
+    const project: Project = {
+      id: Date.now().toString(),
+      name: newProjectName,
+      description: newProjectDesc,
+      targetWordCount: newProjectGoal ? Number(newProjectGoal) : undefined,
+      color: newProjectColor,
+      status: 'active',
+      createdAt: new Date().toISOString()
+    };
+
+    onAddProject(project);
+    handleChange('projectId', project.id);
+    
+    // Reset form
+    setShowNewProjectForm(false);
+    setNewProjectName('');
+    setNewProjectDesc('');
+    setNewProjectGoal('');
   };
 
   const getDateInputValue = (isoDate?: string) => {
@@ -182,7 +219,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h3 className="text-2xl font-bold text-slate-800 mb-2">Sessão Salva no Firebase!</h3>
+            <h3 className="text-2xl font-bold text-slate-800 mb-2">{t('sessionForm.savedSuccess')}</h3>
             <p className="text-lg text-slate-600 italic font-medium">"{randomMessage}"</p>
             <div className="mt-6 w-full bg-slate-100 rounded-full h-1 overflow-hidden">
                <div className="bg-teal-500 h-1 rounded-full animate-[progress_2.5s_linear]"></div>
@@ -202,8 +239,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       )}
 
       <div className="flex items-center justify-between mb-8">
-        <h2 className="text-2xl font-bold text-slate-800">Detalhes da Sessão</h2>
-        <button onClick={onCancel} className="text-slate-500 hover:text-slate-700 text-sm">Cancelar</button>
+        <h2 className="text-2xl font-bold text-slate-800">{t('sessionForm.details')}</h2>
+        <button onClick={onCancel} className="text-slate-500 hover:text-slate-700 text-sm">{t('common.cancel')}</button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -211,37 +248,107 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         {/* Project Selection */}
         <Card>
            <div className="mb-2">
-            <label className="block text-sm font-medium text-slate-700 mb-2">A qual obra isso pertence?</label>
-            <select
-              value={formData.projectId || ''}
-              onChange={(e) => handleChange('projectId', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-teal-400 focus:border-teal-400 outline-none bg-white"
-            >
-              <option value="">Sem Obra Específica (Geral)</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-slate-700">{t('sessionForm.projectQuestion')}</label>
+              {!showNewProjectForm && onAddProject && (
+                <button 
+                  type="button" 
+                  onClick={() => setShowNewProjectForm(true)}
+                  className="text-xs font-medium text-teal-600 hover:text-teal-700 flex items-center gap-1"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                  </svg>
+                  {t('sessionForm.newProject')}
+                </button>
+              )}
+            </div>
+            
+            {!showNewProjectForm ? (
+              <select
+                value={formData.projectId || ''}
+                onChange={(e) => handleChange('projectId', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-teal-400 focus:border-teal-400 outline-none bg-white transition-all"
+              >
+                <option value="">{t('sessionForm.noProject')}</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            ) : (
+              <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200 animate-fade-in">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <InputField 
+                    label={t('sessionForm.projectName')} 
+                    value={newProjectName} 
+                    onChange={setNewProjectName} 
+                    required 
+                  />
+                  <InputField 
+                    label={t('sessionForm.projectGoal')} 
+                    type="number" 
+                    value={newProjectGoal} 
+                    onChange={setNewProjectGoal} 
+                  />
+                </div>
+                <InputField 
+                  label={t('sessionForm.projectDesc')} 
+                  value={newProjectDesc} 
+                  onChange={setNewProjectDesc} 
+                />
+                
+                <div className="flex items-center justify-between pt-2">
+                  <div className="flex gap-2">
+                    {DEFAULT_PROJECT_COLORS.map(color => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => setNewProjectColor(color)}
+                        className={`w-6 h-6 rounded-full transition-transform hover:scale-110 ${newProjectColor === color ? 'ring-2 ring-offset-2 ring-slate-400 scale-110' : ''}`}
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      type="button" 
+                      onClick={() => setShowNewProjectForm(false)}
+                      className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
+                    >
+                      {t('sessionForm.cancelNewProject')}
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={handleCreateProject}
+                      disabled={!newProjectName}
+                      className="px-3 py-1.5 text-xs font-medium text-white bg-teal-500 rounded-lg hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {t('sessionForm.addProject')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
            </div>
         </Card>
 
         {/* Content Capture */}
-        <Card title="Rascunho da Sessão" subtitle="O que você escreveu hoje (opcional)">
+        <Card title={t('sessionForm.draftTitle')} subtitle={t('sessionForm.draftSubtitle')}>
            <textarea 
              className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-400 outline-none text-slate-700 font-serif leading-relaxed"
              rows={8}
-             placeholder="Se você usou o Modo Foco, seu texto aparecerá aqui. Caso contrário, você pode colar ou digitar aqui para salvar no banco de dados."
+             placeholder={t('sessionForm.draftPlaceholder')}
              value={formData.content}
              onChange={(e) => handleChange('content', e.target.value)}
            ></textarea>
-           <p className="text-xs text-slate-500 mt-2 text-right">Este texto será criptografado e salvo no seu banco de dados.</p>
+           <p className="text-xs text-slate-500 mt-2 text-right">{t('sessionForm.draftWarning')}</p>
         </Card>
 
         {/* Section 1 */}
-        <Card title="1. Métricas">
+        <Card title={t('sessionForm.sectionMetrics')}>
           <div className="mb-4">
              <InputField 
-               label="Data da Sessão" 
+               label={t('sessionForm.date')} 
                type="date" 
                value={getDateInputValue(formData.date)} 
                onChange={(v: string) => {
@@ -255,102 +362,102 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
              />
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <InputField label="Início" type="time" value={formData.startTime} onChange={(v: string) => handleChange('startTime', v)} required />
-            <InputField label="Fim" type="time" value={formData.endTime} onChange={(v: string) => handleChange('endTime', v)} required />
+            <InputField label={t('sessionForm.startTime')} type="time" value={formData.startTime} onChange={(v: string) => handleChange('startTime', v)} required />
+            <InputField label={t('sessionForm.endTime')} type="time" value={formData.endTime} onChange={(v: string) => handleChange('endTime', v)} required />
           </div>
-          <InputField label="Quantas palavras escreveu?" type="number" value={formData.wordCount} onChange={(v: string) => handleChange('wordCount', v)} placeholder="Ex: 500" required />
+          <InputField label={t('sessionForm.wordsWritten')} type="number" value={formData.wordCount} onChange={(v: string) => handleChange('wordCount', v)} placeholder={t('sessionForm.exNumber')} required />
         </Card>
 
         {/* Section 2 */}
-        <Card title="2. Processo e Estado">
+        <Card title={t('sessionForm.sectionProcess')}>
           <RadioGroup
-            label="Nível de Estresse"
+            label={t('sessionForm.stressLevel')}
             value={formData.stressLevel}
             onChange={(v: number) => handleChange('stressLevel', v)}
             options={[1, 2, 3, 4, 5]}
-            minLabel="Tranquilo"
-            maxLabel="Estressante"
+            minLabel={t('sessionForm.levelCalm')}
+            maxLabel={t('sessionForm.levelStressful')}
           />
           <div className="space-y-4 pt-4 border-t border-slate-100">
-            <Toggle label="Utilizou esqueleto/outline?" checked={formData.usedSkeleton} onChange={(v: boolean) => handleChange('usedSkeleton', v)} />
-            <Toggle label="Utilizou rascunhos?" checked={formData.usedDrafts} onChange={(v: boolean) => handleChange('usedDrafts', v)} />
+            <Toggle label={t('sessionForm.usedSkeleton')} checked={formData.usedSkeleton} onChange={(v: boolean) => handleChange('usedSkeleton', v)} />
+            <Toggle label={t('sessionForm.usedDrafts')} checked={formData.usedDrafts} onChange={(v: boolean) => handleChange('usedDrafts', v)} />
           </div>
         </Card>
 
         {/* Section 3 */}
-        <Card title="3. Dificuldades e Correção">
+        <Card title={t('sessionForm.sectionDifficulty')}>
           <RadioGroup
-            label="Autocorreção Durante a Escrita"
+            label={t('sessionForm.autoCorrection')}
             value={formData.autoCorrectionFrequency}
             onChange={(v: number) => handleChange('autoCorrectionFrequency', v)}
             options={[1, 2, 3, 4, 5]}
-            minLabel="Não me autocorrigi"
-            maxLabel="Tive uma intensa autocorreção"
+            minLabel={t('sessionForm.noCorrection')}
+            maxLabel={t('sessionForm.intenseCorrection')}
           />
           
           <div className="pt-4 border-t border-slate-100">
             <RadioGroup
-              label="Nível de Dificuldade Sentida"
+              label={t('sessionForm.difficultyLevel')}
               value={formData.difficultyLevel}
               onChange={(v: number) => handleChange('difficultyLevel', v)}
               options={[1, 2, 3, 4, 5]}
-              minLabel="Nenhuma"
-              maxLabel="Intensa"
+              minLabel={t('sessionForm.none')}
+              maxLabel={t('sessionForm.intense')}
             />
           </div>
 
           <div className="mt-4">
-             <label className="block text-sm font-medium text-slate-700 mb-1">Em caso de dificuldades, quais foram?</label>
+             <label className="block text-sm font-medium text-slate-700 mb-1">{t('sessionForm.difficultiesQuestion')}</label>
              <textarea 
                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-teal-400 focus:border-teal-400 outline-none"
                rows={3}
                value={formData.specificDifficulties}
                onChange={(e) => handleChange('specificDifficulties', e.target.value)}
-               placeholder="Descreva brevemente..."
+               placeholder={t('sessionForm.describeBriefly')}
              />
           </div>
         </Card>
 
         {/* Section 4 */}
-        <Card title="4. Gestão e Foco">
-          <Toggle label="Estava realizando outra atividade (Multitasking)?" checked={formData.wasMultitasking} onChange={(v: boolean) => handleChange('wasMultitasking', v)} />
+        <Card title={t('sessionForm.sectionFocus')}>
+          <Toggle label={t('sessionForm.wasMultitasking')} checked={formData.wasMultitasking} onChange={(v: boolean) => handleChange('wasMultitasking', v)} />
           {formData.wasMultitasking && (
-             <InputField label="Qual atividade?" value={formData.multitaskingDescription} onChange={(v: string) => handleChange('multitaskingDescription', v)} />
+             <InputField label={t('sessionForm.whichActivity')} value={formData.multitaskingDescription} onChange={(v: string) => handleChange('multitaskingDescription', v)} />
           )}
           
           <div className="pt-4 border-t border-slate-100">
-             <Toggle label="Utilizou estratégia de gestão de tempo?" checked={formData.usedTimeStrategy} onChange={(v: boolean) => handleChange('usedTimeStrategy', v)} />
+             <Toggle label={t('sessionForm.usedTimeStrategy')} checked={formData.usedTimeStrategy} onChange={(v: boolean) => handleChange('usedTimeStrategy', v)} />
              {formData.usedTimeStrategy && (
-               <InputField label="Qual estratégia?" value={formData.timeStrategyDescription} onChange={(v: string) => handleChange('timeStrategyDescription', v)} placeholder="Ex: Pomodoro" />
+               <InputField label={t('sessionForm.whichStrategy')} value={formData.timeStrategyDescription} onChange={(v: string) => handleChange('timeStrategyDescription', v)} placeholder={t('sessionForm.exPomodoro')} />
              )}
           </div>
         </Card>
 
         {/* Section 5 */}
-        <Card title="5. Conclusão">
-          <Toggle label="Se autorecompensou ao final?" checked={formData.selfRewarded} onChange={(v: boolean) => handleChange('selfRewarded', v)} />
+        <Card title={t('sessionForm.sectionConclusion')}>
+          <Toggle label={t('sessionForm.selfRewarded')} checked={formData.selfRewarded} onChange={(v: boolean) => handleChange('selfRewarded', v)} />
           {formData.selfRewarded && (
-             <InputField label="Com o quê?" value={formData.rewardDescription} onChange={(v: string) => handleChange('rewardDescription', v)} placeholder="Ex: Chocolate, Descanso..." />
+             <InputField label={t('sessionForm.withWhat')} value={formData.rewardDescription} onChange={(v: string) => handleChange('rewardDescription', v)} placeholder={t('sessionForm.exReward')} />
           )}
           
           <div className="pt-6 border-t border-slate-100">
              <RadioGroup
-              label="Avaliação Geral da Sessão"
+              label={t('sessionForm.sessionRating')}
               value={formData.sessionRating}
               onChange={(v: number) => handleChange('sessionRating', v)}
               options={[1, 2, 3, 4, 5]}
-              minLabel="Péssima"
-              maxLabel="Excelente"
+              minLabel={t('sessionForm.ratingPoor')}
+              maxLabel={t('sessionForm.ratingExcellent')}
             />
           </div>
         </Card>
 
         <div className="flex justify-end gap-3 pt-4">
           <button type="button" onClick={onCancel} className="px-6 py-3 rounded-xl text-slate-600 bg-white border border-slate-200 font-medium hover:bg-slate-50 transition-colors">
-            Cancelar
+            {t('common.cancel')}
           </button>
           <button type="submit" className="px-6 py-3 rounded-xl text-white bg-teal-500 font-medium hover:bg-teal-600 shadow-lg shadow-teal-200 transition-all transform active:scale-95">
-            Salvar no Banco de Dados
+            {t('sessionForm.saveSession')}
           </button>
         </div>
       </form>

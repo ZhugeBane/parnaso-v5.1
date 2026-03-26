@@ -8,6 +8,7 @@ import { LanguageSelector } from './ui/LanguageSelector';
 import { HeatmapChart } from './ui/HeatmapChart';
 import { useLanguage } from '../i18n/LanguageContext';
 import { updateUserProfilePicture } from '../services/authService';
+import { compressImage } from '../utils/imageProcessor';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend
@@ -141,19 +142,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     setNewProjectGoal('');
     setNewProjectColor(DEFAULT_PROJECT_COLORS[Math.floor(Math.random() * DEFAULT_PROJECT_COLORS.length)]);
   };
-
   const handleUpdateAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || readOnly) return;
 
     try {
       setIsUpdatingAvatar(true);
-      await updateUserProfilePicture(user.id, file);
+      
+      // Compress to 512x512 with 70% quality for faster loading
+      const compressedBlob = await compressImage(file, 512, 512, 0.7);
+      
+      await updateUserProfilePicture(user.id, compressedBlob);
       // Recarregar a página ou notificar o pai para atualizar os dados do usuário
       window.location.reload();
     } catch (error) {
       console.error("Erro ao atualizar foto:", error);
-      alert("Erro ao enviar foto. Tente novamente.");
+      alert("Erro ao enviar foto. Verifique o tamanho e o formato.");
     } finally {
       setIsUpdatingAvatar(false);
     }
@@ -223,10 +227,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   }));
 
   const strategyUsage = [
-    { name: 'Esqueleto', value: filteredSessions.filter(s => s.usedSkeleton).length },
-    { name: 'Rascunhos', value: filteredSessions.filter(s => s.usedDrafts).length },
-    { name: 'Gestão Tempo', value: filteredSessions.filter(s => s.usedTimeStrategy).length },
-    { name: 'Multitasking', value: filteredSessions.filter(s => s.wasMultitasking).length },
+    { name: t('dashboard.skeleton'), value: filteredSessions.filter(s => s.usedSkeleton).length },
+    { name: t('dashboard.drafts'), value: filteredSessions.filter(s => s.usedDrafts).length },
+    { name: t('dashboard.timeManagement'), value: filteredSessions.filter(s => s.usedTimeStrategy).length },
+    { name: t('dashboard.multitasking'), value: filteredSessions.filter(s => s.wasMultitasking).length },
   ].filter(d => d.value > 0);
 
   // KPIs
@@ -548,19 +552,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const renderKPIs = () => (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
       <Card className="border-l-4 border-teal-400">
-        <Stat label="Total de Palavras" value={totalWords.toLocaleString('pt-BR')} colorClass="text-teal-600" />
+        <Stat label={t('dashboard.totalWords')} value={totalWords.toLocaleString('pt-BR')} colorClass="text-teal-600" />
         {activeProject && activeProject.targetWordCount && (
-          <div className="mt-2 text-xs text-slate-500">Meta: {activeProject.targetWordCount} ({projectProgress}%)</div>
+          <div className="mt-2 text-xs text-slate-500">{t('dashboard.goal')}: {activeProject.targetWordCount} ({projectProgress}%)</div>
         )}
       </Card>
       <Card className="border-l-4 border-purple-400">
-        <Stat label="Média / Sessão" value={avgWords} subValue="palavras" colorClass="text-purple-600" />
+        <Stat label={t('dashboard.avgPerSession')} value={avgWords} subValue={t('dashboard.words')} colorClass="text-purple-600" />
       </Card>
       <Card className="border-l-4 border-amber-400">
-        <Stat label="Sequência Atual" value={currentStreak} subValue="dias" colorClass="text-amber-500" />
+        <Stat label={t('dashboard.currentStreak')} value={currentStreak} subValue={t('dashboard.days')} colorClass="text-amber-500" />
       </Card>
       <Card className="border-l-4 border-rose-400">
-        <Stat label="Média de Estresse" value={avgStress} colorClass="text-rose-500" />
+        <Stat label={t('dashboard.avgStress')} value={avgStress} colorClass="text-rose-500" />
       </Card>
     </div>
   );
@@ -568,14 +572,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const renderCharts = () => (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
       <div className="lg:col-span-2 space-y-8">
-        <Card title="Produção de Palavras" subtitle="Histórico de volume por sessão">
+        <Card title={t('dashboard.wordProduction')} subtitle={t('dashboard.wordProductionSubtitle')}>
           <div className="mb-4 flex gap-2">
             <div className="bg-slate-100 rounded-lg p-1 flex text-xs font-medium">
-              <button onClick={() => setDateFilter('7days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '7days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Semanal</button>
-              <button onClick={() => setDateFilter('30days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '30days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Mensal</button>
-              <button onClick={() => setDateFilter('6months')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '6months' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Semestral</button>
-              <button onClick={() => setDateFilter('1year')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '1year' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Anual</button>
-              <button onClick={() => setDateFilter('all')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === 'all' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Todos</button>
+              <button onClick={() => setDateFilter('7days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '7days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.weekly')}</button>
+              <button onClick={() => setDateFilter('30days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '30days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.monthly')}</button>
+              <button onClick={() => setDateFilter('6months')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '6months' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.semester')}</button>
+              <button onClick={() => setDateFilter('1year')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '1year' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.yearly')}</button>
+              <button onClick={() => setDateFilter('all')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === 'all' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.all')}</button>
             </div>
           </div>
           <div className="h-72 w-full">
@@ -599,7 +603,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   dataKey="general"
                   stackId="a"
                   fill="#cbd5e1"
-                  name="Geral / Sem Obra"
+                  name={t('dashboard.general_project')}
                   radius={[4, 4, 0, 0]}
                 />
                 {/* Dynamic Bars for each Project */}
@@ -618,7 +622,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           </div>
         </Card>
 
-        <Card title="Indicadores de Qualidade" subtitle="Estresse, Dificuldade e Avaliação">
+        <Card title={t('dashboard.qualityIndicators')} subtitle={t('dashboard.qualitySubtitle')}>
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={metricsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -667,10 +671,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       </div>
 
       <div className="space-y-8">
-        <Card title="Calendário" subtitle="Dias escritos neste mês">
+        <Card title={t('dashboard.calendar')} subtitle={t('dashboard.calendarSubtitle')}>
           <div className="grid grid-cols-7 gap-1 text-center text-sm">
-            {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((d, i) => (
-              <div key={i} className="text-slate-400 font-medium py-1">{d}</div>
+            {[t('days.sunday'), t('days.monday'), t('days.tuesday'), t('days.wednesday'), t('days.thursday'), t('days.friday'), t('days.saturday')].map((d, i) => (
+              <div key={i} className="text-slate-400 font-medium py-1">{d.charAt(0)}</div>
             ))}
             {calendarDays.map((d, i) => (
               <div key={i} className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-all hover:scale-105 cursor-default ${!d ? 'bg-transparent' :
@@ -682,7 +686,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           </div>
         </Card>
 
-        <Card title="Estratégias">
+        <Card title={t('dashboard.strategies')}>
           <div className="h-64 w-full">
             {strategyUsage.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -714,7 +718,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               </ResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-slate-400 text-sm">
-                Dados insuficientes
+                {t('dashboard.insufficientData')}
               </div>
             )}
           </div>
@@ -730,15 +734,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   );
 
   const renderSessionList = () => (
-    <Card title="Últimos Registros">
+    <Card title={t('dashboard.lastRecords')}>
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm whitespace-nowrap">
           <thead className="uppercase tracking-wider border-b border-slate-200 bg-slate-50 text-slate-500">
             <tr>
-              <th scope="col" className="px-4 py-3 font-medium">Data</th>
-              <th scope="col" className="px-4 py-3 font-medium">Obra</th>
-              <th scope="col" className="px-4 py-3 font-medium">Palavras</th>
-              <th scope="col" className="px-4 py-3 font-medium">Avaliação</th>
+              <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.date')}</th>
+              <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.project')}</th>
+              <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.totalWords')}</th>
+              <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.rating')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -760,7 +764,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         <div className="w-2 h-2 rounded-full" style={{ backgroundColor: proj.color }}></div>
                         {proj.name}
                       </div>
-                    ) : <span className="text-slate-400 italic">Geral</span>}
+                    ) : <span className="text-slate-400 italic">{t('dashboard.general_project')}</span>}
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-800">{session.wordCount}</td>
                   <td className="px-4 py-3">
@@ -776,7 +780,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             })}
             {sortedSessions.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-slate-400">Nenhum registro encontrado.</td>
+                <td colSpan={4} className="px-4 py-8 text-center text-slate-400">{t('dashboard.noRecords')}</td>
               </tr>
             )}
           </tbody>
@@ -789,8 +793,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     return (
       <div className="space-y-6">
         <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-slate-800">Galeria de Conquistas</h2>
-          <p className="text-slate-500">Desbloqueie troféus atingindo suas metas de escrita.</p>
+          <h2 className="text-2xl font-bold text-slate-800">{t('dashboard.achievementsGallery')}</h2>
+          <p className="text-slate-500">{t('dashboard.achievementsSubtitle')}</p>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -831,17 +835,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${unlocked ? trophy.color : 'bg-slate-200 text-slate-400'}`}>
                   <Icon />
                 </div>
-                <h3 className="font-bold text-slate-800 mb-1">{trophy.title}</h3>
-                <p className="text-xs text-slate-500 mb-4 h-8 flex items-center">{trophy.description}</p>
+                <h3 className="font-bold text-slate-800 mb-1">{t(`trophies.${trophy.id}.title`)}</h3>
+                <p className="text-xs text-slate-500 mb-4 h-8 flex items-center">{t(`trophies.${trophy.id}.description`)}</p>
 
                 {unlocked ? (
                   <div className="mt-auto">
-                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase tracking-wider">Conquistado</span>
+                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase tracking-wider">{t('dashboard.unlocked')}</span>
                   </div>
                 ) : (
                   <div className="w-full mt-auto">
                     <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase font-bold">
-                      <span>Progresso</span>
+                      <span>{t('dashboard.progress')}</span>
                       <span>{Math.round(progress)}%</span>
                     </div>
                     <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
@@ -931,7 +935,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 <button
                   onClick={onSocial}
                   className="flex items-center justify-center px-4 py-3 bg-white border border-slate-200 text-teal-600 font-medium rounded-xl hover:bg-slate-50 transition-colors shadow-sm"
-                  title="Comunidade e Chat"
+                  title={t('dashboard.communityAndChat')}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -942,7 +946,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               <button
                 onClick={() => { setTempSettings(settings); setShowSettings(true); setDeleteConfirm(false); }}
                 className="p-3 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition-colors shadow-sm"
-                title="Configurar Metas"
+                title={t('dashboard.configureGoals')}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -953,7 +957,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 <button
                   onClick={onHelp}
                   className="p-3 bg-white border border-slate-200 text-purple-600 rounded-xl hover:bg-purple-50 transition-colors shadow-sm"
-                  title="Ajuda e Sobre"
+                  title={t('dashboard.helpAndAbout')}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -973,7 +977,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 </svg>
                 {t('dashboard.newSession')}
               </button>
-              <button onClick={onLogout} className="p-3 bg-rose-50 border border-rose-100 text-rose-600 rounded-xl hover:bg-rose-100 transition-colors shadow-sm ml-2" title="Sair">
+              <button onClick={onLogout} className="p-3 bg-rose-50 border border-rose-100 text-rose-600 rounded-xl hover:bg-rose-100 transition-colors shadow-sm ml-2" title={t('dashboard.logout')}>
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
@@ -983,7 +987,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
           {readOnly && (
             <button onClick={onAdminPanel} className="px-4 py-2 bg-slate-200 text-slate-700 font-medium rounded-xl hover:bg-slate-300 transition-colors">
-              Fechar Inspeção
+              {t('dashboard.closeInspection')}
             </button>
           )}
         </div>
@@ -1003,14 +1007,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           className={`pb-3 px-1 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${activeTab === 'projects' ? 'border-teal-500 text-teal-600' : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
         >
-          Minhas Obras
+          {t('dashboard.myProjects')}
         </button>
         <button
           onClick={() => setActiveTab('achievements')}
           className={`pb-3 px-1 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${activeTab === 'achievements' ? 'border-teal-500 text-teal-600' : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
         >
-          Conquistas
+          {t('dashboard.achievements')}
         </button>
       </div>
 
@@ -1027,7 +1031,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                <span className="font-medium">Criar Nova Obra</span>
+                <span className="font-medium">{t('dashboard.newProject')}</span>
               </button>
             )}
 
@@ -1041,12 +1045,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
                   <div className="pl-4">
                     <h3 className="text-xl font-bold text-slate-800 group-hover:text-teal-600 transition-colors">{project.name}</h3>
-                    <p className="text-sm text-slate-500 mt-1 line-clamp-2 h-10">{project.description || "Sem descrição."}</p>
+                    <p className="text-sm text-slate-500 mt-1 line-clamp-2 h-10">{project.description || t('dashboard.noDescription')}</p>
 
                     <div className="mt-6">
                       <div className="flex justify-between text-xs text-slate-500 mb-1">
-                        <span>Progresso</span>
-                        <span>{projWords} {project.targetWordCount ? `/ ${project.targetWordCount}` : 'palavras'}</span>
+                        <span>{t('dashboard.progress')}</span>
+                        <span>{projWords} {project.targetWordCount ? `/ ${project.targetWordCount}` : t('dashboard.words')}</span>
                       </div>
                       {project.targetWordCount && (
                         <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
@@ -1074,7 +1078,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
                 </svg>
-                Voltar para Obras
+                {t('dashboard.backToProjects')}
               </button>
               <h2 className="text-2xl font-bold text-slate-800">
                 {projects.find(p => p.id === selectedProjectId)?.name}
@@ -1086,8 +1090,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
               <Card>
                 <div className="flex justify-between items-end mb-2">
-                  <span className="font-semibold text-slate-700">Meta Diária</span>
-                  <span className="text-sm text-slate-500">{wordsToday} / {settings.dailyWordGoal} palavras</span>
+                  <span className="font-semibold text-slate-700">{t('dashboard.dailyGoal')}</span>
+                  <span className="text-sm text-slate-500">{wordsToday} / {settings.dailyWordGoal} {t('dashboard.words')}</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
                   <div className="bg-teal-400 h-3 rounded-full transition-all duration-1000" style={{ width: `${dailyProgress}%` }}></div>
@@ -1095,8 +1099,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               </Card>
               <Card>
                 <div className="flex justify-between items-end mb-2">
-                  <span className="font-semibold text-slate-700">Meta Semanal</span>
-                  <span className="text-sm text-slate-500">{wordsWeek} / {settings.weeklyWordGoal} palavras</span>
+                  <span className="font-semibold text-slate-700">{t('dashboard.weeklyGoal')}</span>
+                  <span className="text-sm text-slate-500">{wordsWeek} / {settings.weeklyWordGoal} {t('dashboard.words')}</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
                   <div className="bg-emerald-400 h-3 rounded-full transition-all duration-1000" style={{ width: `${weeklyProgress}%` }}></div>
@@ -1112,7 +1116,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                 </svg>
-                Seus Padrões de Escrita
+                {t('dashboard.insights')}
               </h3>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1129,19 +1133,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         </span>
                       </div>
                       <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Período Preferido</p>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.preferredTime')}</p>
                         <p className="text-lg font-bold text-slate-800">
-                          {writingInsights.preferredTimeOfDay === 'morning' && 'Manhã'}
-                          {writingInsights.preferredTimeOfDay === 'afternoon' && 'Tarde'}
-                          {writingInsights.preferredTimeOfDay === 'evening' && 'Noite'}
-                          {writingInsights.preferredTimeOfDay === 'night' && 'Madrugada'}
+                          {writingInsights.preferredTimeOfDay === 'morning' && t('dashboard.morning')}
+                          {writingInsights.preferredTimeOfDay === 'afternoon' && t('dashboard.afternoon')}
+                          {writingInsights.preferredTimeOfDay === 'evening' && t('dashboard.evening')}
+                          {writingInsights.preferredTimeOfDay === 'night' && t('dashboard.night')}
                         </p>
                         <p className="text-xs text-slate-600 mt-1">
-                          Você escreve mais pela{' '}
-                          {writingInsights.preferredTimeOfDay === 'morning' && 'manhã'}
-                          {writingInsights.preferredTimeOfDay === 'afternoon' && 'tarde'}
-                          {writingInsights.preferredTimeOfDay === 'evening' && 'noite'}
-                          {writingInsights.preferredTimeOfDay === 'night' && 'madrugada'}
+                          {writingInsights.preferredTimeOfDay === 'morning' && t('dashboard.timeDescMorning')}
+                          {writingInsights.preferredTimeOfDay === 'afternoon' && t('dashboard.timeDescAfternoon')}
+                          {writingInsights.preferredTimeOfDay === 'evening' && t('dashboard.timeDescEvening')}
+                          {writingInsights.preferredTimeOfDay === 'night' && t('dashboard.timeDescNight')}
                         </p>
                       </div>
                     </div>
@@ -1156,12 +1159,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         <span className="text-2xl">📅</span>
                       </div>
                       <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Dias Produtivos</p>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.productiveDays')}</p>
                         <p className="text-lg font-bold text-slate-800">
-                          {writingInsights.mostProductiveDays.join(' e ')}
+                          {writingInsights.mostProductiveDays.join(', ')}
                         </p>
                         <p className="text-xs text-slate-600 mt-1">
-                          Seus dias mais produtivos
+                          {t('dashboard.productiveDaysDesc')}
                         </p>
                       </div>
                     </div>
@@ -1180,16 +1183,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         </span>
                       </div>
                       <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Rotina</p>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.routine')}</p>
                         <p className="text-lg font-bold text-slate-800">
-                          {writingInsights.weekdayVsWeekend === 'weekday' && 'Dias Úteis'}
-                          {writingInsights.weekdayVsWeekend === 'weekend' && 'Fim de Semana'}
-                          {writingInsights.weekdayVsWeekend === 'balanced' && 'Equilibrado'}
+                          {writingInsights.weekdayVsWeekend === 'weekday' && t('dashboard.weekdayWriter')}
+                          {writingInsights.weekdayVsWeekend === 'weekend' && t('dashboard.weekendWriter')}
+                          {writingInsights.weekdayVsWeekend === 'balanced' && t('dashboard.balanced')}
                         </p>
                         <p className="text-xs text-slate-600 mt-1">
-                          {writingInsights.weekdayVsWeekend === 'weekday' && 'Mais produtivo durante a semana'}
-                          {writingInsights.weekdayVsWeekend === 'weekend' && 'Mais produtivo nos fins de semana'}
-                          {writingInsights.weekdayVsWeekend === 'balanced' && 'Produtividade equilibrada'}
+                          {writingInsights.weekdayVsWeekend === 'weekday' && t('dashboard.productiveWeekdays')}
+                          {writingInsights.weekdayVsWeekend === 'weekend' && t('dashboard.productiveWeekends')}
+                          {writingInsights.weekdayVsWeekend === 'balanced' && t('dashboard.productiveBalanced')}
                         </p>
                       </div>
                     </div>
@@ -1204,12 +1207,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         <span className="text-2xl">🔥</span>
                       </div>
                       <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Maior Sequência</p>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.longestStreak')}</p>
                         <p className="text-lg font-bold text-slate-800">
-                          {writingInsights.longestStreak} {writingInsights.longestStreak === 1 ? 'dia' : 'dias'}
+                          {writingInsights.longestStreak} {t('dashboard.days')}
                         </p>
                         <p className="text-xs text-slate-600 mt-1">
-                          Seu recorde de dias consecutivos
+                          {t('dashboard.longestStreakDesc')}
                         </p>
                       </div>
                     </div>
@@ -1228,16 +1231,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         </span>
                       </div>
                       <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Perfil</p>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.writerProfile')}</p>
                         <p className="text-lg font-bold text-slate-800">
-                          {writingInsights.writerProfile === 'marathoner' && 'Maratonista'}
-                          {writingInsights.writerProfile === 'sprinter' && 'Velocista'}
-                          {writingInsights.writerProfile === 'consistent' && 'Consistente'}
+                          {writingInsights.writerProfile === 'marathoner' && t('dashboard.marathoner')}
+                          {writingInsights.writerProfile === 'sprinter' && t('dashboard.sprinter')}
+                          {writingInsights.writerProfile === 'consistent' && t('dashboard.consistent')}
                         </p>
                         <p className="text-xs text-slate-600 mt-1">
-                          {writingInsights.writerProfile === 'marathoner' && 'Sessões longas e intensas'}
-                          {writingInsights.writerProfile === 'sprinter' && 'Sessões curtas e frequentes'}
-                          {writingInsights.writerProfile === 'consistent' && 'Escreve regularmente'}
+                          {writingInsights.writerProfile === 'marathoner' && t('dashboard.profileMarathonerDesc')}
+                          {writingInsights.writerProfile === 'sprinter' && t('dashboard.profileSprinterDesc')}
+                          {writingInsights.writerProfile === 'consistent' && t('dashboard.profileConsistentDesc')}
                         </p>
                       </div>
                     </div>
@@ -1252,12 +1255,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         <span className="text-2xl">✨</span>
                       </div>
                       <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Sequência Atual</p>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.currentStreak')}</p>
                         <p className="text-lg font-bold text-slate-800">
-                          {currentStreak} {currentStreak === 1 ? 'dia' : 'dias'}
+                          {currentStreak} {t('dashboard.days')}
                         </p>
                         <p className="text-xs text-slate-600 mt-1">
-                          Continue assim! 🎉
+                          {t('dashboard.streakKeepItUp')}
                         </p>
                       </div>
                     </div>
@@ -1278,47 +1281,66 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       {showSettings && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl animate-fade-in overflow-y-auto max-h-[90vh]">
-            <h2 className="text-xl font-bold text-slate-800 mb-4">Configurar Metas Gerais</h2>
-            <div className="space-y-4">
+            <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800 mb-6">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              {t('dashboard.settingsTitle')}
+            </h3>
+            <div className="space-y-4 mb-8">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Meta Diária (palavras)</label>
-                <input type="number" value={tempSettings.dailyWordGoal} onChange={(e) => setTempSettings({ ...tempSettings, dailyWordGoal: Number(e.target.value) })} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-400 outline-none" />
+                <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.dailyWordGoal')}</label>
+                <input
+                  type="number"
+                  value={tempSettings.dailyWordGoal}
+                  onChange={(e) => setTempSettings({ ...tempSettings, dailyWordGoal: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Meta Semanal (palavras)</label>
-                <input type="number" value={tempSettings.weeklyWordGoal} onChange={(e) => setTempSettings({ ...tempSettings, weeklyWordGoal: Number(e.target.value) })} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-400 outline-none" />
+                <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.weeklyWordGoal')}</label>
+                <input
+                  type="number"
+                  value={tempSettings.weeklyWordGoal}
+                  onChange={(e) => setTempSettings({ ...tempSettings, weeklyWordGoal: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                />
               </div>
             </div>
 
             {/* Danger Zone */}
-            <div className="mt-8 pt-6 border-t border-slate-100">
-              <h3 className="text-sm font-bold text-rose-600 uppercase tracking-wider mb-2">Zona de Perigo</h3>
-              <div className="bg-rose-50 rounded-lg p-4 border border-rose-100">
+            <div className="mt-8 pt-6 border-t border-slate-200">
+              <h4 className="text-red-500 font-bold mb-2">{t('dashboard.dangerZone')}</h4>
+              <div className="bg-red-50 rounded-xl p-4 border border-red-100">
                 {!deleteConfirm ? (
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-rose-800 font-medium">Zerar todos os dados do aplicativo?</span>
+                    <div>
+                      <p className="font-medium text-red-800">{t('dashboard.deleteAllData')}</p>
+                      <p className="text-sm text-red-600 max-w-[200px] sm:max-w-xs">{t('dashboard.deleteAllDataDesc')}</p>
+                    </div>
                     <button
                       onClick={() => setDeleteConfirm(true)}
-                      className="px-3 py-1.5 text-xs font-bold text-rose-600 bg-white border border-rose-200 rounded hover:bg-rose-100 transition-colors"
+                      className="px-4 py-2 bg-red-100 text-red-700 font-medium rounded-lg hover:bg-red-200 transition-colors whitespace-nowrap"
                     >
-                      Zerar Tudo
+                      {t('common.delete')}
                     </button>
                   </div>
                 ) : (
                   <div className="text-center">
-                    <p className="text-sm text-rose-800 mb-3 font-medium">Tem certeza? Isso apagará todas as obras e sessões permanentemente.</p>
+                    <p className="text-sm text-red-800 mb-3 font-medium">{t('dashboard.deleteWarning')}</p>
                     <div className="flex gap-2 justify-center">
                       <button
                         onClick={() => setDeleteConfirm(false)}
                         className="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50 transition-colors"
                       >
-                        Cancelar
+                        {t('common.cancel')}
                       </button>
                       <button
                         onClick={handleReset}
-                        className="px-3 py-1.5 text-xs font-bold text-white bg-rose-600 rounded hover:bg-rose-700 transition-colors"
+                        className="px-3 py-1.5 text-xs font-bold text-white bg-red-600 rounded hover:bg-red-700 transition-colors"
                       >
-                        Sim, apagar tudo
+                        {t('dashboard.confirmDelete')}
                       </button>
                     </div>
                   </div>
@@ -1326,9 +1348,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
-              <button onClick={() => { setShowSettings(false); setDeleteConfirm(false); }} className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">Cancelar</button>
-              <button onClick={saveSettings} className="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600">Salvar</button>
+            <div className="mt-8 flex justify-end gap-3">
+              <button
+                onClick={() => setShowSettings(false)}
+                className="px-4 py-2 text-slate-500 font-medium hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={saveSettings}
+                className="px-6 py-2 bg-teal-500 text-white font-bold rounded-xl hover:bg-teal-600 transition-colors shadow-sm hover:shadow-md"
+              >
+                {t('common.save')}
+              </button>
             </div>
           </div>
         </div>
@@ -1336,26 +1368,46 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
       {/* New Project Modal */}
       {showNewProject && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl animate-fade-in">
-            <h2 className="text-xl font-bold text-slate-800 mb-4">Criar Nova Obra</h2>
-            <form onSubmit={handleCreateProject} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nome da Obra *</label>
-                <input type="text" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} required className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-400 outline-none" placeholder="Ex: O Último Romance" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Descrição Curta</label>
-                <textarea rows={2} value={newProjectDesc} onChange={(e) => setNewProjectDesc(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-400 outline-none" placeholder="Sinopse ou notas..." />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in-up">
+            <div className="p-6">
+              <h3 className="text-xl font-bold text-slate-800 mb-6">{t('dashboard.newProject')}</h3>
+
+              <form onSubmit={handleCreateProject} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Meta de Palavras</label>
-                  <input type="number" value={newProjectGoal} onChange={(e) => setNewProjectGoal(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-400 outline-none" placeholder="Ex: 80000" />
+                  <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.projectName')} *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                    placeholder={t('dashboard.projectNamePlaceholder')}
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Cor da Obra</label>
-                  <div className="flex gap-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.projectDescription')}</label>
+                  <textarea
+                    rows={2}
+                    value={newProjectDesc}
+                    onChange={(e) => setNewProjectDesc(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                    placeholder={t('dashboard.projectDescriptionPlaceholder')}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.targetWords')} ({t('dashboard.optional')})</label>
+                  <input
+                    type="number"
+                    value={newProjectGoal}
+                    onChange={(e) => setNewProjectGoal(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                    placeholder={t('dashboard.targetWordsPlaceholder')}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.projectColor')}</label>
+                  <div className="flex flex-wrap gap-2 mt-2">
                     <input type="color" value={newProjectColor} onChange={(e) => setNewProjectColor(e.target.value)} className="w-10 h-10 rounded cursor-pointer border-none p-0" />
                     <div className="flex-1 flex flex-wrap gap-1">
                       {DEFAULT_PROJECT_COLORS.slice(0, 5).map(c => (
@@ -1370,12 +1422,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     </div>
                   </div>
                 </div>
-              </div>
-              <div className="flex justify-end gap-3 mt-6">
-                <button type="button" onClick={() => setShowNewProject(false)} className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">Cancelar</button>
-                <button type="submit" className="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600">Criar Obra</button>
-              </div>
-            </form>
+                <div className="flex justify-end gap-3 mt-6">
+                  <button type="button" onClick={() => setShowNewProject(false)} className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">{t('common.cancel')}</button>
+                  <button type="submit" className="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600">{t('dashboard.createProject')}</button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}

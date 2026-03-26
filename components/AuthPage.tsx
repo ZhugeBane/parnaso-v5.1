@@ -4,6 +4,7 @@ import { register, login, resetPassword, logout } from '../services/authService'
 import { User } from '../types';
 import { Logo } from './ui/Logo';
 import { PendingApproval } from './PendingApproval';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface AuthPageProps {
   onLoginSuccess: (user: User) => void;
@@ -12,6 +13,7 @@ interface AuthPageProps {
 type AuthMode = 'login' | 'register' | 'recovery' | 'pending';
 
 export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
+  const { t } = useLanguage();
   const [mode, setMode] = useState<AuthMode>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -45,7 +47,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
         onLoginSuccess(user);
       }
       else if (mode === 'register') {
-        if (!name) throw new Error("Nome é obrigatório.");
+        if (!name) throw new Error(t('auth.nameRequired'));
         await register(name, email, password);
         await logout(); // Ensuring session handles are cleared locally if register didn't
         // Não logar automaticamente. Mostrar tela de pendente.
@@ -53,29 +55,29 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
       }
       else if (mode === 'recovery') {
         await resetPassword(email);
-        setSuccessMsg("Se o e-mail existir, um link de recuperação foi enviado.");
+        setSuccessMsg(t('auth.recoverySent'));
         setMode('login');
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Ocorreu um erro de conexão.");
+      setError(err.message || t('auth.connectionError'));
     } finally {
       setLoading(false);
     }
   };
 
   const getTitle = () => {
-    if (mode === 'login') return "Login";
-    if (mode === 'register') return "Criar Conta";
-    if (mode === 'recovery') return "Recuperar Senha";
+    if (mode === 'login') return t('auth.login');
+    if (mode === 'register') return t('auth.signup');
+    if (mode === 'recovery') return t('auth.recoverPassword');
     return "";
   };
 
   const getButtonText = () => {
-    if (loading) return "Processando...";
-    if (mode === 'login') return "Entrar";
-    if (mode === 'register') return "Cadastrar";
-    if (mode === 'recovery') return "Enviar Link";
+    if (loading) return t('auth.processing');
+    if (mode === 'login') return t('auth.login');
+    if (mode === 'register') return t('auth.signup');
+    if (mode === 'recovery') return t('auth.sendLink');
     return "";
   };
 
@@ -95,14 +97,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
           <div className="relative z-10">
             <div className="flex items-center gap-3 mb-6">
               <Logo className="w-12 h-12" />
-              <span className="text-xl font-bold tracking-tight">Projeto Parnaso</span>
+              <span className="text-xl font-bold tracking-tight">{t('auth.brandName')}</span>
             </div>
 
             <h1 className="text-4xl md:text-5xl font-bold leading-tight mb-6">
-              {mode === 'login' ? "Bem-vindo de volta." : "Sua jornada começa aqui."}
+              {mode === 'login' ? t('auth.welcomeBack') : t('auth.journeyBegins')}
             </h1>
             <p className="text-slate-300 text-lg leading-relaxed">
-              Servidor Cloud Ativo. Seus dados, em qualquer lugar.
+              {t('auth.cloudServerActive')}
             </p>
           </div>
         </div>
@@ -127,25 +129,25 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
             <form onSubmit={handleSubmit} className="space-y-5">
               {mode === 'register' && (
                 <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Nome</label>
+                  <label className="text-sm font-medium text-slate-700">{t('auth.name')}</label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-teal-500 outline-none"
-                    placeholder="Seu nome"
+                    placeholder={t('auth.yourName')}
                   />
                 </div>
               )}
 
               <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700">E-mail</label>
+                <label className="text-sm font-medium text-slate-700">{t('auth.email')}</label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-teal-500 outline-none"
-                  placeholder="seu@email.com"
+                  placeholder={t('auth.yourEmail')}
                   required
                 />
               </div>
@@ -153,9 +155,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
               {mode !== 'recovery' && (
                 <div className="space-y-1">
                   <div className="flex justify-between">
-                    <label className="text-sm font-medium text-slate-700">Senha</label>
+                    <label className="text-sm font-medium text-slate-700">{t('auth.password')}</label>
                     {mode === 'login' && (
-                      <button type="button" onClick={() => handleSwitchMode('recovery')} className="text-xs font-semibold text-teal-600 hover:underline">Esqueci a senha</button>
+                      <button type="button" onClick={() => handleSwitchMode('recovery')} className="text-xs font-semibold text-teal-600 hover:underline">{t('auth.forgotPassword')}</button>
                     )}
                   </div>
                   <input
@@ -181,9 +183,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
 
             <div className="mt-8 text-center text-sm text-slate-500">
               {mode === 'login' ? (
-                <>Não tem conta? <button onClick={() => handleSwitchMode('register')} className="ml-2 font-bold text-teal-600 hover:underline">Cadastre-se</button></>
+                <>{t('auth.noAccount')} <button type="button" onClick={() => handleSwitchMode('register')} className="ml-2 font-bold text-teal-600 hover:underline">{t('auth.registerNow')}</button></>
               ) : (
-                <><button onClick={() => handleSwitchMode('login')} className="font-bold text-teal-600 hover:underline">Voltar ao Login</button></>
+                <><button type="button" onClick={() => handleSwitchMode('login')} className="font-bold text-teal-600 hover:underline">{t('auth.backToLogin')}</button></>
               )}
             </div>
           </div>

@@ -239,7 +239,7 @@ export const resetPassword = async (email: string) => {
 import { storage } from '../lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-export const updateUserProfilePicture = async (userId: string, file: File): Promise<string> => {
+export const updateUserProfilePicture = async (userId: string, file: File | Blob): Promise<string> => {
   const storageRef = ref(storage, `profiles/${userId}/avatar_${Date.now()}`);
   await uploadBytes(storageRef, file);
   const downloadURL = await getDownloadURL(storageRef);

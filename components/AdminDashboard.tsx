@@ -3,6 +3,7 @@ import { User, WritingSession, Project, UserSettings } from '../types';
 import { getAllUsers, toggleUserBlock, deleteUser, approveUser, rejectUser } from '../services/authService';
 import { getGlobalStats } from '../services/sessionService';
 import { Card } from './ui/Card';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -11,6 +12,7 @@ interface AdminDashboardProps {
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspectUser }) => {
+  const { t } = useLanguage();
   const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [stats, setStats] = useState({ totalWords: 0, totalSessions: 0 });
@@ -40,13 +42,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (window.confirm("Esta ação removerá o usuário (apenas no banco de dados).")) {
+    if (window.confirm(t('admin.confirmDeleteUser'))) {
       try {
         await deleteUser(userId);
         loadData();
       } catch (error: any) {
         console.error("Erro ao deletar usuário:", error);
-        alert("Erro ao deletar usuário: " + (error.message || "Erro desconhecido"));
+        alert(t('admin.errorDeletingUser') + (error.message || "Erro desconhecido"));
       }
     }
   };
@@ -57,18 +59,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
       loadData();
     } catch (error: any) {
       console.error("Erro ao aprovar usuário:", error);
-      alert("Erro ao aprovar usuário: " + (error.message || "Erro desconhecido"));
+      alert(t('admin.errorApprovingUser') + (error.message || "Erro desconhecido"));
     }
   };
 
   const handleReject = async (userId: string) => {
-    if (window.confirm("Tem certeza que deseja rejeitar este usuário? Ele será removido.")) {
+    if (window.confirm(t('admin.confirmRejectUser'))) {
       try {
         await rejectUser(userId);
         loadData();
       } catch (error: any) {
         console.error("Erro ao rejeitar usuário:", error);
-        alert("Erro ao rejeitar usuário: " + (error.message || "Erro desconhecido"));
+        alert(t('admin.errorRejectingUser') + (error.message || "Erro desconhecido"));
       }
     }
   };
@@ -88,34 +90,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Painel Administrativo</h1>
-            <p className="text-slate-500 text-sm">Controle Geral (Servidor Supabase)</p>
+            <h1 className="text-2xl font-bold text-slate-800">{t('admin.title')}</h1>
+            <p className="text-slate-500 text-sm">{t('admin.subtitle')}</p>
           </div>
         </div>
         <button
           onClick={onExit}
           className="flex items-center px-4 py-2 text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
         >
-          Voltar
+          {t('common.back')}
         </button>
       </div>
 
       {isLoading ? (
-        <div className="text-center py-20 text-slate-400">Carregando dados do servidor...</div>
+        <div className="text-center py-20 text-slate-400">{t('admin.loadingData')}</div>
       ) : (
         <>
           {/* Global Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <Card className="border-l-4 border-indigo-500">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total de Usuários</span>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('admin.totalUsers')}</span>
               <div className="text-3xl font-bold text-indigo-600 mt-1">{users.length}</div>
             </Card>
             <Card className="border-l-4 border-teal-500">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Palavras na Plataforma</span>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('admin.platformWords')}</span>
               <div className="text-3xl font-bold text-teal-600 mt-1">{stats.totalWords.toLocaleString('pt-BR')}</div>
             </Card>
             <Card className="border-l-4 border-amber-500">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sessões Registradas</span>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('admin.registeredSessions')}</span>
               <div className="text-3xl font-bold text-amber-600 mt-1">{stats.totalSessions}</div>
             </Card>
           </div>
@@ -125,7 +127,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
             <input
               type="text"
               className="block w-full max-w-md px-4 py-2 border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-              placeholder="Buscar usuários..."
+              placeholder={t('admin.searchUsers')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -136,10 +138,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Usuário</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Função</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">Ações</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">{t('admin.userColumn')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">{t('admin.statusColumn')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">{t('admin.roleColumn')}</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">{t('admin.actionsColumn')}</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-200">
@@ -162,11 +164,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {user.status === 'pending' ? (
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-amber-100 text-amber-800">Pendente</span>
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-amber-100 text-amber-800">{t('admin.statusPending')}</span>
                       ) : user.isBlocked ? (
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-rose-100 text-rose-800">Bloqueado</span>
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-rose-100 text-rose-800">{t('admin.statusBlocked')}</span>
                       ) : (
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-emerald-100 text-emerald-800">Ativo</span>
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-emerald-100 text-emerald-800">{t('admin.statusActive')}</span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
@@ -178,7 +180,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
                           onClick={() => onInspectUser(user)}
                           className="text-teal-600 hover:text-teal-900 font-medium"
                         >
-                          Inspecionar
+                          {t('admin.inspect')}
                         </button>
                         {user.status === 'pending' ? (
                           <>
@@ -186,13 +188,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
                               onClick={() => handleApprove(user.id)}
                               className="text-emerald-600 hover:text-emerald-900 font-medium"
                             >
-                              Aprovar
+                              {t('admin.approve')}
                             </button>
                             <button
                               onClick={() => handleReject(user.id)}
                               className="text-rose-600 hover:text-rose-900"
                             >
-                              Rejeitar
+                              {t('admin.reject')}
                             </button>
                           </>
                         ) : user.role !== 'admin' && (
@@ -201,13 +203,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
                               onClick={() => handleToggleBlock(user.id, user.isBlocked)}
                               className="text-amber-600 hover:text-amber-900"
                             >
-                              {user.isBlocked ? 'Desbloquear' : 'Bloquear'}
+                              {user.isBlocked ? t('admin.unblock') : t('admin.block')}
                             </button>
                             <button
                               onClick={() => handleDeleteUser(user.id)}
                               className="text-rose-600 hover:text-rose-900"
                             >
-                              Excluir
+                              {t('common.delete')}
                             </button>
                           </>
                         )}

@@ -324,6 +324,7 @@ function App() {
             projects={projects}
             onSubmit={handleSaveSession}
             onCancel={handleCancel}
+            onAddProject={handleSaveProject}
             initialValues={prefilledData}
           />
         </div>

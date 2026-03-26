@@ -135,7 +135,7 @@ export const createGuild = async (name: string, adminId: string, memberIds: stri
 // Legacy alias
 export const createGroup = createGuild;
 
-export const updateGuildEmblem = async (guildId: string, file: File) => {
+export const updateGuildEmblem = async (guildId: string, file: File | Blob) => {
   const storageRef = ref(storage, `guilds/${guildId}/emblem_${Date.now()}`);
   await uploadBytes(storageRef, file);
   const downloadURL = await getDownloadURL(storageRef);
