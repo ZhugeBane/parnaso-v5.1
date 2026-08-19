@@ -24,8 +24,8 @@ service cloud.firestore {
     }
     
     match /writing_sessions/{sessionId} {
-      // Permitir leitura pelo próprio usuário ou por admins
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      // Permitir leitura por usuários autenticados (necessário para rankings de guildas e desafios)
+      allow read: if isSignedIn();
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
@@ -52,8 +52,12 @@ service cloud.firestore {
       allow read: if isSignedIn() && (request.auth.uid in resource.data.members || isAdmin());
       // Allow create if user is the admin (creator)
       allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
-      // Allow update if user is the group admin OR app admin
-      allow update: if isSignedIn() && (resource.data.adminId == request.auth.uid || isAdmin());
+      // Allow update if user is the group admin, co-admin OR app admin
+      allow update: if isSignedIn() && (
+        resource.data.adminId == request.auth.uid || 
+        (resource.data.adminIds != null && request.auth.uid in resource.data.adminIds) || 
+        isAdmin()
+      );
       // Allow delete if user is group admin OR app admin
       allow delete: if isSignedIn() && (resource.data.adminId == request.auth.uid || isAdmin());
     }
@@ -83,6 +87,14 @@ service cloud.firestore {
       // Messages are generally not updated or deleted by users in this app's current flow, 
       // but we'll allow app admins or owners if needed for moderation.
       allow update, delete: if isAdmin();
+    }
+    
+    match /guild_threads/{threadId} {
+      allow read, write: if isSignedIn();
+    }
+    
+    match /guild_replies/{replyId} {
+      allow read, write: if isSignedIn();
     }
     
     match /forum_threads/{threadId} {

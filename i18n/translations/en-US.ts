@@ -489,6 +489,8 @@ export const enUS = {
             add: 'Add',
             noWritersFound: 'No writers found.',
             requestSent: 'Request sent!',
+            removeFriend: 'Remove friend',
+            confirmRemoveFriend: 'Are you sure you want to remove this friend?',
         },
         guilds: {
             foundNewGuild: '+ Found New Guild',
@@ -521,8 +523,8 @@ export const enUS = {
             createGuildTitle: 'Found Guild',
             guildName: 'Guild Name',
             guildDescription: 'Guild Description...',
-            selectFounders: 'Select Founders:',
-            needFriends: 'You need friends to found a guild.',
+            selectFounders: 'Invite Friends (Optional):',
+            needFriends: 'You can found a guild alone or invite friends above.',
             foundButton: 'Found',
             createChallengeTitle: 'Propose Challenge',
             challengeNameLabel: 'Challenge Name',
@@ -560,6 +562,8 @@ export const enUS = {
             postedBy: 'Posted by',
             on: 'on',
             yourReply: 'Your reply...',
+            like: 'Like',
+            likes: 'Likes',
         },
         competitions: {
             createNewChallenge: '+ Create New Challenge',
@@ -582,6 +586,7 @@ export const enUS = {
             online: 'Online',
             typeMessage: 'Type your message...',
             send: 'Send',
+            selectChat: 'Select a conversation or guild on the side to start interacting.',
         },
         hub: {
             title: 'Social Hub',

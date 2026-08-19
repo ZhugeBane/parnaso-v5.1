@@ -489,6 +489,8 @@ export const ptBR = {
             add: 'Adicionar',
             noWritersFound: 'Nenhum escritor encontrado.',
             requestSent: 'Solicitação enviada!',
+            removeFriend: 'Desfazer amizade',
+            confirmRemoveFriend: 'Tem certeza que deseja remover este amigo?',
         },
         guilds: {
             foundNewGuild: '+ Fundar Nova Guilda',
@@ -521,8 +523,8 @@ export const ptBR = {
             createGuildTitle: 'Fundar Guilda',
             guildName: 'Nome da Guilda',
             guildDescription: 'Descrição da Guilda...',
-            selectFounders: 'Selecionar Fundadores:',
-            needFriends: 'Você precisa de amigos para fundar uma guilda.',
+            selectFounders: 'Convidar Amigos (Opcional):',
+            needFriends: 'Você pode fundar a guilda sozinho ou convidar amigos acima.',
             foundButton: 'Fundar',
             createChallengeTitle: 'Propor Desafio',
             challengeNameLabel: 'Nome do Desafio',
@@ -560,6 +562,8 @@ export const ptBR = {
             postedBy: 'Postado por',
             on: 'em',
             yourReply: 'Sua resposta...',
+            like: 'Curtir',
+            likes: 'Curtidas',
         },
         competitions: {
             createNewChallenge: '+ Criar Novo Desafio',
@@ -582,6 +586,7 @@ export const ptBR = {
             online: 'Online',
             typeMessage: 'Digite sua mensagem...',
             send: 'Enviar',
+            selectChat: 'Selecione uma conversa ou guilda ao lado para começar a interagir.',
         },
         hub: {
             title: 'Hub Social',

@@ -122,12 +122,14 @@ export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
 // Legacy alias
 export const getUserGroups = getUserGuilds;
 
-export const createGuild = async (name: string, adminId: string, memberIds: string[], description?: string) => {
+export const createGuild = async (name: string, adminId: string, memberIds: string[] = [], description?: string) => {
+  const uniqueMembers = Array.from(new Set([adminId, ...(memberIds || [])]));
   return await addDoc(collection(db, 'groups'), {
     name,
     adminId,
+    adminIds: [adminId],
     description: description || '',
-    members: [adminId, ...memberIds],
+    members: uniqueMembers,
     createdAt: new Date().toISOString()
   });
 };
@@ -152,7 +154,7 @@ export const promoteMemberToAdmin = async (guildId: string, userId: string) => {
   const snap = await getDoc(guildRef);
   if (snap.exists()) {
     const data = snap.data() as Guild;
-    const adminIds = data.adminIds || [];
+    const adminIds = data.adminIds || (data.adminId ? [data.adminId] : []);
     if (!adminIds.includes(userId)) {
       await updateDoc(guildRef, {
         adminIds: [...adminIds, userId]
@@ -188,13 +190,20 @@ export const createGuildChallenge = async (guildId: string, challenge: Omit<Guil
 // --- GUILD FORUM ---
 
 export const getGuildThreads = async (guildId: string): Promise<GuildForumThread[]> => {
-  const q = query(
-    collection(db, 'guild_threads'),
-    where('guildId', '==', guildId),
-    orderBy('createdAt', 'desc')
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GuildForumThread));
+  try {
+    const q = query(
+      collection(db, 'guild_threads'),
+      where('guildId', '==', guildId),
+      orderBy('createdAt', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GuildForumThread));
+  } catch {
+    const q = query(collection(db, 'guild_threads'), where('guildId', '==', guildId));
+    const snapshot = await getDocs(q);
+    const threads = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GuildForumThread));
+    return threads.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
 };
 
 export const createGuildThread = async (guildId: string, authorId: string, title: string, content: string) => {
@@ -210,7 +219,8 @@ export const createGuildThread = async (guildId: string, authorId: string, title
 export const getGuildReplies = async (threadId: string): Promise<GuildForumReply[]> => {
   const q = query(collection(db, 'guild_replies'), where('threadId', '==', threadId));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GuildForumReply));
+  const replies = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GuildForumReply));
+  return replies.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 };
 
 export const replyToGuildThread = async (authorId: string, threadId: string, content: string) => {
@@ -312,6 +322,21 @@ export const replyToThread = async (authorId: string, threadId: string, content:
     content,
     createdAt: new Date().toISOString()
   });
+};
+
+export const toggleForumThreadLike = async (threadId: string, userId: string): Promise<string[]> => {
+  const threadRef = doc(db, 'forum_threads', threadId);
+  const snap = await getDoc(threadRef);
+  if (snap.exists()) {
+    const data = snap.data() as ForumThread;
+    const likes = data.likes || [];
+    const newLikes = likes.includes(userId)
+      ? likes.filter(id => id !== userId)
+      : [...likes, userId];
+    await updateDoc(threadRef, { likes: newLikes });
+    return newLikes;
+  }
+  return [];
 };
 
 // --- COMPETITIONS ---
