@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { WritingSession, UserSettings, Project, User } from '../types';
 import { Card } from './ui/Card';
 import { Logo } from './ui/Logo';
@@ -107,6 +107,114 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const [dateFilter, setDateFilter] = useState<DateFilterType>('7days');
   const [selectedSession, setSelectedSession] = useState<WritingSession | null>(null);
 
+  // Automonitoramento Visibility & Slidebar State
+  const [isAutomonitoringVisible, setIsAutomonitoringVisible] = useState<boolean>(() => {
+    return localStorage.getItem('parnaso_automonitoring_visible') === 'true';
+  });
+  const [isSlidebarOpen, setIsSlidebarOpen] = useState(false);
+  const slidebarCloseTimerRef = useRef<number | null>(null);
+
+  // Work Filter Modes: 'all' (Todos), 'specific' (Obra Específica), 'custom' (Seleção Personalizada)
+  const [workFilterMode, setWorkFilterMode] = useState<'all' | 'specific' | 'custom'>('all');
+  const [selectedSpecificWorkId, setSelectedSpecificWorkId] = useState<string>('all');
+  const [selectedCustomWorkIds, setSelectedCustomWorkIds] = useState<string[]>(() => {
+    return ['general', ...projects.map(p => p.id)];
+  });
+
+  // Modules selector state ("Quais ver")
+  const defaultModules = useMemo(() => ({
+    goals: true,
+    kpis: true,
+    wordProduction: true,
+    qualityIndicators: true,
+    calendar: true,
+    strategies: true,
+    heatmap: true,
+    sessionsList: true,
+    insights: true,
+  }), []);
+
+  const [visibleModules, setVisibleModules] = useState<{
+    goals: boolean;
+    kpis: boolean;
+    wordProduction: boolean;
+    qualityIndicators: boolean;
+    calendar: boolean;
+    strategies: boolean;
+    heatmap: boolean;
+    sessionsList: boolean;
+    insights: boolean;
+  }>(() => {
+    const saved = localStorage.getItem('parnaso_visible_modules');
+    if (saved) {
+      try {
+        return {
+          goals: true,
+          kpis: true,
+          wordProduction: true,
+          qualityIndicators: true,
+          calendar: true,
+          strategies: true,
+          heatmap: true,
+          sessionsList: true,
+          insights: true,
+          ...JSON.parse(saved)
+        };
+      } catch (e) {}
+    }
+    return {
+      goals: true,
+      kpis: true,
+      wordProduction: true,
+      qualityIndicators: true,
+      calendar: true,
+      strategies: true,
+      heatmap: true,
+      sessionsList: true,
+      insights: true,
+    };
+  });
+  const [showModuleSelector, setShowModuleSelector] = useState(false);
+
+  // Sync projects with custom work selection
+  useEffect(() => {
+    setSelectedCustomWorkIds(prev => {
+      const allPossible = ['general', ...projects.map(p => p.id)];
+      const filtered = prev.filter(id => allPossible.includes(id));
+      return filtered.length > 0 ? filtered : allPossible;
+    });
+  }, [projects]);
+
+  // Persist visibility in localStorage
+  const toggleAutomonitoringVisibility = (visible: boolean) => {
+    setIsAutomonitoringVisible(visible);
+    localStorage.setItem('parnaso_automonitoring_visible', String(visible));
+  };
+
+  const toggleModule = (moduleKey: keyof typeof defaultModules) => {
+    setVisibleModules(prev => {
+      const updated = { ...prev, [moduleKey]: !prev[moduleKey] };
+      localStorage.setItem('parnaso_visible_modules', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const setAllModules = (val: boolean) => {
+    const updated = {
+      goals: val,
+      kpis: val,
+      wordProduction: val,
+      qualityIndicators: val,
+      calendar: val,
+      strategies: val,
+      heatmap: val,
+      sessionsList: val,
+      insights: val,
+    };
+    setVisibleModules(updated);
+    localStorage.setItem('parnaso_visible_modules', JSON.stringify(updated));
+  };
+
   // Settings Modal State
   const [showSettings, setShowSettings] = useState(false);
   const [tempSettings, setTempSettings] = useState<UserSettings>(settings);
@@ -193,11 +301,31 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     return allSessions.filter(s => new Date(s.date) >= cutoff);
   };
 
-  const projectFilteredSessions = selectedProjectId
-    ? sessions.filter(s => s.projectId === selectedProjectId)
-    : sessions;
+  // --- Work Filter Logic ---
+  const workFilteredSessions = useMemo(() => {
+    if (selectedProjectId) {
+      return sessions.filter(s => s.projectId === selectedProjectId);
+    }
+    if (workFilterMode === 'all') {
+      return sessions;
+    }
+    if (workFilterMode === 'specific') {
+      if (selectedSpecificWorkId === 'all') return sessions;
+      if (selectedSpecificWorkId === 'general') {
+        return sessions.filter(s => !s.projectId);
+      }
+      return sessions.filter(s => s.projectId === selectedSpecificWorkId);
+    }
+    if (workFilterMode === 'custom') {
+      return sessions.filter(s => {
+        const id = s.projectId || 'general';
+        return selectedCustomWorkIds.includes(id);
+      });
+    }
+    return sessions;
+  }, [sessions, selectedProjectId, workFilterMode, selectedSpecificWorkId, selectedCustomWorkIds]);
 
-  const filteredSessions = filterSessionsByDate(projectFilteredSessions, dateFilter);
+  const filteredSessions = filterSessionsByDate(workFilteredSessions, dateFilter);
 
   // --- Statistics Logic ---
   const sortedSessions = [...filteredSessions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -240,8 +368,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   // Streak calculation
   const calculateStreak = () => {
-    if (projectFilteredSessions.length === 0) return 0;
-    const allSorted = [...projectFilteredSessions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    if (workFilteredSessions.length === 0) return 0;
+    const allSorted = [...workFilteredSessions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     const uniqueTimestamps = Array.from(new Set(allSorted.map(s => {
       const d = new Date(s.date);
@@ -399,20 +527,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   // Goals
   const today = new Date().toLocaleDateString('en-CA');
-  const wordsToday = sessions
+  const wordsToday = workFilteredSessions
     .filter(s => new Date(s.date).toLocaleDateString('en-CA') === today)
     .reduce((acc, curr) => acc + curr.wordCount, 0);
   const dailyProgress = Math.min(100, Math.round((wordsToday / settings.dailyWordGoal) * 100));
 
   const oneWeekAgo = new Date();
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-  const wordsWeek = sessions
+  const wordsWeek = workFilteredSessions
     .filter(s => new Date(s.date) >= oneWeekAgo)
     .reduce((acc, curr) => acc + curr.wordCount, 0);
   const weeklyProgress = Math.min(100, Math.round((wordsWeek / settings.weeklyWordGoal) * 100));
 
   // Project Specific Goal
-  const activeProject = selectedProjectId ? projects.find(p => p.id === selectedProjectId) : null;
+  const activeProject = useMemo(() => {
+    if (selectedProjectId) {
+      return projects.find(p => p.id === selectedProjectId) || null;
+    }
+    if (workFilterMode === 'specific' && selectedSpecificWorkId !== 'all' && selectedSpecificWorkId !== 'general') {
+      return projects.find(p => p.id === selectedSpecificWorkId) || null;
+    }
+    return null;
+  }, [selectedProjectId, workFilterMode, selectedSpecificWorkId, projects]);
+
   const projectProgress = activeProject?.targetWordCount ? Math.min(100, Math.round((totalWords / activeProject.targetWordCount) * 100)) : 0;
 
   // Calendar
@@ -569,163 +706,187 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     </div>
   );
 
-  const renderCharts = () => (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-      <div className="lg:col-span-2 space-y-8">
-        <Card title={t('dashboard.wordProduction')} subtitle={t('dashboard.wordProductionSubtitle')}>
-          <div className="mb-4 flex gap-2">
-            <div className="bg-slate-100 rounded-lg p-1 flex text-xs font-medium">
-              <button onClick={() => setDateFilter('7days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '7days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.weekly')}</button>
-              <button onClick={() => setDateFilter('30days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '30days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.monthly')}</button>
-              <button onClick={() => setDateFilter('6months')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '6months' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.semester')}</button>
-              <button onClick={() => setDateFilter('1year')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '1year' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.yearly')}</button>
-              <button onClick={() => setDateFilter('all')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === 'all' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.all')}</button>
-            </div>
-          </div>
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={wordsOverTime} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                <RechartsTooltip
-                  cursor={{ fill: '#f8fafc', opacity: 0.8 }}
-                  contentStyle={{
-                    borderRadius: '12px',
-                    border: 'none',
-                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-                    padding: '12px'
-                  }}
-                />
-                <Legend iconType="circle" wrapperStyle={{ paddingTop: '15px' }} />
-                {/* General/No-Project Bar */}
-                <Bar
-                  dataKey="general"
-                  stackId="a"
-                  fill="#cbd5e1"
-                  name={t('dashboard.general_project')}
-                  radius={[4, 4, 0, 0]}
-                />
-                {/* Dynamic Bars for each Project */}
-                {projects.map(p => (
-                  <Bar
-                    key={p.id}
-                    dataKey={p.id}
-                    stackId="a"
-                    fill={p.color || '#2dd4bf'}
-                    name={p.name}
-                    radius={[4, 4, 0, 0]}
-                  />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+  const renderCharts = () => {
+    const showWordProd = visibleModules.wordProduction;
+    const showQuality = visibleModules.qualityIndicators;
+    const showCalendar = visibleModules.calendar;
+    const showStrategies = visibleModules.strategies;
 
-        <Card title={t('dashboard.qualityIndicators')} subtitle={t('dashboard.qualitySubtitle')}>
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={metricsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} dy={10} />
-                <YAxis domain={[0, 6]} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                <RechartsTooltip
-                  contentStyle={{
-                    borderRadius: '12px',
-                    border: 'none',
-                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                  }}
-                />
-                <Legend iconType="circle" wrapperStyle={{ paddingTop: '15px' }} />
-                <Line
-                  type="monotone"
-                  dataKey="estresse"
-                  stroke="#f43f5e"
-                  strokeWidth={3}
-                  dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#f43f5e' }}
-                  activeDot={{ r: 6, strokeWidth: 0, fill: '#f43f5e' }}
-                  name="Estresse"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="dificuldade"
-                  stroke="#f59e0b"
-                  strokeWidth={3}
-                  dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#f59e0b' }}
-                  activeDot={{ r: 6, strokeWidth: 0, fill: '#f59e0b' }}
-                  name="Dificuldade"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="avaliacao"
-                  stroke="#10b981"
-                  strokeWidth={3}
-                  dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#10b981' }}
-                  activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }}
-                  name="Avaliação"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-      </div>
+    if (!showWordProd && !showQuality && !showCalendar && !showStrategies) return null;
 
-      <div className="space-y-8">
-        <Card title={t('dashboard.calendar')} subtitle={t('dashboard.calendarSubtitle')}>
-          <div className="grid grid-cols-7 gap-1 text-center text-sm">
-            {[t('days.sunday'), t('days.monday'), t('days.tuesday'), t('days.wednesday'), t('days.thursday'), t('days.friday'), t('days.saturday')].map((d, i) => (
-              <div key={i} className="text-slate-400 font-medium py-1">{d.charAt(0)}</div>
-            ))}
-            {calendarDays.map((d, i) => (
-              <div key={i} className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-all hover:scale-105 cursor-default ${!d ? 'bg-transparent' :
-                d.hasSession ? 'bg-teal-500 text-white shadow-lg shadow-teal-200' : 'bg-slate-50 text-slate-300'
-                }`}>
-                {d?.day}
-              </div>
-            ))}
-          </div>
-        </Card>
+    const hasLeftCol = showWordProd || showQuality;
+    const hasRightCol = showCalendar || showStrategies;
 
-        <Card title={t('dashboard.strategies')}>
-          <div className="h-64 w-full">
-            {strategyUsage.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={strategyUsage}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={65}
-                    outerRadius={85}
-                    paddingAngle={4}
-                    cornerRadius={5}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {strategyUsage.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={STAT_COLORS[index % STAT_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip
-                    contentStyle={{
-                      borderRadius: '12px',
-                      border: 'none',
-                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                    }}
-                  />
-                  <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-400 text-sm">
-                {t('dashboard.insufficientData')}
-              </div>
+    return (
+      <div className={`grid grid-cols-1 ${hasLeftCol && hasRightCol ? 'lg:grid-cols-3' : 'grid-cols-1'} gap-8 mb-8`}>
+        {hasLeftCol && (
+          <div className={`${hasRightCol ? 'lg:col-span-2' : 'col-span-1'} space-y-8`}>
+            {showWordProd && (
+              <Card title={t('dashboard.wordProduction')} subtitle={t('dashboard.wordProductionSubtitle')}>
+                <div className="mb-4 flex gap-2">
+                  <div className="bg-slate-100 rounded-lg p-1 flex text-xs font-medium">
+                    <button onClick={() => setDateFilter('7days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '7days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.weekly')}</button>
+                    <button onClick={() => setDateFilter('30days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '30days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.monthly')}</button>
+                    <button onClick={() => setDateFilter('6months')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '6months' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.semester')}</button>
+                    <button onClick={() => setDateFilter('1year')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '1year' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.yearly')}</button>
+                    <button onClick={() => setDateFilter('all')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === 'all' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.all')}</button>
+                  </div>
+                </div>
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={wordsOverTime} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} dy={10} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                      <RechartsTooltip
+                        cursor={{ fill: '#f8fafc', opacity: 0.8 }}
+                        contentStyle={{
+                          borderRadius: '12px',
+                          border: 'none',
+                          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                          padding: '12px'
+                        }}
+                      />
+                      <Legend iconType="circle" wrapperStyle={{ paddingTop: '15px' }} />
+                      {/* General/No-Project Bar */}
+                      <Bar
+                        dataKey="general"
+                        stackId="a"
+                        fill="#cbd5e1"
+                        name={t('dashboard.general_project')}
+                        radius={[4, 4, 0, 0]}
+                      />
+                      {/* Dynamic Bars for each Project */}
+                      {projects.map(p => (
+                        <Bar
+                          key={p.id}
+                          dataKey={p.id}
+                          stackId="a"
+                          fill={p.color || '#2dd4bf'}
+                          name={p.name}
+                          radius={[4, 4, 0, 0]}
+                        />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </Card>
+            )}
+
+            {showQuality && (
+              <Card title={t('dashboard.qualityIndicators')} subtitle={t('dashboard.qualitySubtitle')}>
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={metricsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} dy={10} />
+                      <YAxis domain={[0, 6]} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                      <RechartsTooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          border: 'none',
+                          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                        }}
+                      />
+                      <Legend iconType="circle" wrapperStyle={{ paddingTop: '15px' }} />
+                      <Line
+                        type="monotone"
+                        dataKey="estresse"
+                        stroke="#f43f5e"
+                        strokeWidth={3}
+                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#f43f5e' }}
+                        activeDot={{ r: 6, strokeWidth: 0, fill: '#f43f5e' }}
+                        name="Estresse"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="dificuldade"
+                        stroke="#f59e0b"
+                        strokeWidth={3}
+                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#f59e0b' }}
+                        activeDot={{ r: 6, strokeWidth: 0, fill: '#f59e0b' }}
+                        name="Dificuldade"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="avaliacao"
+                        stroke="#10b981"
+                        strokeWidth={3}
+                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#10b981' }}
+                        activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }}
+                        name="Avaliação"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </Card>
             )}
           </div>
-        </Card>
+        )}
+
+        {hasRightCol && (
+          <div className={`${hasLeftCol ? 'col-span-1' : 'col-span-1'} space-y-8`}>
+            {showCalendar && (
+              <Card title={t('dashboard.calendar')} subtitle={t('dashboard.calendarSubtitle')}>
+                <div className="grid grid-cols-7 gap-1 text-center text-sm">
+                  {[t('days.sunday'), t('days.monday'), t('days.tuesday'), t('days.wednesday'), t('days.thursday'), t('days.friday'), t('days.saturday')].map((d, i) => (
+                    <div key={i} className="text-slate-400 font-medium py-1">{d.charAt(0)}</div>
+                  ))}
+                  {calendarDays.map((d, i) => (
+                    <div key={i} className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-all hover:scale-105 cursor-default ${!d ? 'bg-transparent' :
+                      d.hasSession ? 'bg-teal-500 text-white shadow-lg shadow-teal-200' : 'bg-slate-50 text-slate-300'
+                      }`}>
+                      {d?.day}
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            {showStrategies && (
+              <Card title={t('dashboard.strategies')}>
+                <div className="h-64 w-full">
+                  {strategyUsage.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={strategyUsage}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={65}
+                          outerRadius={85}
+                          paddingAngle={4}
+                          cornerRadius={5}
+                          dataKey="value"
+                          stroke="none"
+                        >
+                          {strategyUsage.map((_, index) => (
+                            <Cell key={`cell-${index}`} fill={STAT_COLORS[index % STAT_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip
+                          contentStyle={{
+                            borderRadius: '12px',
+                            border: 'none',
+                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                          }}
+                        />
+                        <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-slate-400 text-sm">
+                      {t('dashboard.insufficientData')}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderHeatmap = () => (
     <Card title={t('dashboard.heatmapTitle')} subtitle={t('dashboard.heatmapSubtitle')} className="mb-8">
@@ -787,6 +948,551 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         </table>
       </div>
     </Card>
+  );
+
+  const renderWritingInsights = () => (
+    <div className="mb-8">
+      <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+        </svg>
+        {t('dashboard.insights')}
+      </h3>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Time of Day Preference */}
+        {writingInsights.preferredTimeOfDay && (
+          <Card>
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg">
+                <span className="text-2xl">
+                  {writingInsights.preferredTimeOfDay === 'morning' && '🌅'}
+                  {writingInsights.preferredTimeOfDay === 'afternoon' && '☀️'}
+                  {writingInsights.preferredTimeOfDay === 'evening' && '🌆'}
+                  {writingInsights.preferredTimeOfDay === 'night' && '🌙'}
+                </span>
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.preferredTime')}</p>
+                <p className="text-lg font-bold text-slate-800">
+                  {writingInsights.preferredTimeOfDay === 'morning' && t('dashboard.morning')}
+                  {writingInsights.preferredTimeOfDay === 'afternoon' && t('dashboard.afternoon')}
+                  {writingInsights.preferredTimeOfDay === 'evening' && t('dashboard.evening')}
+                  {writingInsights.preferredTimeOfDay === 'night' && t('dashboard.night')}
+                </p>
+                <p className="text-xs text-slate-600 mt-1">
+                  {writingInsights.preferredTimeOfDay === 'morning' && t('dashboard.timeDescMorning')}
+                  {writingInsights.preferredTimeOfDay === 'afternoon' && t('dashboard.timeDescAfternoon')}
+                  {writingInsights.preferredTimeOfDay === 'evening' && t('dashboard.timeDescEvening')}
+                  {writingInsights.preferredTimeOfDay === 'night' && t('dashboard.timeDescNight')}
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Most Productive Days */}
+        {writingInsights.mostProductiveDays.length > 0 && (
+          <Card>
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-lg">
+                <span className="text-2xl">📅</span>
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.productiveDays')}</p>
+                <p className="text-lg font-bold text-slate-800">
+                  {writingInsights.mostProductiveDays.join(', ')}
+                </p>
+                <p className="text-xs text-slate-600 mt-1">
+                  {t('dashboard.productiveDaysDesc')}
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Weekday vs Weekend */}
+        {writingInsights.weekdayVsWeekend && (
+          <Card>
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-gradient-to-br from-indigo-400 to-purple-500 rounded-lg">
+                <span className="text-2xl">
+                  {writingInsights.weekdayVsWeekend === 'weekday' && '💼'}
+                  {writingInsights.weekdayVsWeekend === 'weekend' && '🏖️'}
+                  {writingInsights.weekdayVsWeekend === 'balanced' && '⚖️'}
+                </span>
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.routine')}</p>
+                <p className="text-lg font-bold text-slate-800">
+                  {writingInsights.weekdayVsWeekend === 'weekday' && t('dashboard.weekdayWriter')}
+                  {writingInsights.weekdayVsWeekend === 'weekend' && t('dashboard.weekendWriter')}
+                  {writingInsights.weekdayVsWeekend === 'balanced' && t('dashboard.balanced')}
+                </p>
+                <p className="text-xs text-slate-600 mt-1">
+                  {writingInsights.weekdayVsWeekend === 'weekday' && t('dashboard.productiveWeekdays')}
+                  {writingInsights.weekdayVsWeekend === 'weekend' && t('dashboard.productiveWeekends')}
+                  {writingInsights.weekdayVsWeekend === 'balanced' && t('dashboard.productiveBalanced')}
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Longest Streak */}
+        {writingInsights.longestStreak > 0 && (
+          <Card>
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-gradient-to-br from-rose-400 to-pink-500 rounded-lg">
+                <span className="text-2xl">🔥</span>
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.longestStreak')}</p>
+                <p className="text-lg font-bold text-slate-800">
+                  {writingInsights.longestStreak} {t('dashboard.days')}
+                </p>
+                <p className="text-xs text-slate-600 mt-1">
+                  {t('dashboard.longestStreakDesc')}
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Writer Profile */}
+        {writingInsights.writerProfile && (
+          <Card>
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-gradient-to-br from-emerald-400 to-green-500 rounded-lg">
+                <span className="text-2xl">
+                  {writingInsights.writerProfile === 'marathoner' && '🏃'}
+                  {writingInsights.writerProfile === 'sprinter' && '⚡'}
+                  {writingInsights.writerProfile === 'consistent' && '🎯'}
+                </span>
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.writerProfile')}</p>
+                <p className="text-lg font-bold text-slate-800">
+                  {writingInsights.writerProfile === 'marathoner' && t('dashboard.marathoner')}
+                  {writingInsights.writerProfile === 'sprinter' && t('dashboard.sprinter')}
+                  {writingInsights.writerProfile === 'consistent' && t('dashboard.consistent')}
+                </p>
+                <p className="text-xs text-slate-600 mt-1">
+                  {writingInsights.writerProfile === 'marathoner' && t('dashboard.profileMarathonerDesc')}
+                  {writingInsights.writerProfile === 'sprinter' && t('dashboard.profileSprinterDesc')}
+                  {writingInsights.writerProfile === 'consistent' && t('dashboard.profileConsistentDesc')}
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Current Streak */}
+        {currentStreak > 0 && (
+          <Card>
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-gradient-to-br from-violet-400 to-purple-500 rounded-lg">
+                <span className="text-2xl">✨</span>
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.currentStreak')}</p>
+                <p className="text-lg font-bold text-slate-800">
+                  {currentStreak} {t('dashboard.days')}
+                </p>
+                <p className="text-xs text-slate-600 mt-1">
+                  {t('dashboard.streakKeepItUp')}
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderFilterToolbar = (isInsideDrawer = false) => {
+    const selectedCount = selectedCustomWorkIds.length;
+    const totalCustomOptions = projects.length + 1; // projects + general
+
+    return (
+      <div className={`bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs space-y-3 ${isInsideDrawer ? 'mb-4' : 'mb-6'}`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Scope / Work filter */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mr-1">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+              </svg>
+              {t('dashboard.filterScope')}:
+            </span>
+
+            {/* Buttons for "Todos" / "Obra específica" / "Personalizado" */}
+            <div className="bg-slate-100 p-1 rounded-xl flex text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setWorkFilterMode('all')}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  workFilterMode === 'all'
+                    ? 'bg-white shadow-xs text-teal-700'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {t('dashboard.allWorks')}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWorkFilterMode('specific')}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  workFilterMode === 'specific'
+                    ? 'bg-white shadow-xs text-teal-700'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {t('dashboard.specificWork')}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWorkFilterMode('custom')}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  workFilterMode === 'custom'
+                    ? 'bg-white shadow-xs text-teal-700'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {t('dashboard.customWorks')}
+              </button>
+            </div>
+          </div>
+
+          {/* Right controls: "Quais ver" and "Guardar" */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowModuleSelector(prev => !prev)}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 ${
+                showModuleSelector
+                  ? 'bg-teal-50 border-teal-300 text-teal-700 shadow-xs'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+              <span>{t('dashboard.selectWhatToSee')}</span>
+              <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full font-bold">
+                {Object.values(visibleModules).filter(Boolean).length}/9
+              </span>
+            </button>
+
+            {!isInsideDrawer && (
+              <button
+                type="button"
+                onClick={() => toggleAutomonitoringVisibility(false)}
+                className="px-3 py-1.5 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors flex items-center gap-1.5"
+                title={t('dashboard.hideAutomonitoring')}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                </svg>
+                <span>{t('dashboard.hideAutomonitoring')}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Secondary controls for "specific" work */}
+        {workFilterMode === 'specific' && (
+          <div className="pt-2 border-t border-slate-100 flex items-center gap-3 flex-wrap">
+            <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">
+              {t('dashboard.selectWork')}:
+            </label>
+            <select
+              value={selectedSpecificWorkId}
+              onChange={(e) => setSelectedSpecificWorkId(e.target.value)}
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-teal-300 max-w-xs"
+            >
+              <option value="all">{t('dashboard.allWorks')}</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+              <option value="general">{t('dashboard.noWorkAssigned')}</option>
+            </select>
+          </div>
+        )}
+
+        {/* Secondary controls for "custom" works */}
+        {workFilterMode === 'custom' && (
+          <div className="pt-3 border-t border-slate-100 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-600">
+                {t('dashboard.customSelectionTitle')} ({selectedCount}/{totalCustomOptions} {t('dashboard.worksCount')})
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedCustomWorkIds(['general', ...projects.map(p => p.id)])}
+                  className="text-[11px] text-teal-600 hover:underline font-bold"
+                >
+                  {t('dashboard.selectAll')}
+                </button>
+                <span className="text-slate-300">|</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCustomWorkIds([])}
+                  className="text-[11px] text-slate-400 hover:text-slate-600 font-bold"
+                >
+                  {t('dashboard.deselectAll')}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-1">
+              {/* General checkbox chip */}
+              <label
+                className={`px-3 py-1.5 rounded-xl border text-xs font-medium cursor-pointer transition-all flex items-center gap-2 ${
+                  selectedCustomWorkIds.includes('general')
+                    ? 'bg-teal-50 border-teal-300 text-teal-800 shadow-xs'
+                    : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5"
+                  checked={selectedCustomWorkIds.includes('general')}
+                  onChange={() => {
+                    setSelectedCustomWorkIds(prev =>
+                      prev.includes('general') ? prev.filter(x => x !== 'general') : [...prev, 'general']
+                    );
+                  }}
+                />
+                <span>{t('dashboard.noWorkAssigned')}</span>
+              </label>
+
+              {/* Projects checkboxes */}
+              {projects.map(p => {
+                const isChecked = selectedCustomWorkIds.includes(p.id);
+                return (
+                  <label
+                    key={p.id}
+                    className={`px-3 py-1.5 rounded-xl border text-xs font-medium cursor-pointer transition-all flex items-center gap-2 ${
+                      isChecked
+                        ? 'bg-teal-50 border-teal-300 text-teal-800 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5"
+                      checked={isChecked}
+                      onChange={() => {
+                        setSelectedCustomWorkIds(prev =>
+                          prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id]
+                        );
+                      }}
+                    />
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.color || '#2dd4bf' }} />
+                    <span className="truncate max-w-[150px]">{p.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Module selector accordion */}
+        {showModuleSelector && (
+          <div className="pt-3 border-t border-slate-100 bg-slate-50 p-3 rounded-xl space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                {t('dashboard.modulesTitle')}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAllModules(true)}
+                  className="text-[11px] text-teal-600 hover:underline font-bold"
+                >
+                  {t('dashboard.selectAll')}
+                </button>
+                <span className="text-slate-300">|</span>
+                <button
+                  type="button"
+                  onClick={() => setAllModules(false)}
+                  className="text-[11px] text-slate-400 hover:text-slate-600 font-bold"
+                >
+                  {t('dashboard.deselectAll')}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+              {[
+                { key: 'goals', label: t('dashboard.moduleGoals') },
+                { key: 'kpis', label: t('dashboard.moduleKpis') },
+                { key: 'wordProduction', label: t('dashboard.moduleWordProduction') },
+                { key: 'qualityIndicators', label: t('dashboard.moduleQuality') },
+                { key: 'calendar', label: t('dashboard.moduleCalendar') },
+                { key: 'strategies', label: t('dashboard.moduleStrategies') },
+                { key: 'heatmap', label: t('dashboard.moduleHeatmap') },
+                { key: 'sessionsList', label: t('dashboard.moduleSessions') },
+                { key: 'insights', label: t('dashboard.moduleInsights') },
+              ].map(({ key, label }) => {
+                const isChecked = visibleModules[key as keyof typeof defaultModules];
+                return (
+                  <label
+                    key={key}
+                    className={`p-2 rounded-lg border text-xs cursor-pointer flex items-center gap-2 transition-all ${
+                      isChecked
+                        ? 'bg-white border-teal-200 text-slate-800 font-medium shadow-xs'
+                        : 'bg-slate-100 border-transparent text-slate-400'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5"
+                      checked={isChecked}
+                      onChange={() => toggleModule(key as keyof typeof defaultModules)}
+                    />
+                    <span className="truncate">{label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderAutomonitoringSections = () => (
+    <div className="space-y-8">
+      {/* Goals */}
+      {visibleModules.goals && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card>
+            <div className="flex justify-between items-end mb-2">
+              <span className="font-semibold text-slate-700">{t('dashboard.dailyGoal')}</span>
+              <span className="text-sm text-slate-500">{wordsToday} / {settings.dailyWordGoal} {t('dashboard.words')}</span>
+            </div>
+            <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+              <div className="bg-teal-400 h-3 rounded-full transition-all duration-1000" style={{ width: `${dailyProgress}%` }}></div>
+            </div>
+          </Card>
+          <Card>
+            <div className="flex justify-between items-end mb-2">
+              <span className="font-semibold text-slate-700">{t('dashboard.weeklyGoal')}</span>
+              <span className="text-sm text-slate-500">{wordsWeek} / {settings.weeklyWordGoal} {t('dashboard.words')}</span>
+            </div>
+            <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+              <div className="bg-emerald-400 h-3 rounded-full transition-all duration-1000" style={{ width: `${weeklyProgress}%` }}></div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Writing Insights */}
+      {visibleModules.insights && filteredSessions.length > 0 && renderWritingInsights()}
+
+      {/* KPIs */}
+      {visibleModules.kpis && renderKPIs()}
+
+      {/* Charts (Word Production, Quality Indicators, Calendar, Strategies) */}
+      {(visibleModules.wordProduction || visibleModules.qualityIndicators || visibleModules.calendar || visibleModules.strategies) && renderCharts()}
+
+      {/* Heatmap */}
+      {visibleModules.heatmap && renderHeatmap()}
+
+      {/* Session List */}
+      {visibleModules.sessionsList && renderSessionList()}
+    </div>
+  );
+
+  const renderSlidebarDrawer = () => (
+    <>
+      {/* SLIDEBAR TRIGGER TAB (Docked to right edge) */}
+      <div
+        onMouseEnter={() => {
+          if (slidebarCloseTimerRef.current) clearTimeout(slidebarCloseTimerRef.current);
+          setIsSlidebarOpen(true);
+        }}
+        onClick={() => setIsSlidebarOpen(prev => !prev)}
+        className="fixed right-0 top-1/2 -translate-y-1/2 z-40 bg-teal-600 hover:bg-teal-700 text-white py-3.5 px-2 rounded-l-2xl shadow-2xl cursor-pointer flex flex-col items-center gap-2 group transition-all transform hover:-translate-x-1"
+        title={t('dashboard.openSlidebar')}
+      >
+        <div className="flex items-center gap-1.5">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transform group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+        </div>
+        <span className="text-[11px] font-bold tracking-wider uppercase [writing-mode:vertical-rl] rotate-180 py-1 select-none">
+          {t('dashboard.slidebarTab')}
+        </span>
+      </div>
+
+      {/* OVERLAY */}
+      {isSlidebarOpen && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 transition-opacity"
+          onClick={() => setIsSlidebarOpen(false)}
+        />
+      )}
+
+      {/* SLIDEBAR DRAWER */}
+      <div
+        onMouseEnter={() => {
+          if (slidebarCloseTimerRef.current) clearTimeout(slidebarCloseTimerRef.current);
+        }}
+        className={`fixed top-0 right-0 h-full w-full sm:w-[560px] md:w-[700px] lg:w-[820px] bg-slate-50 shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-in-out ${
+          isSlidebarOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        {/* Drawer Header */}
+        <div className="p-4 sm:p-5 border-b border-slate-200 bg-white flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-teal-50 text-teal-600 rounded-xl">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800 text-lg leading-tight">{t('dashboard.slidebarTitle')}</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Métricas, gráficos e indicadores detalhados</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                toggleAutomonitoringVisibility(true);
+                setIsSlidebarOpen(false);
+              }}
+              className="text-xs px-3.5 py-2 bg-teal-50 text-teal-700 font-bold rounded-xl hover:bg-teal-100 transition-colors shadow-xs"
+            >
+              {t('dashboard.openInDashboard')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsSlidebarOpen(false)}
+              className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+              title={t('common.cancel')}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Drawer Body - Scrollable */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+          {renderFilterToolbar(true)}
+          {renderAutomonitoringSections()}
+        </div>
+      </div>
+    </>
   );
 
   const renderAchievements = () => {
@@ -1086,194 +1792,90 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             </div>
           )}
 
-          {activeTab === 'general' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              <Card>
-                <div className="flex justify-between items-end mb-2">
-                  <span className="font-semibold text-slate-700">{t('dashboard.dailyGoal')}</span>
-                  <span className="text-sm text-slate-500">{wordsToday} / {settings.dailyWordGoal} {t('dashboard.words')}</span>
+          {/* Case 1: Automonitoring is "Guardado" (stored/collapsed) in general view */}
+          {activeTab === 'general' && !selectedProjectId && !isAutomonitoringVisible && (
+            <div className="bg-gradient-to-br from-white via-slate-50 to-teal-50/30 rounded-3xl p-6 sm:p-10 border border-slate-200 shadow-sm relative overflow-hidden transition-all hover:shadow-md mb-8">
+              <div className="max-w-2xl">
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-teal-50 border border-teal-200/60 rounded-full text-xs font-semibold text-teal-700 mb-4">
+                  <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span>
+                  {t('dashboard.automonitoringStored')}
                 </div>
-                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-                  <div className="bg-teal-400 h-3 rounded-full transition-all duration-1000" style={{ width: `${dailyProgress}%` }}></div>
-                </div>
-              </Card>
-              <Card>
-                <div className="flex justify-between items-end mb-2">
-                  <span className="font-semibold text-slate-700">{t('dashboard.weeklyGoal')}</span>
-                  <span className="text-sm text-slate-500">{wordsWeek} / {settings.weeklyWordGoal} {t('dashboard.words')}</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-                  <div className="bg-emerald-400 h-3 rounded-full transition-all duration-1000" style={{ width: `${weeklyProgress}%` }}></div>
-                </div>
-              </Card>
-            </div>
-          )}
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight mb-2">
+                  Espaço Livre de Ansiedade para Escrever
+                </h2>
+                <p className="text-slate-600 leading-relaxed mb-6">
+                  {t('dashboard.automonitoringStoredDesc')}
+                </p>
 
-          {/* Writing Insights - Qualitative Analysis */}
-          {activeTab === 'general' && filteredSessions.length > 0 && (
-            <div className="mb-8">
-              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Slider Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => toggleAutomonitoringVisibility(true)}
+                    className="flex items-center gap-2.5 px-5 py-3 bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-xl shadow-lg shadow-teal-500/20 transition-all hover:-translate-y-0.5 cursor-pointer"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <span>{t('dashboard.showAutomonitoring')}</span>
+                  </button>
+
+                  {/* Open Slidebar Drawer Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsSlidebarOpen(true)}
+                    className="flex items-center gap-2.5 px-5 py-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium rounded-xl shadow-sm transition-all hover:-translate-y-0.5 cursor-pointer"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <span>{t('dashboard.openSlidebar')}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Decorative graphic / watermark */}
+              <div className="hidden lg:block absolute right-8 top-1/2 -translate-y-1/2 opacity-15 pointer-events-none">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-44 w-44 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
-                {t('dashboard.insights')}
-              </h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {/* Time of Day Preference */}
-                {writingInsights.preferredTimeOfDay && (
-                  <Card>
-                    <div className="flex items-start gap-3">
-                      <div className="p-2 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg">
-                        <span className="text-2xl">
-                          {writingInsights.preferredTimeOfDay === 'morning' && '🌅'}
-                          {writingInsights.preferredTimeOfDay === 'afternoon' && '☀️'}
-                          {writingInsights.preferredTimeOfDay === 'evening' && '🌆'}
-                          {writingInsights.preferredTimeOfDay === 'night' && '🌙'}
-                        </span>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.preferredTime')}</p>
-                        <p className="text-lg font-bold text-slate-800">
-                          {writingInsights.preferredTimeOfDay === 'morning' && t('dashboard.morning')}
-                          {writingInsights.preferredTimeOfDay === 'afternoon' && t('dashboard.afternoon')}
-                          {writingInsights.preferredTimeOfDay === 'evening' && t('dashboard.evening')}
-                          {writingInsights.preferredTimeOfDay === 'night' && t('dashboard.night')}
-                        </p>
-                        <p className="text-xs text-slate-600 mt-1">
-                          {writingInsights.preferredTimeOfDay === 'morning' && t('dashboard.timeDescMorning')}
-                          {writingInsights.preferredTimeOfDay === 'afternoon' && t('dashboard.timeDescAfternoon')}
-                          {writingInsights.preferredTimeOfDay === 'evening' && t('dashboard.timeDescEvening')}
-                          {writingInsights.preferredTimeOfDay === 'night' && t('dashboard.timeDescNight')}
-                        </p>
-                      </div>
-                    </div>
-                  </Card>
-                )}
-
-                {/* Most Productive Days */}
-                {writingInsights.mostProductiveDays.length > 0 && (
-                  <Card>
-                    <div className="flex items-start gap-3">
-                      <div className="p-2 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-lg">
-                        <span className="text-2xl">📅</span>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.productiveDays')}</p>
-                        <p className="text-lg font-bold text-slate-800">
-                          {writingInsights.mostProductiveDays.join(', ')}
-                        </p>
-                        <p className="text-xs text-slate-600 mt-1">
-                          {t('dashboard.productiveDaysDesc')}
-                        </p>
-                      </div>
-                    </div>
-                  </Card>
-                )}
-
-                {/* Weekday vs Weekend */}
-                {writingInsights.weekdayVsWeekend && (
-                  <Card>
-                    <div className="flex items-start gap-3">
-                      <div className="p-2 bg-gradient-to-br from-indigo-400 to-purple-500 rounded-lg">
-                        <span className="text-2xl">
-                          {writingInsights.weekdayVsWeekend === 'weekday' && '💼'}
-                          {writingInsights.weekdayVsWeekend === 'weekend' && '🏖️'}
-                          {writingInsights.weekdayVsWeekend === 'balanced' && '⚖️'}
-                        </span>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.routine')}</p>
-                        <p className="text-lg font-bold text-slate-800">
-                          {writingInsights.weekdayVsWeekend === 'weekday' && t('dashboard.weekdayWriter')}
-                          {writingInsights.weekdayVsWeekend === 'weekend' && t('dashboard.weekendWriter')}
-                          {writingInsights.weekdayVsWeekend === 'balanced' && t('dashboard.balanced')}
-                        </p>
-                        <p className="text-xs text-slate-600 mt-1">
-                          {writingInsights.weekdayVsWeekend === 'weekday' && t('dashboard.productiveWeekdays')}
-                          {writingInsights.weekdayVsWeekend === 'weekend' && t('dashboard.productiveWeekends')}
-                          {writingInsights.weekdayVsWeekend === 'balanced' && t('dashboard.productiveBalanced')}
-                        </p>
-                      </div>
-                    </div>
-                  </Card>
-                )}
-
-                {/* Longest Streak */}
-                {writingInsights.longestStreak > 0 && (
-                  <Card>
-                    <div className="flex items-start gap-3">
-                      <div className="p-2 bg-gradient-to-br from-rose-400 to-pink-500 rounded-lg">
-                        <span className="text-2xl">🔥</span>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.longestStreak')}</p>
-                        <p className="text-lg font-bold text-slate-800">
-                          {writingInsights.longestStreak} {t('dashboard.days')}
-                        </p>
-                        <p className="text-xs text-slate-600 mt-1">
-                          {t('dashboard.longestStreakDesc')}
-                        </p>
-                      </div>
-                    </div>
-                  </Card>
-                )}
-
-                {/* Writer Profile */}
-                {writingInsights.writerProfile && (
-                  <Card>
-                    <div className="flex items-start gap-3">
-                      <div className="p-2 bg-gradient-to-br from-emerald-400 to-green-500 rounded-lg">
-                        <span className="text-2xl">
-                          {writingInsights.writerProfile === 'marathoner' && '🏃'}
-                          {writingInsights.writerProfile === 'sprinter' && '⚡'}
-                          {writingInsights.writerProfile === 'consistent' && '🎯'}
-                        </span>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.writerProfile')}</p>
-                        <p className="text-lg font-bold text-slate-800">
-                          {writingInsights.writerProfile === 'marathoner' && t('dashboard.marathoner')}
-                          {writingInsights.writerProfile === 'sprinter' && t('dashboard.sprinter')}
-                          {writingInsights.writerProfile === 'consistent' && t('dashboard.consistent')}
-                        </p>
-                        <p className="text-xs text-slate-600 mt-1">
-                          {writingInsights.writerProfile === 'marathoner' && t('dashboard.profileMarathonerDesc')}
-                          {writingInsights.writerProfile === 'sprinter' && t('dashboard.profileSprinterDesc')}
-                          {writingInsights.writerProfile === 'consistent' && t('dashboard.profileConsistentDesc')}
-                        </p>
-                      </div>
-                    </div>
-                  </Card>
-                )}
-
-                {/* Current Streak */}
-                {currentStreak > 0 && (
-                  <Card>
-                    <div className="flex items-start gap-3">
-                      <div className="p-2 bg-gradient-to-br from-violet-400 to-purple-500 rounded-lg">
-                        <span className="text-2xl">✨</span>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.currentStreak')}</p>
-                        <p className="text-lg font-bold text-slate-800">
-                          {currentStreak} {t('dashboard.days')}
-                        </p>
-                        <p className="text-xs text-slate-600 mt-1">
-                          {t('dashboard.streakKeepItUp')}
-                        </p>
-                      </div>
-                    </div>
-                  </Card>
-                )}
               </div>
             </div>
           )}
 
-          {renderKPIs()}
-          {renderCharts()}
-          {renderHeatmap()}
-          {renderSessionList()}
+          {/* Case 2: Visible in Dashboard OR when inspecting specific project */}
+          {(isAutomonitoringVisible || selectedProjectId) && (
+            <div className="space-y-6">
+              {/* If on general view, allow user to hide/collapse back or toggle filter toolbar */}
+              {activeTab === 'general' && !selectedProjectId && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-slate-700 uppercase tracking-wide">
+                      {t('dashboard.automonitoring')}
+                    </span>
+                    <span className="text-xs px-2 py-0.5 bg-teal-50 text-teal-700 font-semibold rounded-full border border-teal-200/60">
+                      Ativo
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleAutomonitoringVisibility(false)}
+                    className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 px-3.5 py-2 rounded-xl transition-colors shadow-xs self-start sm:self-auto cursor-pointer"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                    </svg>
+                    {t('dashboard.hideAutomonitoring')}
+                  </button>
+                </div>
+              )}
+
+              {!selectedProjectId && renderFilterToolbar(false)}
+              {renderAutomonitoringSections()}
+            </div>
+          )}
         </>
       )}
 
@@ -1439,6 +2041,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           isPrivateView={readOnly}
         />
       )}
+
+      {/* Slidebar Drawer & Trigger Tab */}
+      {renderSlidebarDrawer()}
     </div>
   );
 };
