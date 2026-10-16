@@ -107,19 +107,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const [dateFilter, setDateFilter] = useState<DateFilterType>('7days');
   const [selectedSession, setSelectedSession] = useState<WritingSession | null>(null);
 
-  // Automonitoramento Visibility & Slidebar State
-  const [isAutomonitoringVisible, setIsAutomonitoringVisible] = useState<boolean>(() => {
-    return localStorage.getItem('parnaso_automonitoring_visible') === 'true';
-  });
-  const [isSlidebarOpen, setIsSlidebarOpen] = useState(false);
-  const slidebarCloseTimerRef = useRef<number | null>(null);
+  // Work Slidebar Selection ('all' | 'general' | projectId)
+  const [selectedWorkId, setSelectedWorkId] = useState<string>('all');
+  const slidebarScrollRef = useRef<HTMLDivElement>(null);
 
-  // Work Filter Modes: 'all' (Todos), 'specific' (Obra Específica), 'custom' (Seleção Personalizada)
-  const [workFilterMode, setWorkFilterMode] = useState<'all' | 'specific' | 'custom'>('all');
-  const [selectedSpecificWorkId, setSelectedSpecificWorkId] = useState<string>('all');
-  const [selectedCustomWorkIds, setSelectedCustomWorkIds] = useState<string[]>(() => {
-    return ['general', ...projects.map(p => p.id)];
+  // Privacy / Print Mode: hides secret project names in charts and legends for photos/screenshots
+  const [isPrivacyMode, setIsPrivacyMode] = useState<boolean>(() => {
+    return localStorage.getItem('parnaso_privacy_mode') === 'true';
   });
+
+  const togglePrivacyMode = () => {
+    setIsPrivacyMode(prev => {
+      const next = !prev;
+      localStorage.setItem('parnaso_privacy_mode', String(next));
+      return next;
+    });
+  };
+
+  const scrollSlidebar = (direction: 'left' | 'right') => {
+    if (slidebarScrollRef.current) {
+      const scrollAmount = direction === 'left' ? -260 : 260;
+      slidebarScrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+
+  // Only projects enabled for automonitoring
+  const projectsInAutomonitoring = useMemo(() => {
+    return projects.filter(p => p.showInAutomonitoring !== false);
+  }, [projects]);
+
+  const handleToggleProjectInAutomonitoring = (project: Project, enabled: boolean) => {
+    const updated: Project = { ...project, showInAutomonitoring: enabled };
+    onAddProject(updated);
+    if (!enabled && selectedWorkId === project.id) {
+      setSelectedWorkId('all');
+    }
+  };
 
   // Modules selector state ("Quais ver")
   const defaultModules = useMemo(() => ({
@@ -176,20 +199,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   });
   const [showModuleSelector, setShowModuleSelector] = useState(false);
 
-  // Sync projects with custom work selection
-  useEffect(() => {
-    setSelectedCustomWorkIds(prev => {
-      const allPossible = ['general', ...projects.map(p => p.id)];
-      const filtered = prev.filter(id => allPossible.includes(id));
-      return filtered.length > 0 ? filtered : allPossible;
-    });
-  }, [projects]);
-
-  // Persist visibility in localStorage
-  const toggleAutomonitoringVisibility = (visible: boolean) => {
-    setIsAutomonitoringVisible(visible);
-    localStorage.setItem('parnaso_automonitoring_visible', String(visible));
-  };
 
   const toggleModule = (moduleKey: keyof typeof defaultModules) => {
     setVisibleModules(prev => {
@@ -303,27 +312,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   // --- Work Filter Logic ---
   const workFilteredSessions = useMemo(() => {
+    // If inspecting a specific project via Minhas Obras
     if (selectedProjectId) {
       return sessions.filter(s => s.projectId === selectedProjectId);
     }
-    if (workFilterMode === 'all') {
-      return sessions;
+
+    const allowedProjectIds = new Set(projectsInAutomonitoring.map(p => p.id));
+
+    // Base allowed sessions (only allowed projects or general)
+    const baseSessions = sessions.filter(s => {
+      if (!s.projectId) return true;
+      return allowedProjectIds.has(s.projectId);
+    });
+
+    if (selectedWorkId === 'all') {
+      return baseSessions;
     }
-    if (workFilterMode === 'specific') {
-      if (selectedSpecificWorkId === 'all') return sessions;
-      if (selectedSpecificWorkId === 'general') {
-        return sessions.filter(s => !s.projectId);
-      }
-      return sessions.filter(s => s.projectId === selectedSpecificWorkId);
+    if (selectedWorkId === 'general') {
+      return baseSessions.filter(s => !s.projectId);
     }
-    if (workFilterMode === 'custom') {
-      return sessions.filter(s => {
-        const id = s.projectId || 'general';
-        return selectedCustomWorkIds.includes(id);
-      });
-    }
-    return sessions;
-  }, [sessions, selectedProjectId, workFilterMode, selectedSpecificWorkId, selectedCustomWorkIds]);
+    return baseSessions.filter(s => s.projectId === selectedWorkId);
+  }, [sessions, selectedProjectId, selectedWorkId, projectsInAutomonitoring]);
 
   const filteredSessions = filterSessionsByDate(workFilteredSessions, dateFilter);
 
@@ -544,11 +553,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     if (selectedProjectId) {
       return projects.find(p => p.id === selectedProjectId) || null;
     }
-    if (workFilterMode === 'specific' && selectedSpecificWorkId !== 'all' && selectedSpecificWorkId !== 'general') {
-      return projects.find(p => p.id === selectedSpecificWorkId) || null;
+    if (selectedWorkId !== 'all' && selectedWorkId !== 'general') {
+      return projects.find(p => p.id === selectedWorkId) || null;
     }
     return null;
-  }, [selectedProjectId, workFilterMode, selectedSpecificWorkId, projects]);
+  }, [selectedProjectId, selectedWorkId, projects]);
 
   const projectProgress = activeProject?.targetWordCount ? Math.min(100, Math.round((totalWords / activeProject.targetWordCount) * 100)) : 0;
 
@@ -749,24 +758,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       />
                       <Legend iconType="circle" wrapperStyle={{ paddingTop: '15px' }} />
                       {/* General/No-Project Bar */}
-                      <Bar
-                        dataKey="general"
-                        stackId="a"
-                        fill="#cbd5e1"
-                        name={t('dashboard.general_project')}
-                        radius={[4, 4, 0, 0]}
-                      />
-                      {/* Dynamic Bars for each Project */}
-                      {projects.map(p => (
+                      {(selectedWorkId === 'all' || selectedWorkId === 'general') && (
                         <Bar
-                          key={p.id}
-                          dataKey={p.id}
+                          dataKey="general"
                           stackId="a"
-                          fill={p.color || '#2dd4bf'}
-                          name={p.name}
+                          fill="#cbd5e1"
+                          name={isPrivacyMode ? "Geral" : t('dashboard.general_project')}
                           radius={[4, 4, 0, 0]}
                         />
-                      ))}
+                      )}
+                      {/* Dynamic Bars for each Project that is active in Automonitoring */}
+                      {projectsInAutomonitoring
+                        .filter(p => selectedWorkId === 'all' || selectedWorkId === p.id)
+                        .map((p, idx) => {
+                          const displayName = isPrivacyMode
+                            ? `${t('dashboard.workNumber')} #${idx + 1}`
+                            : p.name;
+                          return (
+                            <Bar
+                              key={p.id}
+                              dataKey={p.id}
+                              stackId="a"
+                              fill={p.color || '#2dd4bf'}
+                              name={displayName}
+                              radius={[4, 4, 0, 0]}
+                            />
+                          );
+                        })}
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -923,7 +941,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     {proj ? (
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full" style={{ backgroundColor: proj.color }}></div>
-                        {proj.name}
+                        {isPrivacyMode
+                          ? `${t('dashboard.workNumber')} #${projectsInAutomonitoring.findIndex(p => p.id === proj.id) + 1 || 1}`
+                          : proj.name}
                       </div>
                     ) : <span className="text-slate-400 italic">{t('dashboard.general_project')}</span>}
                   </td>
@@ -1110,68 +1130,51 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     </div>
   );
 
-  const renderFilterToolbar = (isInsideDrawer = false) => {
-    const selectedCount = selectedCustomWorkIds.length;
-    const totalCustomOptions = projects.length + 1; // projects + general
-
+  const renderWorksSlidebar = () => {
     return (
-      <div className={`bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs space-y-3 ${isInsideDrawer ? 'mb-4' : 'mb-6'}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Scope / Work filter */}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/80 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mr-1">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            <div className="p-1.5 bg-teal-50 text-teal-600 rounded-lg">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
               </svg>
-              {t('dashboard.filterScope')}:
-            </span>
-
-            {/* Buttons for "Todos" / "Obra específica" / "Personalizado" */}
-            <div className="bg-slate-100 p-1 rounded-xl flex text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => setWorkFilterMode('all')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  workFilterMode === 'all'
-                    ? 'bg-white shadow-xs text-teal-700'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                {t('dashboard.allWorks')}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setWorkFilterMode('specific')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  workFilterMode === 'specific'
-                    ? 'bg-white shadow-xs text-teal-700'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                {t('dashboard.specificWork')}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setWorkFilterMode('custom')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  workFilterMode === 'custom'
-                    ? 'bg-white shadow-xs text-teal-700'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                {t('dashboard.customWorks')}
-              </button>
             </div>
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              {t('dashboard.worksSlidebarTitle')}
+            </span>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-100">
+              {selectedWorkId === 'all'
+                ? t('dashboard.allWorksSlidebar')
+                : selectedWorkId === 'general'
+                  ? t('dashboard.generalNoWorkSlidebar')
+                  : (isPrivacyMode
+                      ? `${t('dashboard.workNumber')} #${projectsInAutomonitoring.findIndex(p => p.id === selectedWorkId) + 1 || 1}`
+                      : projects.find(p => p.id === selectedWorkId)?.name)}
+            </span>
           </div>
 
-          {/* Right controls: "Quais ver" and "Guardar" */}
           <div className="flex items-center gap-2">
+            {/* Print / Privacy Mode Toggle */}
+            <button
+              type="button"
+              onClick={togglePrivacyMode}
+              className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border font-bold transition-all cursor-pointer ${
+                isPrivacyMode
+                  ? 'bg-amber-50 border-amber-300 text-amber-800 shadow-xs'
+                  : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}
+              title={t('dashboard.printModeDesc')}
+            >
+              <span>{isPrivacyMode ? '🙈' : '📸'}</span>
+              <span>{isPrivacyMode ? t('dashboard.printModeActive') : t('dashboard.printModeInactive')}</span>
+            </button>
+
+            {/* Module selector toggle */}
             <button
               type="button"
               onClick={() => setShowModuleSelector(prev => !prev)}
-              className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer ${
                 showModuleSelector
                   ? 'bg-teal-50 border-teal-300 text-teal-700 shadow-xs'
                   : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -1185,125 +1188,102 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 {Object.values(visibleModules).filter(Boolean).length}/9
               </span>
             </button>
-
-            {!isInsideDrawer && (
-              <button
-                type="button"
-                onClick={() => toggleAutomonitoringVisibility(false)}
-                className="px-3 py-1.5 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors flex items-center gap-1.5"
-                title={t('dashboard.hideAutomonitoring')}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
-                </svg>
-                <span>{t('dashboard.hideAutomonitoring')}</span>
-              </button>
-            )}
           </div>
         </div>
 
-        {/* Secondary controls for "specific" work */}
-        {workFilterMode === 'specific' && (
-          <div className="pt-2 border-t border-slate-100 flex items-center gap-3 flex-wrap">
-            <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">
-              {t('dashboard.selectWork')}:
-            </label>
-            <select
-              value={selectedSpecificWorkId}
-              onChange={(e) => setSelectedSpecificWorkId(e.target.value)}
-              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-teal-300 max-w-xs"
+        {/* Slidebar with left/right scroll controls */}
+        <div className="relative flex items-center">
+          <button
+            type="button"
+            onClick={() => scrollSlidebar('left')}
+            className="hidden sm:flex absolute left-0 z-10 p-2 bg-white/95 shadow-md border border-slate-200 rounded-full text-slate-600 hover:bg-teal-50 hover:text-teal-600 transition-all -ml-3 cursor-pointer"
+            title="Rolar para esquerda"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+
+          <div
+            ref={slidebarScrollRef}
+            className="flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth py-1 px-1 w-full"
+          >
+            {/* Pill: Todas as Obras */}
+            <button
+              type="button"
+              onClick={() => setSelectedWorkId('all')}
+              className={`flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                selectedWorkId === 'all'
+                  ? 'bg-teal-600 text-white shadow-md shadow-teal-500/20 scale-[1.02]'
+                  : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700'
+              }`}
             >
-              <option value="all">{t('dashboard.allWorks')}</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-              <option value="general">{t('dashboard.noWorkAssigned')}</option>
-            </select>
-          </div>
-        )}
-
-        {/* Secondary controls for "custom" works */}
-        {workFilterMode === 'custom' && (
-          <div className="pt-3 border-t border-slate-100 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-600">
-                {t('dashboard.customSelectionTitle')} ({selectedCount}/{totalCustomOptions} {t('dashboard.worksCount')})
+              <span>✨</span>
+              <span>{t('dashboard.allWorksSlidebar')}</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                selectedWorkId === 'all' ? 'bg-teal-700 text-white' : 'bg-slate-200 text-slate-600'
+              }`}>
+                {projectsInAutomonitoring.length}
               </span>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedCustomWorkIds(['general', ...projects.map(p => p.id)])}
-                  className="text-[11px] text-teal-600 hover:underline font-bold"
-                >
-                  {t('dashboard.selectAll')}
-                </button>
-                <span className="text-slate-300">|</span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedCustomWorkIds([])}
-                  className="text-[11px] text-slate-400 hover:text-slate-600 font-bold"
-                >
-                  {t('dashboard.deselectAll')}
-                </button>
-              </div>
-            </div>
+            </button>
 
-            <div className="flex flex-wrap gap-2 pt-1">
-              {/* General checkbox chip */}
-              <label
-                className={`px-3 py-1.5 rounded-xl border text-xs font-medium cursor-pointer transition-all flex items-center gap-2 ${
-                  selectedCustomWorkIds.includes('general')
-                    ? 'bg-teal-50 border-teal-300 text-teal-800 shadow-xs'
-                    : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  className="rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5"
-                  checked={selectedCustomWorkIds.includes('general')}
-                  onChange={() => {
-                    setSelectedCustomWorkIds(prev =>
-                      prev.includes('general') ? prev.filter(x => x !== 'general') : [...prev, 'general']
-                    );
-                  }}
-                />
-                <span>{t('dashboard.noWorkAssigned')}</span>
-              </label>
+            {/* Pills for each project */}
+            {projectsInAutomonitoring.map((proj, idx) => {
+              const isSelected = selectedWorkId === proj.id;
+              const displayName = isPrivacyMode
+                ? `${t('dashboard.workNumber')} #${idx + 1}`
+                : proj.name;
+              return (
+                <button
+                  key={proj.id}
+                  type="button"
+                  onClick={() => setSelectedWorkId(proj.id)}
+                  className={`flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    isSelected
+                      ? 'bg-slate-800 text-white shadow-md scale-[1.02]'
+                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                  }`}
+                  title={isPrivacyMode ? undefined : proj.description || proj.name}
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: proj.color || '#2dd4bf' }}
+                  />
+                  <span className="truncate max-w-[180px]">{displayName}</span>
+                </button>
+              );
+            })}
 
-              {/* Projects checkboxes */}
-              {projects.map(p => {
-                const isChecked = selectedCustomWorkIds.includes(p.id);
-                return (
-                  <label
-                    key={p.id}
-                    className={`px-3 py-1.5 rounded-xl border text-xs font-medium cursor-pointer transition-all flex items-center gap-2 ${
-                      isChecked
-                        ? 'bg-teal-50 border-teal-300 text-teal-800 shadow-xs'
-                        : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5"
-                      checked={isChecked}
-                      onChange={() => {
-                        setSelectedCustomWorkIds(prev =>
-                          prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id]
-                        );
-                      }}
-                    />
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.color || '#2dd4bf' }} />
-                    <span className="truncate max-w-[150px]">{p.name}</span>
-                  </label>
-                );
-              })}
-            </div>
+            {/* Pill: Sem Obra / Geral */}
+            <button
+              type="button"
+              onClick={() => setSelectedWorkId('general')}
+              className={`flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                selectedWorkId === 'general'
+                  ? 'bg-slate-800 text-white shadow-md scale-[1.02]'
+                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-300 flex-shrink-0" />
+              <span>{t('dashboard.generalNoWorkSlidebar')}</span>
+            </button>
           </div>
-        )}
 
-        {/* Module selector accordion */}
+          <button
+            type="button"
+            onClick={() => scrollSlidebar('right')}
+            className="hidden sm:flex absolute right-0 z-10 p-2 bg-white/95 shadow-md border border-slate-200 rounded-full text-slate-600 hover:bg-teal-50 hover:text-teal-600 transition-all -mr-3 cursor-pointer"
+            title="Rolar para direita"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Optional Module Selector inline accordion */}
         {showModuleSelector && (
-          <div className="pt-3 border-t border-slate-100 bg-slate-50 p-3 rounded-xl space-y-3 animate-fade-in">
+          <div className="mt-3 pt-3 border-t border-slate-100 bg-slate-50 p-3 rounded-xl space-y-2 animate-fade-in">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                 {t('dashboard.modulesTitle')}
@@ -1312,7 +1292,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 <button
                   type="button"
                   onClick={() => setAllModules(true)}
-                  className="text-[11px] text-teal-600 hover:underline font-bold"
+                  className="text-[11px] text-teal-600 hover:underline font-bold cursor-pointer"
                 >
                   {t('dashboard.selectAll')}
                 </button>
@@ -1320,14 +1300,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 <button
                   type="button"
                   onClick={() => setAllModules(false)}
-                  className="text-[11px] text-slate-400 hover:text-slate-600 font-bold"
+                  className="text-[11px] text-slate-400 hover:text-slate-600 font-bold cursor-pointer"
                 >
                   {t('dashboard.deselectAll')}
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
               {[
                 { key: 'goals', label: t('dashboard.moduleGoals') },
                 { key: 'kpis', label: t('dashboard.moduleKpis') },
@@ -1351,7 +1331,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   >
                     <input
                       type="checkbox"
-                      className="rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5"
+                      className="rounded text-teal-600 focus:ring-teal-500 w-3.5 h-3.5 cursor-pointer"
                       checked={isChecked}
                       onChange={() => toggleModule(key as keyof typeof defaultModules)}
                     />
@@ -1409,91 +1389,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     </div>
   );
 
-  const renderSlidebarDrawer = () => (
-    <>
-      {/* SLIDEBAR TRIGGER TAB (Docked to right edge) */}
-      <div
-        onMouseEnter={() => {
-          if (slidebarCloseTimerRef.current) clearTimeout(slidebarCloseTimerRef.current);
-          setIsSlidebarOpen(true);
-        }}
-        onClick={() => setIsSlidebarOpen(prev => !prev)}
-        className="fixed right-0 top-1/2 -translate-y-1/2 z-40 bg-teal-600 hover:bg-teal-700 text-white py-3.5 px-2 rounded-l-2xl shadow-2xl cursor-pointer flex flex-col items-center gap-2 group transition-all transform hover:-translate-x-1"
-        title={t('dashboard.openSlidebar')}
-      >
-        <div className="flex items-center gap-1.5">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transform group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-        </div>
-        <span className="text-[11px] font-bold tracking-wider uppercase [writing-mode:vertical-rl] rotate-180 py-1 select-none">
-          {t('dashboard.slidebarTab')}
-        </span>
-      </div>
-
-      {/* OVERLAY */}
-      {isSlidebarOpen && (
-        <div
-          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 transition-opacity"
-          onClick={() => setIsSlidebarOpen(false)}
-        />
-      )}
-
-      {/* SLIDEBAR DRAWER */}
-      <div
-        onMouseEnter={() => {
-          if (slidebarCloseTimerRef.current) clearTimeout(slidebarCloseTimerRef.current);
-        }}
-        className={`fixed top-0 right-0 h-full w-full sm:w-[560px] md:w-[700px] lg:w-[820px] bg-slate-50 shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-in-out ${
-          isSlidebarOpen ? 'translate-x-0' : 'translate-x-full'
-        }`}
-      >
-        {/* Drawer Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-200 bg-white flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-teal-50 text-teal-600 rounded-xl">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-800 text-lg leading-tight">{t('dashboard.slidebarTitle')}</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Métricas, gráficos e indicadores detalhados</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                toggleAutomonitoringVisibility(true);
-                setIsSlidebarOpen(false);
-              }}
-              className="text-xs px-3.5 py-2 bg-teal-50 text-teal-700 font-bold rounded-xl hover:bg-teal-100 transition-colors shadow-xs"
-            >
-              {t('dashboard.openInDashboard')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsSlidebarOpen(false)}
-              className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
-              title={t('common.cancel')}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        {/* Drawer Body - Scrollable */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-          {renderFilterToolbar(true)}
-          {renderAutomonitoringSections()}
-        </div>
-      </div>
-    </>
-  );
 
   const renderAchievements = () => {
     return (
@@ -1764,6 +1659,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         </div>
                       )}
                     </div>
+
+                    {/* Checkbox: Exibir ou não no automonitoramento */}
+                    <div
+                      className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={project.showInAutomonitoring !== false}
+                          onChange={(e) => handleToggleProjectInAutomonitoring(project, e.target.checked)}
+                          className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 border-slate-300 transition-colors cursor-pointer"
+                        />
+                        <span className="text-xs font-semibold text-slate-700">
+                          {t('dashboard.showInAutomonitoring')}
+                        </span>
+                      </label>
+                      {project.showInAutomonitoring === false && (
+                        <span className="text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 rounded-full font-bold">
+                          {t('dashboard.hiddenFromAutomonitoring')}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )
@@ -1792,90 +1710,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             </div>
           )}
 
-          {/* Case 1: Automonitoring is "Guardado" (stored/collapsed) in general view */}
-          {activeTab === 'general' && !selectedProjectId && !isAutomonitoringVisible && (
-            <div className="bg-gradient-to-br from-white via-slate-50 to-teal-50/30 rounded-3xl p-6 sm:p-10 border border-slate-200 shadow-sm relative overflow-hidden transition-all hover:shadow-md mb-8">
-              <div className="max-w-2xl">
-                <div className="inline-flex items-center gap-2 px-3 py-1 bg-teal-50 border border-teal-200/60 rounded-full text-xs font-semibold text-teal-700 mb-4">
-                  <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span>
-                  {t('dashboard.automonitoringStored')}
-                </div>
-                <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight mb-2">
-                  Espaço Livre de Ansiedade para Escrever
-                </h2>
-                <p className="text-slate-600 leading-relaxed mb-6">
-                  {t('dashboard.automonitoringStoredDesc')}
-                </p>
-
-                <div className="flex flex-wrap items-center gap-3">
-                  {/* Slider Toggle Button */}
-                  <button
-                    type="button"
-                    onClick={() => toggleAutomonitoringVisibility(true)}
-                    className="flex items-center gap-2.5 px-5 py-3 bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-xl shadow-lg shadow-teal-500/20 transition-all hover:-translate-y-0.5 cursor-pointer"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                    <span>{t('dashboard.showAutomonitoring')}</span>
-                  </button>
-
-                  {/* Open Slidebar Drawer Button */}
-                  <button
-                    type="button"
-                    onClick={() => setIsSlidebarOpen(true)}
-                    className="flex items-center gap-2.5 px-5 py-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium rounded-xl shadow-sm transition-all hover:-translate-y-0.5 cursor-pointer"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                    <span>{t('dashboard.openSlidebar')}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Decorative graphic / watermark */}
-              <div className="hidden lg:block absolute right-8 top-1/2 -translate-y-1/2 opacity-15 pointer-events-none">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-44 w-44 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
-            </div>
-          )}
-
-          {/* Case 2: Visible in Dashboard OR when inspecting specific project */}
-          {(isAutomonitoringVisible || selectedProjectId) && (
-            <div className="space-y-6">
-              {/* If on general view, allow user to hide/collapse back or toggle filter toolbar */}
-              {activeTab === 'general' && !selectedProjectId && (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-slate-700 uppercase tracking-wide">
-                      {t('dashboard.automonitoring')}
-                    </span>
-                    <span className="text-xs px-2 py-0.5 bg-teal-50 text-teal-700 font-semibold rounded-full border border-teal-200/60">
-                      Ativo
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => toggleAutomonitoringVisibility(false)}
-                    className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 px-3.5 py-2 rounded-xl transition-colors shadow-xs self-start sm:self-auto cursor-pointer"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
-                    </svg>
-                    {t('dashboard.hideAutomonitoring')}
-                  </button>
-                </div>
-              )}
-
-              {!selectedProjectId && renderFilterToolbar(false)}
-              {renderAutomonitoringSections()}
-            </div>
-          )}
+          {activeTab === 'general' && !selectedProjectId && renderWorksSlidebar()}
+          {renderAutomonitoringSections()}
         </>
       )}
 
@@ -2041,9 +1877,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           isPrivateView={readOnly}
         />
       )}
-
-      {/* Slidebar Drawer & Trigger Tab */}
-      {renderSlidebarDrawer()}
     </div>
   );
 };

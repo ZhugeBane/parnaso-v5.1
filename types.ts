@@ -7,6 +7,7 @@ export interface Project {
   color: string; // Hex color for charts
   status: 'active' | 'completed' | 'archived';
   createdAt: string;
+  showInAutomonitoring?: boolean; // Whether project appears in automonitoring
 }
 
 export interface WritingSession {

@@ -224,6 +224,19 @@ export const enUS = {
         moduleSessions: 'Last Records',
         moduleInsights: 'Writing Insights',
         worksCount: 'works selected',
+
+        // New keys for Works Slidebar and Privacy
+        showInAutomonitoring: 'Show in Self-Monitoring',
+        hiddenFromAutomonitoring: 'Hidden from Self-Monitoring',
+        showInAutomonitoringDesc: 'Determines whether this work and its data appear in the self-monitoring panel',
+        worksSlidebarTitle: 'Filter by Work',
+        allWorksSlidebar: 'All Works',
+        generalNoWorkSlidebar: 'General (No Work)',
+        printMode: 'Print Mode',
+        printModeDesc: 'Hides real project names to safely take screenshots without leaking projects',
+        printModeActive: 'Print Mode: Names Hidden',
+        printModeInactive: 'Print Mode: Names Visible',
+        workNumber: 'Work',
     },
 
     // Session Form

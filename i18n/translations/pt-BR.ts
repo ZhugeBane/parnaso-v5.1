@@ -224,6 +224,19 @@ export const ptBR = {
         moduleSessions: 'Últimos Registros',
         moduleInsights: 'Insights de Escrita',
         worksCount: 'obras selecionadas',
+
+        // Novas chaves para Slidebar de Obras e Privacidade
+        showInAutomonitoring: 'Exibir no Automonitoramento',
+        hiddenFromAutomonitoring: 'Oculto do Automonitoramento',
+        showInAutomonitoringDesc: 'Define se esta obra e seus dados aparecem no painel de automonitoramento',
+        worksSlidebarTitle: 'Filtrar por Obra',
+        allWorksSlidebar: 'Todas as Obras',
+        generalNoWorkSlidebar: 'Geral (Sem Obra)',
+        printMode: 'Modo Print',
+        printModeDesc: 'Oculta o nome real das obras para tirar fotos e prints sem vazar projetos',
+        printModeActive: 'Modo Print: Nomes Ocultos',
+        printModeInactive: 'Modo Print: Nomes Visíveis',
+        workNumber: 'Obra',
     },
 
     // Session Form
