@@ -242,6 +242,27 @@ export const deleteProject = async (projectId: string, userId: string): Promise<
       console.warn('[deleteProject] Aviso ao excluir mapas conceituais da obra:', mapErr);
     }
 
+    // 5. Excluir comentários e post-its associados a esta obra
+    try {
+      const commentsQ = query(
+        collection(db, 'project_comments'),
+        where('projectId', '==', projectId),
+        where('userId', '==', userId)
+      );
+      const commentsSnap = await getDocs(commentsQ);
+      if (!commentsSnap.empty) {
+        const batchComments = writeBatch(db);
+        commentsSnap.forEach((docSnap) => {
+          batchComments.delete(docSnap.ref);
+        });
+        await batchComments.commit();
+        console.log(`[deleteProject] ✅ ${commentsSnap.size} comentários excluídos.`);
+      }
+      localStorage.removeItem(`parnaso_comments_${projectId}`);
+    } catch (commentErr) {
+      console.warn('[deleteProject] Aviso ao excluir comentários da obra:', commentErr);
+    }
+
     console.log('[deleteProject] ✅ Exclusão completa finalizada!');
   } catch (error: any) {
     console.error('[deleteProject] ❌ Erro ao excluir projeto:', error);

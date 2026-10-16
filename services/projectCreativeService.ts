@@ -1,4 +1,4 @@
-import { Character, ChapterConceptMap } from '../types';
+import { Character, ChapterConceptMap, ProjectComment } from '../types';
 import { db } from '../lib/firebase';
 import {
   collection,
@@ -14,6 +14,7 @@ import {
 // Local storage key helpers
 const getLocalCharactersKey = (projectId: string) => `parnaso_characters_${projectId}`;
 const getLocalMapsKey = (projectId: string) => `parnaso_concept_maps_${projectId}`;
+const getLocalCommentsKey = (projectId: string) => `parnaso_comments_${projectId}`;
 
 // Clean object of undefined values for Firestore
 const cleanDataForFirestore = (obj: any): any => {
@@ -242,5 +243,113 @@ export const deleteChapterConceptMap = async (mapId: string, projectId: string):
     }
   } catch (e) {
     console.error('Erro ao atualizar cache local ao excluir mapa:', e);
+  }
+};
+
+// --- POST-IT COMMENTS ---
+
+export const getProjectComments = async (projectId: string, userId: string): Promise<ProjectComment[]> => {
+  // Read local cache first for instant response
+  const localRaw = localStorage.getItem(getLocalCommentsKey(projectId));
+  let cached: ProjectComment[] = [];
+  if (localRaw) {
+    try {
+      cached = JSON.parse(localRaw);
+    } catch (e) {
+      console.warn('Erro ao ler cache local de comentários:', e);
+    }
+  }
+
+  try {
+    const q = query(
+      collection(db, 'project_comments'),
+      where('projectId', '==', projectId),
+      where('userId', '==', userId)
+    );
+    const snapshot = await getDocs(q);
+    const remoteComments = snapshot.docs.map(d => ({
+      id: d.id,
+      ...d.data()
+    })) as ProjectComment[];
+
+    // Sort descending by createdAt (newest first)
+    remoteComments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    // Update cache
+    localStorage.setItem(getLocalCommentsKey(projectId), JSON.stringify(remoteComments));
+    return remoteComments;
+  } catch (error) {
+    console.warn('Usando comentários do cache local devido a erro no Firestore:', error);
+    return cached;
+  }
+};
+
+export const saveProjectComment = async (comment: ProjectComment, userId: string): Promise<ProjectComment> => {
+  const { id, ...data } = comment;
+  const cleanData = cleanDataForFirestore({
+    ...data,
+    userId,
+    updatedAt: new Date().toISOString()
+  });
+
+  let savedComment: ProjectComment = { ...comment };
+
+  try {
+    if (id && !id.startsWith('local_') && !id.startsWith('temp_') && !id.startsWith('comment_') && id.length >= 15) {
+      // Update existing
+      const docRef = doc(db, 'project_comments', id);
+      await setDoc(docRef, cleanData, { merge: true });
+      savedComment = { ...comment, ...cleanData, id };
+    } else {
+      // Create new
+      const docRef = await addDoc(collection(db, 'project_comments'), {
+        ...cleanData,
+        createdAt: comment.createdAt || new Date().toISOString()
+      });
+      savedComment = { ...comment, ...cleanData, id: docRef.id };
+    }
+  } catch (error) {
+    console.error('Erro ao salvar comentário no Firestore, salvando localmente:', error);
+    if (!savedComment.id) {
+      savedComment.id = 'local_comment_' + Date.now();
+    }
+  }
+
+  // Update local cache
+  try {
+    const localRaw = localStorage.getItem(getLocalCommentsKey(comment.projectId));
+    let list: ProjectComment[] = localRaw ? JSON.parse(localRaw) : [];
+    const index = list.findIndex(c => c.id === savedComment.id);
+    if (index >= 0) {
+      list[index] = savedComment;
+    } else {
+      list.unshift(savedComment);
+    }
+    localStorage.setItem(getLocalCommentsKey(comment.projectId), JSON.stringify(list));
+  } catch (e) {
+    console.error('Erro ao atualizar cache local de comentários:', e);
+  }
+
+  return savedComment;
+};
+
+export const deleteProjectComment = async (commentId: string, projectId: string): Promise<void> => {
+  try {
+    if (commentId && !commentId.startsWith('local_')) {
+      await deleteDoc(doc(db, 'project_comments', commentId));
+    }
+  } catch (error) {
+    console.error('Erro ao excluir comentário do Firestore:', error);
+  }
+
+  try {
+    const localRaw = localStorage.getItem(getLocalCommentsKey(projectId));
+    if (localRaw) {
+      const list: ProjectComment[] = JSON.parse(localRaw);
+      const filtered = list.filter(c => c.id !== commentId);
+      localStorage.setItem(getLocalCommentsKey(projectId), JSON.stringify(filtered));
+    }
+  } catch (e) {
+    console.error('Erro ao atualizar cache local ao excluir comentário:', e);
   }
 };

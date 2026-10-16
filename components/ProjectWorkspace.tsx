@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Project, User, WritingSession } from '../types';
 import { ConceptMapCanvas } from './ConceptMapCanvas';
 import { CharactersFolder } from './CharactersFolder';
+import { ProjectComments } from './ProjectComments';
 
 interface ProjectWorkspaceProps {
   project: Project;
@@ -22,7 +23,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   onDeleteRequested,
   readOnly = false
 }) => {
-  const [activeTab, setActiveTab] = useState<'concepts' | 'characters' | 'stats'>('concepts');
+  const [activeTab, setActiveTab] = useState<'concepts' | 'characters' | 'comments' | 'stats'>('concepts');
 
   const projWords = sessions.filter(s => s.projectId === project.id).reduce((a, b) => a + b.wordCount, 0);
   const percent = project.targetWordCount ? Math.min(100, Math.round((projWords / project.targetWordCount) * 100)) : 0;
@@ -135,6 +136,19 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
 
           <button
             type="button"
+            onClick={() => setActiveTab('comments')}
+            className={`py-3 px-4 border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'comments'
+                ? 'border-amber-500 text-amber-700 bg-amber-50/50 rounded-t-xl'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <span>💬</span>
+            <span>Comentários</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('stats')}
             className={`py-3 px-4 border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
               activeTab === 'stats'
@@ -159,6 +173,14 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
 
       {activeTab === 'characters' && (
         <CharactersFolder
+          projectId={project.id}
+          user={user}
+          readOnly={readOnly}
+        />
+      )}
+
+      {activeTab === 'comments' && (
+        <ProjectComments
           projectId={project.id}
           user={user}
           readOnly={readOnly}

@@ -76,6 +76,22 @@ export interface ChapterConceptMap {
   updatedAt?: string;
 }
 
+// --- Project Post-it Comments & Notes ---
+
+export type PostItColor = 'yellow' | 'pink' | 'blue' | 'green' | 'purple' | 'orange';
+
+export interface ProjectComment {
+  id: string;
+  projectId: string;
+  userId: string;
+  title: string;
+  content: string;
+  author?: string; // Quem fez o comentário (ex: "Leitor Beta", "Meu pensamento", "Editor")
+  color?: PostItColor;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface WritingSession {
   id: string;
   projectId?: string; // Link to a Project
