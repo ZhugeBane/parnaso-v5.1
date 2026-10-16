@@ -237,6 +237,16 @@ export const enUS = {
         printModeActive: 'Print Mode: Names Hidden',
         printModeInactive: 'Print Mode: Names Visible',
         workNumber: 'Work',
+
+        // Work Workspace (Concept Maps and Characters)
+        ideasAndConcepts: 'Ideas & Concept Maps',
+        charactersFolder: 'Characters Folder',
+        projectStatsTab: 'Self-Monitoring & Metrics',
+        backToMyProjects: 'Back to My Projects',
+        newChapter: 'New Chapter',
+        newCharacter: 'New Character',
+        addConceptPoint: 'Add Point',
+        connectConceptPoints: 'Connect Points',
     },
 
     // Session Form

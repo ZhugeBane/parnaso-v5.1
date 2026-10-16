@@ -237,6 +237,16 @@ export const ptBR = {
         printModeActive: 'Modo Print: Nomes Ocultos',
         printModeInactive: 'Modo Print: Nomes Visíveis',
         workNumber: 'Obra',
+
+        // Espaço de Trabalho da Obra (Mapas Conceituais e Personagens)
+        ideasAndConcepts: 'Ideias & Mapas Conceituais',
+        charactersFolder: 'Pasta de Personagens',
+        projectStatsTab: 'Automonitoramento & Métricas',
+        backToMyProjects: 'Voltar para Minhas Obras',
+        newChapter: 'Novo Capítulo',
+        newCharacter: 'Novo Personagem',
+        addConceptPoint: 'Adicionar Ponto',
+        connectConceptPoints: 'Ligar Pontos',
     },
 
     // Session Form

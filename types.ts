@@ -10,6 +10,72 @@ export interface Project {
   showInAutomonitoring?: boolean; // Whether project appears in automonitoring
 }
 
+// --- Character Sheets & Custom Fields ---
+
+export interface CustomCharacterField {
+  id: string;
+  title: string;
+  content: string;
+}
+
+export interface Character {
+  id: string;
+  projectId: string;
+  userId: string;
+  name: string;
+  role?: string; // Protagonista, Antagonista, Secundário, Mentor, Alívio Cômico, etc.
+  age?: string;
+  birthDate?: string;
+  occupation?: string;
+  avatarUrl?: string;
+  color?: string; // Hex color code for badges/theme
+  
+  // Traits
+  physicalTraits?: string; // Appearance, height, eyes, hair, scars, clothing style
+  psychologicalTraits?: string; // Personality, temper, strengths, virtues, flaws, fears
+  motivation?: string; // Core desire, objective in the plot
+  background?: string; // Origin story, backstory
+  relations?: string; // Relationships with other characters
+  
+  // Free custom text boxes with custom title and content
+  customFields?: CustomCharacterField[];
+  
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// --- Chapter Conceptual Maps ---
+
+export interface ConceptNode {
+  id: string;
+  title: string;
+  description?: string;
+  category?: 'event' | 'character' | 'clue' | 'twist' | 'idea' | 'conflict' | 'setting';
+  color?: string;
+  x: number;
+  y: number;
+}
+
+export interface ConceptEdge {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  label?: string; // e.g. "Leva a", "Revela", "Consequência de", "Opõe-se a"
+}
+
+export interface ChapterConceptMap {
+  id: string;
+  projectId: string;
+  userId: string;
+  chapterNumber: number;
+  chapterTitle: string;
+  description?: string;
+  nodes: ConceptNode[];
+  edges: ConceptEdge[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface WritingSession {
   id: string;
   projectId?: string; // Link to a Project

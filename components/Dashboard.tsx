@@ -13,6 +13,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend
 } from 'recharts';
+import { ProjectWorkspace } from './ProjectWorkspace';
 
 interface DashboardProps {
   user: User;
@@ -1693,24 +1694,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       {/* VIEW: ACHIEVEMENTS */}
       {activeTab === 'achievements' && renderAchievements()}
 
-      {/* VIEW: ACTIVE DASHBOARD (General or Specific Project) */}
-      {(activeTab === 'general' || selectedProjectId) && (
-        <>
-          {selectedProjectId && (
-            <div className="mb-6 flex items-center">
-              <button onClick={() => setSelectedProjectId(null)} className="flex items-center text-slate-500 hover:text-teal-600 transition-colors mr-4">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
-                </svg>
-                {t('dashboard.backToProjects')}
-              </button>
-              <h2 className="text-2xl font-bold text-slate-800">
-                {projects.find(p => p.id === selectedProjectId)?.name}
-              </h2>
-            </div>
-          )}
+      {/* VIEW: PROJECT WORKSPACE (Organização de Ideias, Personagens e Métricas da Obra) */}
+      {selectedProjectId && (
+        (() => {
+          const project = projects.find(p => p.id === selectedProjectId);
+          if (!project) return null;
+          return (
+            <ProjectWorkspace
+              project={project}
+              user={user}
+              sessions={sessions}
+              onBackToProjects={() => setSelectedProjectId(null)}
+              renderAutomonitoring={() => renderAutomonitoringSections()}
+              readOnly={readOnly}
+            />
+          );
+        })()
+      )}
 
-          {activeTab === 'general' && !selectedProjectId && renderWorksSlidebar()}
+      {/* VIEW: GENERAL ACTIVE DASHBOARD */}
+      {activeTab === 'general' && !selectedProjectId && (
+        <>
+          {renderWorksSlidebar()}
           {renderAutomonitoringSections()}
         </>
       )}
