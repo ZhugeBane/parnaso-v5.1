@@ -6,7 +6,8 @@ import {
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
-  onAuthStateChanged
+  onAuthStateChanged,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
 
@@ -231,9 +232,29 @@ export const checkUserExists = async (email: string): Promise<boolean> => {
   return true;
 };
 
-export const resetPassword = async (email: string) => {
-  // auth.sendPasswordResetEmail(email); needs import
-  // Leaving placeholder to match interface
+export const resetPassword = async (email: string): Promise<void> => {
+  const trimmedEmail = email?.trim();
+  if (!trimmedEmail) {
+    throw new Error("Por favor, informe seu e-mail.");
+  }
+
+  try {
+    // Configura idioma em português para o e-mail de recuperação do Firebase
+    auth.languageCode = 'pt';
+    console.log('[resetPassword] Enviando e-mail de recuperação para:', trimmedEmail);
+    await sendPasswordResetEmail(auth, trimmedEmail);
+    console.log('[resetPassword] ✅ E-mail de recuperação enviado com sucesso!');
+  } catch (error: any) {
+    console.error("[resetPassword] ❌ Erro ao enviar e-mail de recuperação:", error);
+    if (error.code === 'auth/user-not-found') {
+      throw new Error("Nenhum usuário cadastrado com este e-mail.");
+    } else if (error.code === 'auth/invalid-email') {
+      throw new Error("Endereço de e-mail inválido. Verifique o formato digitado.");
+    } else if (error.code === 'auth/too-many-requests') {
+      throw new Error("Muitas tentativas recentes. Aguarde alguns instantes antes de tentar novamente.");
+    }
+    throw new Error(error.message || "Erro ao enviar e-mail de recuperação.");
+  }
 };
 
 import { storage } from '../lib/firebase';

@@ -34,7 +34,7 @@ export const ptBR = {
         pendingApproval: 'Sua conta está pendente de aprovação',
         waitingAdmin: 'Aguardando aprovação do administrador',
         nameRequired: 'Nome é obrigatório.',
-        recoverySent: 'Se o e-mail existir, um link de recuperação foi enviado.',
+        recoverySent: 'E-mail de recuperação enviado com sucesso! Verifique sua caixa de entrada e também a pasta de spam (lixo eletrônico).',
         connectionError: 'Ocorreu um erro de conexão.',
         recoverPassword: 'Recuperar Senha',
         processing: 'Processando...',
@@ -145,8 +145,7 @@ export const ptBR = {
         deleteProject: 'Excluir Obra',
         deleteProjectTitle: 'Excluir Obra Definitivamente',
         deleteProjectWarning: 'Atenção: Esta ação é definitiva e irreversível! Todo o planejamento conceitual e fichas de personagens associadas a esta obra serão permanentemente excluídos. O total de palavras e suas sessões continuarão preservados em seu histórico geral.',
-        deleteProjectCheckboxLabel: 'Estou ciente de que esta ação é definitiva e não poderá ser desfeita.',
-        deleteProjectConfirmPrompt: 'Para confirmar, digite o nome da obra:',
+        deleteProjectCheckboxLabel: 'Estou ciente e confirmo que desejo excluir esta obra definitivamente.',
         deleteProjectConfirmBtn: 'Confirmar Exclusão Definitiva',
         deleteProjectDeleting: 'Excluindo obra...',
 

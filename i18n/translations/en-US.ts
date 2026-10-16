@@ -34,7 +34,7 @@ export const enUS = {
         pendingApproval: 'Your account is pending approval',
         waitingAdmin: 'Waiting for administrator approval',
         nameRequired: 'Name is required.',
-        recoverySent: 'If the email exists, a recovery link has been sent.',
+        recoverySent: 'Password reset link sent successfully! Check your inbox and spam/junk folder.',
         connectionError: 'A connection error occurred.',
         recoverPassword: 'Recover Password',
         processing: 'Processing...',
@@ -145,8 +145,7 @@ export const enUS = {
         deleteProject: 'Delete Work',
         deleteProjectTitle: 'Permanently Delete Work',
         deleteProjectWarning: 'Warning: This action is permanent and irreversible! All conceptual planning and character sheets linked to this work will be permanently deleted. Your word counts and sessions will be preserved in your general history.',
-        deleteProjectCheckboxLabel: 'I understand that this action is permanent and cannot be undone.',
-        deleteProjectConfirmPrompt: 'To confirm, type the name of the work:',
+        deleteProjectCheckboxLabel: 'I understand and confirm that I want to permanently delete this work.',
         deleteProjectConfirmBtn: 'Confirm Permanent Deletion',
         deleteProjectDeleting: 'Deleting work...',
 

@@ -262,9 +262,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     setNewProjectColor(DEFAULT_PROJECT_COLORS[Math.floor(Math.random() * DEFAULT_PROJECT_COLORS.length)]);
   };
 
-  // Delete Project Modal State (Double Verification)
+  // Delete Project Modal State (Double Verification: Click Trash -> Confirm Checkbox)
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleteConfirmedCheck, setDeleteConfirmedCheck] = useState(false);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
 
@@ -280,7 +279,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         setSelectedWorkId('all');
       }
       setProjectToDelete(null);
-      setDeleteConfirmText('');
       setDeleteConfirmedCheck(false);
     } catch (err) {
       console.error('Erro ao excluir projeto:', err);
@@ -1683,7 +1681,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                           onClick={(e) => {
                             e.stopPropagation();
                             setProjectToDelete(project);
-                            setDeleteConfirmText('');
                             setDeleteConfirmedCheck(false);
                           }}
                           className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer -mr-2 -mt-1 opacity-80 group-hover:opacity-100"
@@ -1756,7 +1753,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               renderAutomonitoring={() => renderAutomonitoringSections()}
               onDeleteRequested={onDeleteProject ? () => {
                 setProjectToDelete(project);
-                setDeleteConfirmText('');
                 setDeleteConfirmedCheck(false);
               } : undefined}
               readOnly={readOnly}
@@ -1935,7 +1931,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           onClick={() => {
             if (!isDeletingProject) {
               setProjectToDelete(null);
-              setDeleteConfirmText('');
               setDeleteConfirmedCheck(false);
             }
           }}
@@ -1957,7 +1952,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     {t('dashboard.deleteProjectTitle')}
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    Verificação dupla de segurança
+                    Verificação de segurança para exclusão
                   </p>
                 </div>
               </div>
@@ -1966,7 +1961,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   type="button"
                   onClick={() => {
                     setProjectToDelete(null);
-                    setDeleteConfirmText('');
                     setDeleteConfirmedCheck(false);
                   }}
                   className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
@@ -2002,9 +1996,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               </p>
             </div>
 
-            {/* Double Verification Steps */}
-            <div className="space-y-4 pt-1">
-              {/* Verification 1: Checkbox */}
+            {/* Double Verification: Checkbox */}
+            <div className="pt-1">
               <label className="flex items-start gap-3 p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100/70 border border-slate-200/80 cursor-pointer select-none transition-colors">
                 <input
                   type="checkbox"
@@ -2013,29 +2006,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   disabled={isDeletingProject}
                   className="mt-0.5 w-4 h-4 rounded text-red-600 focus:ring-red-500 border-slate-300 cursor-pointer"
                 />
-                <span className="text-xs sm:text-sm font-semibold text-slate-700">
+                <span className="text-xs sm:text-sm font-semibold text-slate-700 leading-snug">
                   {t('dashboard.deleteProjectCheckboxLabel')}
                 </span>
               </label>
-
-              {/* Verification 2: Type Project Name */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-600">
-                  {t('dashboard.deleteProjectConfirmPrompt')}{' '}
-                  <span className="font-extrabold text-red-600 select-all tracking-tight">
-                    "{projectToDelete.name}"
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  value={deleteConfirmText}
-                  onChange={(e) => setDeleteConfirmText(e.target.value)}
-                  disabled={isDeletingProject}
-                  placeholder={projectToDelete.name}
-                  className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 font-medium transition-all"
-                  autoComplete="off"
-                />
-              </div>
             </div>
 
             {/* Actions */}
@@ -2045,7 +2019,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 disabled={isDeletingProject}
                 onClick={() => {
                   setProjectToDelete(null);
-                  setDeleteConfirmText('');
                   setDeleteConfirmedCheck(false);
                 }}
                 className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
@@ -2054,16 +2027,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               </button>
               <button
                 type="button"
-                disabled={
-                  !deleteConfirmedCheck ||
-                  deleteConfirmText.trim().toLowerCase() !== projectToDelete.name.trim().toLowerCase() ||
-                  isDeletingProject
-                }
+                disabled={!deleteConfirmedCheck || isDeletingProject}
                 onClick={handleExecuteDeleteProject}
                 className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
-                  deleteConfirmedCheck &&
-                  deleteConfirmText.trim().toLowerCase() === projectToDelete.name.trim().toLowerCase() &&
-                  !isDeletingProject
+                  deleteConfirmedCheck && !isDeletingProject
                     ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-600/30 active:scale-95'
                     : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
                 }`}
