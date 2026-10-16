@@ -80,7 +80,7 @@ export const saveCharacter = async (character: Character, userId: string): Promi
   let savedChar: Character = { ...character };
 
   try {
-    if (id && id.length > 20) {
+    if (id && !id.startsWith('local_') && !id.startsWith('temp_') && !id.startsWith('char_') && id.length >= 15) {
       // Update existing
       const docRef = doc(db, 'project_characters', id);
       await setDoc(docRef, cleanData, { merge: true });
@@ -187,7 +187,7 @@ export const saveChapterConceptMap = async (chapterMap: ChapterConceptMap, userI
   let savedMap: ChapterConceptMap = { ...chapterMap };
 
   try {
-    if (id && id.length > 20) {
+    if (id && !id.startsWith('local_') && !id.startsWith('temp_') && !id.startsWith('map_') && id.length >= 15) {
       const docRef = doc(db, 'project_concept_maps', id);
       await setDoc(docRef, cleanData, { merge: true });
       savedMap = { ...chapterMap, ...cleanData, id };

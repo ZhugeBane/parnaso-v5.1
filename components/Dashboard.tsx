@@ -24,6 +24,7 @@ interface DashboardProps {
   onFocusMode: () => void;
   onUpdateSettings: (settings: UserSettings) => void;
   onAddProject: (project: Project) => void;
+  onDeleteProject?: (projectId: string) => Promise<void> | void;
   onResetData: () => void;
   onLogout: () => void;
   onAdminPanel?: () => void;
@@ -101,7 +102,7 @@ const Stat = ({ label, value, colorClass, subValue }: any) => (
   </div>
 );
 
-export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, settings, onNewSession, onFocusMode, onUpdateSettings, onAddProject, onResetData, onLogout, onAdminPanel, onSocial, onHelp, readOnly = false }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, settings, onNewSession, onFocusMode, onUpdateSettings, onAddProject, onDeleteProject, onResetData, onLogout, onAdminPanel, onSocial, onHelp, readOnly = false }) => {
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'general' | 'projects' | 'achievements'>('general');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -260,6 +261,34 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     setNewProjectGoal('');
     setNewProjectColor(DEFAULT_PROJECT_COLORS[Math.floor(Math.random() * DEFAULT_PROJECT_COLORS.length)]);
   };
+
+  // Delete Project Modal State (Double Verification)
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteConfirmedCheck, setDeleteConfirmedCheck] = useState(false);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
+
+  const handleExecuteDeleteProject = async () => {
+    if (!projectToDelete || !onDeleteProject) return;
+    try {
+      setIsDeletingProject(true);
+      await onDeleteProject(projectToDelete.id);
+      if (selectedProjectId === projectToDelete.id) {
+        setSelectedProjectId(null);
+      }
+      if (selectedWorkId === projectToDelete.id) {
+        setSelectedWorkId('all');
+      }
+      setProjectToDelete(null);
+      setDeleteConfirmText('');
+      setDeleteConfirmedCheck(false);
+    } catch (err) {
+      console.error('Erro ao excluir projeto:', err);
+    } finally {
+      setIsDeletingProject(false);
+    }
+  };
+
   const handleUpdateAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || readOnly) return;
@@ -1646,7 +1675,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   <div className="absolute top-0 left-0 w-2 h-full" style={{ backgroundColor: project.color || '#ccc' }}></div>
 
                   <div className="pl-4">
-                    <h3 className="text-xl font-bold text-slate-800 group-hover:text-teal-600 transition-colors">{project.name}</h3>
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="text-xl font-bold text-slate-800 group-hover:text-teal-600 transition-colors">{project.name}</h3>
+                      {!readOnly && onDeleteProject && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setProjectToDelete(project);
+                            setDeleteConfirmText('');
+                            setDeleteConfirmedCheck(false);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer -mr-2 -mt-1 opacity-80 group-hover:opacity-100"
+                          title={t('dashboard.deleteProject')}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                     <p className="text-sm text-slate-500 mt-1 line-clamp-2 h-10">{project.description || t('dashboard.noDescription')}</p>
 
                     <div className="mt-6">
@@ -1706,6 +1754,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               sessions={sessions}
               onBackToProjects={() => setSelectedProjectId(null)}
               renderAutomonitoring={() => renderAutomonitoringSections()}
+              onDeleteRequested={onDeleteProject ? () => {
+                setProjectToDelete(project);
+                setDeleteConfirmText('');
+                setDeleteConfirmedCheck(false);
+              } : undefined}
               readOnly={readOnly}
             />
           );
@@ -1874,6 +1927,169 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           </div>
         </div>
       )}
+
+      {/* Double Verification Project Deletion Modal */}
+      {projectToDelete && (
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => {
+            if (!isDeletingProject) {
+              setProjectToDelete(null);
+              setDeleteConfirmText('');
+              setDeleteConfirmedCheck(false);
+            }
+          }}
+        >
+          <div
+            className="bg-white rounded-3xl w-full max-w-lg p-6 sm:p-7 shadow-2xl border border-red-100 space-y-5 animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-xl font-extrabold text-slate-800">
+                    {t('dashboard.deleteProjectTitle')}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Verificação dupla de segurança
+                  </p>
+                </div>
+              </div>
+              {!isDeletingProject && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProjectToDelete(null);
+                    setDeleteConfirmText('');
+                    setDeleteConfirmedCheck(false);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            {/* Project Info Banner */}
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: projectToDelete.color || '#2dd4bf' }} />
+                <span className="font-bold text-slate-800 text-sm truncate max-w-[240px] sm:max-w-xs">{projectToDelete.name}</span>
+              </div>
+              <span className="text-xs font-semibold text-slate-500 flex-shrink-0">
+                {sessions.filter(s => s.projectId === projectToDelete.id).reduce((a, b) => a + b.wordCount, 0)} {t('dashboard.words')}
+              </span>
+            </div>
+
+            {/* Irreversible Warning Box */}
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-xs sm:text-sm text-red-800 leading-relaxed space-y-1">
+              <div className="flex items-center gap-2 font-bold text-red-900">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span>Atenção: Ação Irreversível</span>
+              </div>
+              <p className="text-red-700/90 text-xs">
+                {t('dashboard.deleteProjectWarning')}
+              </p>
+            </div>
+
+            {/* Double Verification Steps */}
+            <div className="space-y-4 pt-1">
+              {/* Verification 1: Checkbox */}
+              <label className="flex items-start gap-3 p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100/70 border border-slate-200/80 cursor-pointer select-none transition-colors">
+                <input
+                  type="checkbox"
+                  checked={deleteConfirmedCheck}
+                  onChange={(e) => setDeleteConfirmedCheck(e.target.checked)}
+                  disabled={isDeletingProject}
+                  className="mt-0.5 w-4 h-4 rounded text-red-600 focus:ring-red-500 border-slate-300 cursor-pointer"
+                />
+                <span className="text-xs sm:text-sm font-semibold text-slate-700">
+                  {t('dashboard.deleteProjectCheckboxLabel')}
+                </span>
+              </label>
+
+              {/* Verification 2: Type Project Name */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-600">
+                  {t('dashboard.deleteProjectConfirmPrompt')}{' '}
+                  <span className="font-extrabold text-red-600 select-all tracking-tight">
+                    "{projectToDelete.name}"
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  disabled={isDeletingProject}
+                  placeholder={projectToDelete.name}
+                  className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 font-medium transition-all"
+                  autoComplete="off"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isDeletingProject}
+                onClick={() => {
+                  setProjectToDelete(null);
+                  setDeleteConfirmText('');
+                  setDeleteConfirmedCheck(false);
+                }}
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={
+                  !deleteConfirmedCheck ||
+                  deleteConfirmText.trim().toLowerCase() !== projectToDelete.name.trim().toLowerCase() ||
+                  isDeletingProject
+                }
+                onClick={handleExecuteDeleteProject}
+                className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
+                  deleteConfirmedCheck &&
+                  deleteConfirmText.trim().toLowerCase() === projectToDelete.name.trim().toLowerCase() &&
+                  !isDeletingProject
+                    ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-600/30 active:scale-95'
+                    : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                }`}
+              >
+                {isDeletingProject ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>{t('dashboard.deleteProjectDeleting')}</span>
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span>{t('dashboard.deleteProjectConfirmBtn')}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Session Details Modal */}
       {selectedSession && (
         <SessionDetailsModal

@@ -136,10 +136,21 @@ export const saveProject = async (project: Project, userId: string): Promise<voi
     console.log('[saveProject] ID do projeto:', id);
     console.log('[saveProject] Firestore DB instance:', db ? 'OK' : 'ERRO - DB não inicializado');
 
-    // If ID is short (Date.now from legacy), treat as new doc. If Long (Firestore UUID), update.
-    // A simple check: if we passed a specific ID in the type that matches an existing doc.
+    // Determine if updating an existing project or creating a new one
+    let isExisting = false;
+    if (project.id && !/^\d{10,14}$/.test(project.id) && !project.id.startsWith('temp_') && !project.id.startsWith('local_')) {
+      try {
+        const checkDoc = await getDoc(doc(db, 'projects', project.id));
+        if (checkDoc.exists()) {
+          isExisting = true;
+        }
+      } catch (e) {
+        // Fallback for network issues (Firestore IDs are 20 alphanumeric characters)
+        isExisting = project.id.length >= 15;
+      }
+    }
 
-    if (project.id && project.id.length > 20) {
+    if (isExisting && project.id) {
       // Update existing
       console.log('[saveProject] Atualizando projeto existente com ID:', project.id);
       const docRef = doc(db, 'projects', project.id);
@@ -157,6 +168,84 @@ export const saveProject = async (project: Project, userId: string): Promise<voi
     console.error('[saveProject] Código do erro:', error?.code);
     console.error('[saveProject] Mensagem:', error?.message);
     throw error; // Re-lançar erro para não engolir
+  }
+};
+
+export const deleteProject = async (projectId: string, userId: string): Promise<void> => {
+  console.log('[deleteProject] Iniciando exclusão do projeto:', { projectId, userId });
+  try {
+    // 1. Excluir o documento da obra em si
+    const projectRef = doc(db, 'projects', projectId);
+    await deleteDoc(projectRef);
+    console.log('[deleteProject] ✅ Documento do projeto excluído.');
+
+    // 2. Desvincular sessões de escrita associadas a esta obra
+    // (preserva as palavras escritas, streaks e métricas históricas gerais do escritor)
+    try {
+      const sessionsQ = query(
+        collection(db, 'writing_sessions'),
+        where('projectId', '==', projectId),
+        where('userId', '==', userId)
+      );
+      const sessionSnap = await getDocs(sessionsQ);
+      if (!sessionSnap.empty) {
+        const batch = writeBatch(db);
+        sessionSnap.forEach((docSnap) => {
+          batch.update(docSnap.ref, { projectId: null });
+        });
+        await batch.commit();
+        console.log(`[deleteProject] ✅ ${sessionSnap.size} sessões desvinculadas com sucesso.`);
+      }
+    } catch (sessionErr) {
+      console.warn('[deleteProject] Aviso ao desvincular sessões:', sessionErr);
+    }
+
+    // 3. Excluir personagens associados a esta obra
+    try {
+      const charsQ = query(
+        collection(db, 'project_characters'),
+        where('projectId', '==', projectId),
+        where('userId', '==', userId)
+      );
+      const charsSnap = await getDocs(charsQ);
+      if (!charsSnap.empty) {
+        const batchChars = writeBatch(db);
+        charsSnap.forEach((docSnap) => {
+          batchChars.delete(docSnap.ref);
+        });
+        await batchChars.commit();
+        console.log(`[deleteProject] ✅ ${charsSnap.size} personagens excluídos.`);
+      }
+      localStorage.removeItem(`parnaso_characters_${projectId}`);
+    } catch (charErr) {
+      console.warn('[deleteProject] Aviso ao excluir personagens da obra:', charErr);
+    }
+
+    // 4. Excluir mapas conceituais associados a esta obra
+    try {
+      const mapsQ = query(
+        collection(db, 'project_concept_maps'),
+        where('projectId', '==', projectId),
+        where('userId', '==', userId)
+      );
+      const mapsSnap = await getDocs(mapsQ);
+      if (!mapsSnap.empty) {
+        const batchMaps = writeBatch(db);
+        mapsSnap.forEach((docSnap) => {
+          batchMaps.delete(docSnap.ref);
+        });
+        await batchMaps.commit();
+        console.log(`[deleteProject] ✅ ${mapsSnap.size} mapas conceituais excluídos.`);
+      }
+      localStorage.removeItem(`parnaso_concept_maps_${projectId}`);
+    } catch (mapErr) {
+      console.warn('[deleteProject] Aviso ao excluir mapas conceituais da obra:', mapErr);
+    }
+
+    console.log('[deleteProject] ✅ Exclusão completa finalizada!');
+  } catch (error: any) {
+    console.error('[deleteProject] ❌ Erro ao excluir projeto:', error);
+    throw error;
   }
 };
 

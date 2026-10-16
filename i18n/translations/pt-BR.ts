@@ -142,6 +142,13 @@ export const ptBR = {
         noProjects: 'Nenhuma obra criada ainda.',
         filterByProject: 'Filtrar por Obra',
         allProjects: 'Todas as Obras',
+        deleteProject: 'Excluir Obra',
+        deleteProjectTitle: 'Excluir Obra Definitivamente',
+        deleteProjectWarning: 'Atenção: Esta ação é definitiva e irreversível! Todo o planejamento conceitual e fichas de personagens associadas a esta obra serão permanentemente excluídos. O total de palavras e suas sessões continuarão preservados em seu histórico geral.',
+        deleteProjectCheckboxLabel: 'Estou ciente de que esta ação é definitiva e não poderá ser desfeita.',
+        deleteProjectConfirmPrompt: 'Para confirmar, digite o nome da obra:',
+        deleteProjectConfirmBtn: 'Confirmar Exclusão Definitiva',
+        deleteProjectDeleting: 'Excluindo obra...',
 
         // Achievements
         achievementsGallery: 'Galeria de Conquistas',

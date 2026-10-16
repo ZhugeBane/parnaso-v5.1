@@ -142,6 +142,13 @@ export const enUS = {
         noProjects: 'No projects created yet.',
         filterByProject: 'Filter by Project',
         allProjects: 'All Projects',
+        deleteProject: 'Delete Work',
+        deleteProjectTitle: 'Permanently Delete Work',
+        deleteProjectWarning: 'Warning: This action is permanent and irreversible! All conceptual planning and character sheets linked to this work will be permanently deleted. Your word counts and sessions will be preserved in your general history.',
+        deleteProjectCheckboxLabel: 'I understand that this action is permanent and cannot be undone.',
+        deleteProjectConfirmPrompt: 'To confirm, type the name of the work:',
+        deleteProjectConfirmBtn: 'Confirm Permanent Deletion',
+        deleteProjectDeleting: 'Deleting work...',
 
         // Achievements
         achievementsGallery: 'Achievements Gallery',

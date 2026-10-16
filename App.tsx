@@ -10,7 +10,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { SocialHub } from './components/SocialHub'; // CONNECTED SOCIAL HUB
 import { HelpPage } from './components/HelpPage';
 import { WritingSession, UserSettings, INITIAL_SETTINGS, Project, User } from './types';
-import { getSessions, saveSession, getSettings, saveSettings, getProjects, saveProject, clearAllData } from './services/sessionService';
+import { getSessions, saveSession, getSettings, saveSettings, getProjects, saveProject, deleteProject, clearAllData } from './services/sessionService';
 import { getCurrentUser, logout } from './services/authService';
 import { LanguageProvider } from './i18n/LanguageContext';
 
@@ -147,6 +147,27 @@ function App() {
     } catch (error: any) {
       console.error('[App] ❌ ERRO ao salvar projeto:', error);
       alert('Erro ao salvar projeto: ' + (error.message || 'Erro desconhecido. Verifique sua conexão e tente novamente.'));
+    }
+  };
+
+  const handleDeleteProject = async (projectId: string) => {
+    if (!user) return;
+
+    try {
+      console.log('[App] Excluindo projeto...', projectId);
+      await deleteProject(projectId, user.id);
+      console.log('[App] ✅ Projeto excluído com sucesso!');
+
+      // Reload fresh projects and fresh sessions
+      const freshProjects = await getProjects(user.id);
+      setProjects(freshProjects);
+      const freshSessions = await getSessions(user.id);
+      setSessions(freshSessions);
+      console.log('[App] Projetos e sessões recarregados após exclusão.');
+    } catch (error: any) {
+      console.error('[App] ❌ ERRO ao excluir projeto:', error);
+      alert('Erro ao excluir obra: ' + (error.message || 'Erro desconhecido. Verifique sua conexão e tente novamente.'));
+      throw error;
     }
   };
 
@@ -310,6 +331,7 @@ function App() {
           onFocusMode={handleFocusMode}
           onUpdateSettings={handleUpdateSettings}
           onAddProject={handleSaveProject}
+          onDeleteProject={handleDeleteProject}
           onResetData={handleClearData}
           onLogout={handleLogout}
           onAdminPanel={handleAdminPanel}
