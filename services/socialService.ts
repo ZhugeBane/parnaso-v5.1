@@ -70,29 +70,36 @@ export const getFriendsList = async (userId: string): Promise<{ user: User, frie
     .filter(Boolean) as { user: User, friendshipId: string }[];
 };
 
-export const getPendingRequests = async (userId: string): Promise<{ user: User, friendshipId: string, type: 'received' | 'sent' }[]> => {
+export const getPendingRequests = async (
+  userId: string
+): Promise<{ user: User; friendshipId: string; type: 'received' | 'sent'; createdAt?: string }[]> => {
   const snapshot = await getDocs(collection(db, 'friendships'));
   const allUsers = (await getAllUsers()).map(u => toSafePublicUser(u, u.id));
   const allDocs = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Friendship, 'id'>) }));
 
-  const blockedUserIds = new Set<string>();
+  const blockedOrAcceptedUserIds = new Set<string>();
   allDocs.forEach(f => {
-    if (f.status === 'blocked') {
-      if (f.requesterId === userId) blockedUserIds.add(f.receiverId);
-      if (f.receiverId === userId) blockedUserIds.add(f.requesterId);
+    const reqId = f.requesterId;
+    const recId = f.receiverId || (f as any).recipientId;
+    if (f.status === 'blocked' || f.status === 'accepted') {
+      if (reqId === userId && recId) blockedOrAcceptedUserIds.add(recId);
+      if (recId === userId && reqId) blockedOrAcceptedUserIds.add(reqId);
     }
   });
 
   const seenOtherIds = new Set<string>();
 
-  return allDocs
+  const pendingList = allDocs
     .map(f => {
       if (f.status !== 'pending') return null;
-      if (f.requesterId !== userId && f.receiverId !== userId) return null;
+      const reqId = f.requesterId;
+      const recId = f.receiverId || (f as any).recipientId;
+      if (reqId !== userId && recId !== userId) return null;
 
-      const isReceived = f.receiverId === userId;
-      const otherId = isReceived ? f.requesterId : f.receiverId;
-      if (blockedUserIds.has(otherId)) return null;
+      const isReceived = recId === userId;
+      const otherId = isReceived ? reqId : recId;
+      if (!otherId) return null;
+      if (blockedOrAcceptedUserIds.has(otherId)) return null;
       if (seenOtherIds.has(otherId)) return null;
 
       const otherUser = allUsers.find(u => u.id === otherId);
@@ -102,10 +109,17 @@ export const getPendingRequests = async (userId: string): Promise<{ user: User, 
       return {
         user: otherUser,
         friendshipId: f.id,
-        type: isReceived ? 'received' as const : 'sent' as const
+        type: isReceived ? ('received' as const) : ('sent' as const),
+        createdAt: f.createdAt
       };
     })
-    .filter(Boolean) as { user: User, friendshipId: string, type: 'received' | 'sent' }[];
+    .filter(Boolean) as { user: User; friendshipId: string; type: 'received' | 'sent'; createdAt?: string }[];
+
+  return pendingList.sort((a, b) => {
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return timeB - timeA;
+  });
 };
 
 export const getBlockedUsersList = async (userId: string): Promise<{ user: User, friendshipId: string }[]> => {
@@ -157,7 +171,7 @@ export const getAvailableUsers = async (currentUserId: string): Promise<User[]> 
     .map(u => toSafePublicUser(u, u.id));
 };
 
-export const sendFriendRequest = async (requesterId: string, receiverId: string) => {
+export const sendFriendRequest = async (requesterId: string, receiverId: string): Promise<string | undefined> => {
   const snapshot = await getDocs(collection(db, 'friendships'));
   const existing = snapshot.docs
     .map(d => ({ id: d.id, ...(d.data() as Omit<Friendship, 'id'>) }))
@@ -170,16 +184,18 @@ export const sendFriendRequest = async (requesterId: string, receiverId: string)
     throw new Error('Não é possível adicionar este usuário pois há um bloqueio ativo.');
   }
 
-  if (existing.some(f => f.status === 'accepted' || f.status === 'pending')) {
-    return;
+  const existingActive = existing.find(f => f.status === 'accepted' || f.status === 'pending');
+  if (existingActive) {
+    return existingActive.id;
   }
 
-  await addDoc(collection(db, 'friendships'), {
+  const docRef = await addDoc(collection(db, 'friendships'), {
     requesterId,
     receiverId,
     status: 'pending',
     createdAt: new Date().toISOString()
   });
+  return docRef.id;
 };
 
 export const acceptFriendRequest = async (friendshipId: string) => {

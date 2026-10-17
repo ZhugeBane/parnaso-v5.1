@@ -147,6 +147,7 @@ service cloud.firestore {
       );
       allow update: if isSignedIn() && (
         resource.data.requesterId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid ||
         resource.data.recipientId == request.auth.uid ||
         resource.data.user1 == request.auth.uid ||
         resource.data.user2 == request.auth.uid ||
@@ -154,6 +155,7 @@ service cloud.firestore {
       );
       allow delete: if isSignedIn() && (
         resource.data.requesterId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid ||
         resource.data.recipientId == request.auth.uid ||
         resource.data.user1 == request.auth.uid ||
         resource.data.user2 == request.auth.uid ||

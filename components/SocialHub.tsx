@@ -88,7 +88,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   // Friends & Blocking Data
   const [friends, setFriends] = useState<{ user: User, friendshipId: string }[]>([]);
   const [blockedUsers, setBlockedUsers] = useState<{ user: User, friendshipId: string }[]>([]);
-  const [requests, setRequests] = useState<any[]>([]);
+  const [requests, setRequests] = useState<{ user: User; friendshipId: string; type: 'received' | 'sent'; createdAt?: string }[]>([]);
+  const [requestsFilter, setRequestsFilter] = useState<'all' | 'received' | 'sent'>('all');
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -392,20 +393,41 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   // --- Handlers: Friends & Blocking ---
   const handleSendRequest = async (userId: string) => {
     try {
-      await sendFriendRequest(currentUser.id, userId);
+      const targetUser = availableUsers.find(u => u.id === userId) || allUsers.find(u => u.id === userId);
+      const createdId = await sendFriendRequest(currentUser.id, userId);
+      if (targetUser) {
+        setRequests(prev => {
+          if (prev.some(r => r.user.id === userId)) return prev;
+          return [
+            {
+              user: targetUser,
+              friendshipId: createdId || `temp-${Date.now()}`,
+              type: 'sent',
+              createdAt: new Date().toISOString()
+            },
+            ...prev
+          ];
+        });
+        setAvailableUsers(prev => prev.filter(u => u.id !== userId));
+      }
       await refreshData();
-      alert(t('social.friends.requestSent'));
     } catch (e: any) {
       alert(e.message);
     }
   };
 
   const handleAccept = async (id: string) => {
+    const acceptedReq = requests.find(r => r.friendshipId === id);
+    setRequests(prev => prev.filter(r => r.friendshipId !== id));
+    if (acceptedReq) {
+      setFriends(prev => [...prev, { user: acceptedReq.user, friendshipId: id }]);
+    }
     await acceptFriendRequest(id);
     await refreshData();
   };
 
   const handleReject = async (id: string, targetUserId?: string) => {
+    setRequests(prev => prev.filter(r => r.friendshipId !== id && (!targetUserId || r.user.id !== targetUserId)));
     await removeFriendship(id, currentUser.id, targetUserId);
     await refreshData();
   };
@@ -955,6 +977,15 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     return Array.from(map.values());
   }, [friends, allUsers]);
 
+  const receivedRequests = React.useMemo(
+    () => requests.filter(r => r.type === 'received'),
+    [requests]
+  );
+  const sentRequests = React.useMemo(
+    () => requests.filter(r => r.type === 'sent'),
+    [requests]
+  );
+
   const trimmedSearch = searchTerm.trim();
   const hasValidSearch = trimmedSearch.length >= 2;
 
@@ -963,6 +994,195 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         u.name.toLowerCase().includes(trimmedSearch.toLowerCase())
       )
     : [];
+
+  const matchingPendingRequests = hasValidSearch
+    ? requests.filter(r =>
+        r.user.name.toLowerCase().includes(trimmedSearch.toLowerCase())
+      )
+    : [];
+
+  const renderRequestCard = (req: { user: User; friendshipId: string; type: 'received' | 'sent'; createdAt?: string }) => {
+    const { user, friendshipId, type } = req;
+    const reqAvatar = getUserAvatar(user);
+    const isOnline = checkUserOnline(user);
+
+    return (
+      <div
+        key={friendshipId || `${type}-${user.id}`}
+        className={`bg-white border p-2.5 rounded-xl shadow-2xs flex items-center justify-between gap-2 transition-all ${
+          type === 'received'
+            ? 'border-purple-200/90 hover:border-purple-300'
+            : 'border-amber-200/80 hover:border-amber-300'
+        }`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="relative flex-shrink-0">
+            {reqAvatar ? (
+              <img src={reqAvatar} alt={user.name} className="w-9 h-9 rounded-full object-cover border border-slate-200" />
+            ) : (
+              <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-xs font-extrabold`}>
+                {user.name.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <span
+              className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${
+                isOnline ? 'bg-emerald-500' : 'bg-slate-300'
+              }`}
+            />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-slate-800 truncate">{user.name}</p>
+            {type === 'received' ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded-md border border-purple-200/60">
+                <span>📥</span>
+                <span>Solicitação recebida</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded-md border border-amber-200/60">
+                <span>⏳</span>
+                <span>Enviada • Aguardando</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {type === 'received' ? (
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={() => handleAccept(friendshipId)}
+              className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer shadow-2xs"
+              title="Aceitar amizade"
+            >
+              Aceitar
+            </button>
+            <button
+              onClick={() => handleReject(friendshipId, user.id)}
+              className="px-2 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold rounded-lg text-[11px] transition-colors cursor-pointer"
+              title="Recusar solicitação"
+            >
+              Recusar
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => handleReject(friendshipId, user.id)}
+            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200/70 font-bold rounded-lg text-[10px] transition-colors cursor-pointer flex-shrink-0"
+            title="Cancelar solicitação enviada"
+          >
+            Cancelar
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderFriendRequestsSection = () => (
+    <div className="mb-3 bg-gradient-to-b from-purple-50/60 via-slate-50/70 to-amber-50/30 p-3 rounded-2xl border border-purple-100/90 space-y-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+          <span>📬</span>
+          <span>Solicitações de Amizade</span>
+        </h3>
+        {requests.length > 0 && (
+          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+            {requests.length} pendente{requests.length > 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
+
+      {/* Filter Pills: Todas / Recebidas / Enviadas */}
+      <div className="grid grid-cols-3 gap-1 bg-white/90 p-1 rounded-xl border border-slate-200/70">
+        <button
+          type="button"
+          onClick={() => setRequestsFilter('all')}
+          className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+            requestsFilter === 'all'
+              ? 'bg-slate-800 text-white shadow-2xs'
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          Todas ({requests.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setRequestsFilter('received')}
+          className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+            requestsFilter === 'received'
+              ? 'bg-purple-600 text-white shadow-2xs'
+              : 'text-slate-500 hover:text-purple-700'
+          }`}
+        >
+          <span>📥</span>
+          <span>Recebidas ({receivedRequests.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setRequestsFilter('sent')}
+          className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+            requestsFilter === 'sent'
+              ? 'bg-amber-500 text-white shadow-2xs'
+              : 'text-slate-500 hover:text-amber-700'
+          }`}
+        >
+          <span>📤</span>
+          <span>Enviadas ({sentRequests.length})</span>
+        </button>
+      </div>
+
+      {/* Content based on active filter */}
+      {requestsFilter === 'all' && (
+        <div className="space-y-2.5">
+          {receivedRequests.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-purple-700 px-0.5 flex items-center gap-1">
+                <span>📥 Recebidas ({receivedRequests.length})</span>
+              </p>
+              {receivedRequests.map(renderRequestCard)}
+            </div>
+          )}
+
+          {sentRequests.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-700 px-0.5 flex items-center gap-1">
+                <span>📤 Enviadas por você ({sentRequests.length})</span>
+              </p>
+              {sentRequests.map(renderRequestCard)}
+            </div>
+          )}
+
+          {requests.length === 0 && (
+            <p className="text-[11px] text-slate-400 text-center py-2">
+              Nenhuma solicitação recebida ou enviada pendente.
+            </p>
+          )}
+        </div>
+      )}
+
+      {requestsFilter === 'received' && (
+        <div className="space-y-1.5">
+          {receivedRequests.length > 0 ? (
+            receivedRequests.map(renderRequestCard)
+          ) : (
+            <p className="text-[11px] text-slate-400 text-center py-2">
+              Você não tem solicitações de amizade recebidas no momento.
+            </p>
+          )}
+        </div>
+      )}
+
+      {requestsFilter === 'sent' && (
+        <div className="space-y-1.5">
+          {sentRequests.length > 0 ? (
+            sentRequests.map(renderRequestCard)
+          ) : (
+            <p className="text-[11px] text-slate-400 text-center py-2">
+              Você não possui solicitações de amizade enviadas aguardando resposta.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   const trimmedGuildSearch = guildSearchTerm.trim().toLowerCase();
   const filteredMyGuilds = guilds.filter(g =>
@@ -1015,7 +1235,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
           <div className="grid grid-cols-5 bg-slate-100/90 p-1 rounded-xl gap-1 border border-slate-200/60">
             <button
               onClick={() => { setActiveTab('friends'); setSelectedChat(null); setSelectedThread(null); }}
-              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+              className={`relative flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
                 activeTab === 'friends'
                   ? 'bg-white text-emerald-700 shadow-xs ring-1 ring-emerald-500/20'
                   : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
@@ -1023,6 +1243,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             >
               <span className="text-xs leading-none">👥</span>
               <span className="truncate max-w-full">{t('social.tabs.friends')}</span>
+              {requests.length > 0 && (
+                <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white"></span>
+              )}
             </button>
 
             <button
@@ -1092,19 +1315,10 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <span>🔍</span>
                   <span>{t('social.friends.addFriend')}</span>
                 </button>
-                {requests.length > 0 && (
-                  <div
-                    className="mt-2 text-xs bg-purple-50 border border-purple-200 text-purple-700 px-3 py-2 rounded-xl cursor-pointer font-bold flex items-center justify-between hover:bg-purple-100/70 transition-colors"
-                    onClick={() => setActiveTab('find')}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-purple-600 animate-pulse"></span>
-                      {requests.length} {t('social.friends.pendingRequests')}
-                    </span>
-                    <span>→</span>
-                  </div>
-                )}
               </div>
+
+              {/* Sent & Received Friend Requests directly visible in Friends tab */}
+              {renderFriendRequestsSection()}
 
               {uniqueFriends.map(({ user, friendshipId }) => {
                 const avatar = getUserAvatar(user);
@@ -1534,51 +1748,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
           {activeTab === 'find' && (
             <div className="space-y-3">
 
-              {/* Pending Requests Section */}
-              {requests.length > 0 && (
-                <div className="mb-4 space-y-2 bg-purple-50/50 p-3 rounded-2xl border border-purple-100">
-                  <h3 className="text-[11px] font-extrabold text-purple-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <span>📬</span>
-                    <span>{t('social.friends.requests')} ({requests.length})</span>
-                  </h3>
-                  {requests.map(({ user, friendshipId, type }) => {
-                    const reqAvatar = getUserAvatar(user);
-                    return (
-                      <div key={friendshipId || user.id} className="bg-white border border-slate-200/80 p-2.5 rounded-xl shadow-2xs flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {reqAvatar ? (
-                            <img src={reqAvatar} alt={user.name} className="w-8 h-8 rounded-full object-cover border border-slate-200 flex-shrink-0" />
-                          ) : (
-                            <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-xs font-bold flex-shrink-0`}>
-                              {user.name.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-xs font-bold text-slate-800 truncate">{user.name}</p>
-                            <p className="text-[10px] text-slate-400">
-                              {type === 'received' ? t('social.friends.received') : t('social.friends.sent')}
-                            </p>
-                          </div>
-                        </div>
-                        {type === 'received' ? (
-                          <div className="flex gap-1 flex-shrink-0">
-                            <button onClick={() => handleAccept(friendshipId)} className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer">
-                              {t('social.friends.accept')}
-                            </button>
-                            <button onClick={() => handleReject(friendshipId, user.id)} className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold rounded-lg text-[11px] transition-colors cursor-pointer">
-                              ✕
-                            </button>
-                          </div>
-                        ) : (
-                          <button onClick={() => handleReject(friendshipId, user.id)} className="text-[11px] font-bold text-rose-500 hover:underline px-2 py-1 cursor-pointer">
-                            {t('social.friends.cancel')}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {/* Sent & Received Friend Requests */}
+              {renderFriendRequestsSection()}
 
               {/* Search Input */}
               <div className="relative">
@@ -1618,6 +1789,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 </div>
               ) : (
                 <div className="space-y-2 pt-1">
+                  {matchingPendingRequests.map(req => renderRequestCard(req))}
                   {filteredAvailable.map(user => {
                     const uAvatar = getUserAvatar(user);
                     const isOnline = checkUserOnline(user);
@@ -1665,7 +1837,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       </div>
                     );
                   })}
-                  {filteredAvailable.length === 0 && (
+                  {filteredAvailable.length === 0 && matchingPendingRequests.length === 0 && (
                     <div className="text-center py-8 px-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                       <p className="text-slate-500 font-semibold text-xs">{t('social.friends.noWritersFound')}</p>
                     </div>
