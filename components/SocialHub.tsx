@@ -191,7 +191,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [selectedChat, setSelectedChat] = useState<{ type: 'direct' | 'group', target: User | Guild } | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [showGuildChatProduction, setShowGuildChatProduction] = useState(false);
+  const [showChatEmojiPicker, setShowChatEmojiPicker] = useState(false);
+  const [sentDirectSpark, setSentDirectSpark] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
 
   // Active guild dynamically synced from guilds or allGuilds array
   const activeGuild: Guild | null = selectedChat?.type === 'group'
@@ -654,12 +658,16 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   }, [selectedThread]);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }, 60);
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (selectedChat && (selectedChat.type === 'direct' || guildSubTab === 'chat')) {
+      scrollToBottom();
+    }
+  }, [messages, selectedChat, guildSubTab]);
 
   // --- Handlers: Friends & Blocking ---
   const handleSendRequest = async (userId: string) => {
@@ -801,6 +809,30 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         setMessages(await getGroupMessages(guild.id));
       }
       setNewMessage('');
+      setShowChatEmojiPicker(false);
+    } finally {
+      setIsActionSubmitting(false);
+    }
+  };
+
+  const handleInsertChatEmoji = (emoji: string) => {
+    setNewMessage(prev => `${prev}${prev && !prev.endsWith(' ') ? ' ' : ''}${emoji} `);
+    setShowChatEmojiPicker(false);
+    setTimeout(() => {
+      chatInputRef.current?.focus();
+    }, 20);
+  };
+
+  const handleSendDirectSpark = async (targetUser: User) => {
+    if (isActionSubmitting || isCooldownActive) return;
+    if (!canPerformSocialAction()) return;
+    try {
+      setIsActionSubmitting(true);
+      setSentDirectSpark(true);
+      setTimeout(() => setSentDirectSpark(false), 2600);
+      const sparkText = `🔥👏 Enviou uma faísca literária de incentivo para sua escrita hoje! ✨`;
+      await sendMessage(currentUser.id, targetUser.id, sparkText);
+      setMessages(await getConversation(currentUser.id, targetUser.id));
     } finally {
       setIsActionSubmitting(false);
     }
@@ -1442,6 +1474,181 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
       hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
     return gradients[Math.abs(hash) % gradients.length];
+  };
+
+  const getSenderNameColor = (seed: string) => {
+    const colors = [
+      'text-indigo-600',
+      'text-emerald-600',
+      'text-violet-600',
+      'text-amber-600',
+      'text-rose-600',
+      'text-teal-600',
+    ];
+    let hash = 0;
+    const str = seed || 'Parnaso';
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  const formatChatDateDivider = (isoString: string) => {
+    const msgDate = new Date(isoString);
+    if (isNaN(msgDate.getTime())) return 'Hoje';
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    if (msgDate.toDateString() === today.toDateString()) {
+      return 'Hoje';
+    }
+    if (msgDate.toDateString() === yesterday.toDateString()) {
+      return 'Ontem';
+    }
+    return msgDate.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: 'long',
+      ...(msgDate.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {})
+    });
+  };
+
+  const renderChatMessagesList = (chatMessages: Message[], mode: 'guild' | 'direct') => {
+    if (chatMessages.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 text-center select-none">
+          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-3 shadow-xs border ${
+            mode === 'guild'
+              ? 'bg-indigo-50 text-indigo-600 border-indigo-100'
+              : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+          }`}>
+            {mode === 'guild' ? '💬' : '✨'}
+          </div>
+          <p className="text-sm font-extrabold text-slate-700">
+            {mode === 'guild' ? 'O salão de conversas da guilda está aberto!' : 'Inicie a conversa literária!'}
+          </p>
+          <p className="text-xs text-slate-400 mt-1 max-w-xs">
+            {mode === 'guild'
+              ? 'Compartilhe ideias, metas do dia ou incentive seus companheiros de escrita.'
+              : 'Envie uma mensagem ou uma faísca de incentivo para começar o diálogo.'}
+          </p>
+        </div>
+      );
+    }
+
+    return chatMessages.map((msg, index) => {
+      const isMe = msg.senderId === currentUser.id;
+      const prevMsg = index > 0 ? chatMessages[index - 1] : null;
+
+      const msgDate = new Date(msg.timestamp);
+      const prevDate = prevMsg ? new Date(prevMsg.timestamp) : null;
+      const isNewDay = !prevDate || msgDate.toDateString() !== prevDate.toDateString();
+
+      const msgMinuteKey = `${msgDate.getHours()}:${msgDate.getMinutes()}`;
+      const prevMinuteKey = prevDate ? `${prevDate.getHours()}:${prevDate.getMinutes()}` : '';
+      const isGrouped = Boolean(
+        !isNewDay &&
+        prevMsg &&
+        prevMsg.senderId === msg.senderId &&
+        msgMinuteKey === prevMinuteKey
+      );
+
+      const senderName = getUserName(msg.senderId);
+      const senderPhoto = getUserPhotoURL(msg.senderId);
+      const timeFormatted = msgDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      const isSenderGuildOwner = mode === 'guild' && activeGuild?.adminId === msg.senderId;
+      const isSenderGuildAdmin = mode === 'guild' && !isSenderGuildOwner && (activeGuild?.adminIds || []).includes(msg.senderId);
+
+      return (
+        <React.Fragment key={msg.id || `${msg.timestamp}-${index}`}>
+          {isNewDay && (
+            <div className="flex justify-center my-4 select-none">
+              <span className="px-3.5 py-1 rounded-full bg-white/90 backdrop-blur-xs border border-slate-200/80 text-[11px] font-bold text-slate-500 shadow-2xs tracking-wide capitalize">
+                {formatChatDateDivider(msg.timestamp)}
+              </span>
+            </div>
+          )}
+
+          <div className={`flex items-start ${isMe ? 'justify-end' : 'justify-start'} ${isGrouped ? 'mt-1' : 'mt-3.5'}`}>
+            {/* Left Avatar for received messages (or spacer when grouped consecutively) */}
+            {!isMe && (
+              <div className="mr-2.5 flex-shrink-0">
+                {!isGrouped ? (
+                  senderPhoto ? (
+                    <img
+                      src={senderPhoto}
+                      alt={senderName}
+                      className="w-9 h-9 rounded-full object-cover border border-slate-200/90 shadow-2xs"
+                    />
+                  ) : (
+                    <div
+                      className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarGradient(senderName)} text-white flex items-center justify-center font-extrabold text-xs shadow-2xs border border-white`}
+                    >
+                      {senderName.charAt(0).toUpperCase()}
+                    </div>
+                  )
+                ) : (
+                  <div className="w-9 h-1" />
+                )}
+              </div>
+            )}
+
+            {/* Message Bubble */}
+            <div
+              className={`relative max-w-[78%] md:max-w-[62%] px-4 py-2.5 shadow-sm transition-all ${
+                isMe
+                  ? `${
+                      mode === 'guild'
+                        ? 'bg-gradient-to-br from-indigo-600 to-violet-600 text-white'
+                        : 'bg-gradient-to-br from-emerald-600 to-teal-600 text-white'
+                    } ${isGrouped ? 'rounded-2xl rounded-r-md' : 'rounded-2xl rounded-tr-sm'}`
+                  : `bg-white text-slate-700 border border-slate-200/80 ${
+                      isGrouped ? 'rounded-2xl rounded-l-md' : 'rounded-2xl rounded-tl-sm'
+                    }`
+              }`}
+            >
+              {/* Sender Header inside received bubble (only on first message of a group) */}
+              {!isMe && !isGrouped && (
+                <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                  <span className={`text-xs font-extrabold tracking-tight ${getSenderNameColor(senderName)}`}>
+                    {senderName}
+                  </span>
+                  {isSenderGuildOwner && (
+                    <span className="inline-flex items-center gap-0.5 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded-md bg-amber-50 text-amber-700 border border-amber-200/80">
+                      👑 Líder
+                    </span>
+                  )}
+                  {isSenderGuildAdmin && (
+                    <span className="inline-flex items-center gap-0.5 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/80">
+                      🛡️ Admin
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Message Text & Discreet Bottom-Right Timestamp */}
+              <div className="flex flex-col">
+                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                  {msg.content}
+                </p>
+                <div className={`flex items-center justify-end gap-1 mt-1 select-none ${
+                  isMe
+                    ? mode === 'guild'
+                      ? 'text-indigo-100/90'
+                      : 'text-emerald-100/90'
+                    : 'text-slate-400'
+                }`}>
+                  <span className="text-[10px] font-medium leading-none">
+                    {timeFormatted}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </React.Fragment>
+      );
+    });
   };
 
   const getCategoryBadgeStyle = (category?: string) => {
@@ -2424,31 +2631,48 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 </button>
 
                 {selectedChat.type === 'direct' ? (
-                  <>
-                    {((selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL) ? (
-                      <img src={(selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL} alt={(selectedChat.target as User).name} className="w-10 h-10 rounded-full object-cover mr-3 border-2 border-teal-200 shadow-xs flex-shrink-0" />
-                    ) : (
-                      <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient((selectedChat.target as User).name)} text-white flex items-center justify-center font-bold text-base mr-3 shadow-xs border-2 border-white flex-shrink-0`}>
-                        {(selectedChat.target as User).name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <h3 className="font-bold text-slate-800 text-base truncate">
-                        {(selectedChat.target as User).name}
-                      </h3>
-                      {checkUserOnline(selectedChat.target as User) ? (
-                        <span className="text-[11px] text-emerald-600 flex items-center gap-1.5 font-semibold">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                          <span>{t('social.chat.online')}</span>
-                        </span>
+                  <div className="flex items-center min-w-0">
+                    <div className="relative mr-3 flex-shrink-0">
+                      {getUserPhotoURL((selectedChat.target as User).id) || (selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL ? (
+                        <img
+                          src={getUserPhotoURL((selectedChat.target as User).id) || (selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL}
+                          alt={(selectedChat.target as User).name}
+                          className="w-10 h-10 rounded-full object-cover border-2 border-emerald-200 shadow-xs"
+                        />
                       ) : (
-                        <span className="text-[11px] text-slate-400 flex items-center gap-1.5 font-medium">
-                          <span className="w-2 h-2 rounded-full bg-slate-300"></span>
-                          <span>Offline</span>
-                        </span>
+                        <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient((selectedChat.target as User).name)} text-white flex items-center justify-center font-bold text-base shadow-xs border-2 border-white`}>
+                          {(selectedChat.target as User).name.charAt(0).toUpperCase()}
+                        </div>
                       )}
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ring-white ${
+                          checkUserOnline(selectedChat.target as User) ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                        }`}
+                      />
                     </div>
-                  </>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-extrabold text-slate-800 text-sm md:text-base truncate">
+                          {(selectedChat.target as User).name}
+                        </h3>
+                        <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/70">
+                          <span>🪶</span>
+                          <span>Escritor Parceiro</span>
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {checkUserOnline(selectedChat.target as User) ? (
+                          <span className="text-[11px] text-emerald-600 flex items-center gap-1 font-semibold">
+                            <span>{t('social.chat.online')} agora</span>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 flex items-center gap-1 font-medium">
+                            <span>Offline • Conversa Direta</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 ) : (
                   /* Compact Context Pill for Guild Top Bar (avoids duplicating the large Estandarte below) */
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -2490,14 +2714,31 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               </div>
 
               {selectedChat.type === 'direct' && (
-                <button
-                  onClick={(e) => handleBlockUser(e, selectedChat.target as User)}
-                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="Bloquear este usuário"
-                >
-                  <span>🚫</span>
-                  <span className="hidden sm:inline">Bloquear</span>
-                </button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => handleSendDirectSpark(selectedChat.target as User)}
+                    disabled={isActionSubmitting || sentDirectSpark}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer border shadow-2xs ${
+                      sentDirectSpark
+                        ? 'bg-amber-500 text-white border-amber-500'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200/80'
+                    }`}
+                    title="Enviar uma faísca literária de incentivo rápido na conversa"
+                  >
+                    <span>{sentDirectSpark ? '✨' : '🔥'}</span>
+                    <span className="hidden sm:inline">
+                      {sentDirectSpark ? 'Incentivo Enviado!' : 'Incentivar'}
+                    </span>
+                  </button>
+                  <button
+                    onClick={(e) => handleBlockUser(e, selectedChat.target as User)}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Bloquear este usuário"
+                  >
+                    <span>🚫</span>
+                    <span className="hidden md:inline">Bloquear</span>
+                  </button>
+                </div>
               )}
 
               {selectedChat.type === 'group' && activeGuild && isGuildMember(activeGuild) && (
@@ -3361,67 +3602,98 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             })()}
 
             {selectedChat.type === 'group' && guildSubTab === 'chat' && activeGuild && isGuildMember(activeGuild) && (
-              <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50">
-                {/* Guild Summary & Members Production */}
-                <div className="bg-indigo-50 border border-indigo-100 rounded-2xl overflow-hidden mb-6 shadow-sm">
-                  <div className="p-4 bg-indigo-600 text-white flex justify-between items-center">
-                    <h3 className="text-xs font-black uppercase tracking-widest">{t('social.guilds.guildProduction')}</h3>
-                    <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-full">
-                      {Math.round(Object.values(memberStats).reduce((a, b) => a + b, 0)).toLocaleString()} {t('social.guilds.totalWords')}
-                    </span>
-                  </div>
-
-                  <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3 bg-white">
-                    {activeGuild.members.map(memberId => (
-                      <div key={memberId} className="flex items-center gap-2 p-2 rounded-xl bg-slate-50 border border-slate-100 shadow-sm">
-                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs ring-2 ring-white overflow-hidden">
-                          {getUserPhotoURL(memberId) ? (
-                            <img src={getUserPhotoURL(memberId)} alt={getUserName(memberId)} className="w-full h-full object-cover" />
-                          ) : (
-                            getUserName(memberId).charAt(0).toUpperCase()
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-bold text-slate-700 truncate">{getUserName(memberId)}</p>
-                          <p className="text-[10px] font-medium text-indigo-600">
-                            {memberStats[memberId]?.toLocaleString() || 0} <span className="text-slate-400 font-normal">{t('social.guilds.words')}</span>
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="px-4 py-2 bg-indigo-50/50 flex items-center gap-2">
-                    <div className="p-1 bg-white rounded shadow-xs text-indigo-600">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
+              <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/70 bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:18px_18px]">
+                {/* Collapsible 1-Line Guild Production Bar (Accordion) */}
+                <div className="bg-white/95 backdrop-blur-xs border-b border-indigo-100/90 px-4 md:px-8 py-2.5 flex-shrink-0 shadow-2xs z-10">
+                  <div className="flex items-center justify-between gap-3">
+                    {/* Left: Guild Motto / Description */}
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center text-xs flex-shrink-0">
+                        📜
+                      </span>
+                      <p className="text-xs text-slate-600 italic truncate font-medium">
+                        "{activeGuild.description || t('social.guilds.welcomeMessage')}"
+                      </p>
                     </div>
-                    <p className="text-[10px] text-indigo-700 leading-tight italic truncate">
-                      {activeGuild.description || t('social.guilds.welcomeMessage')}
-                    </p>
-                  </div>
-                </div>
-                {messages.map((msg) => {
-                  const isMe = msg.senderId === currentUser.id;
-                  return (
-                    <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                      {!isMe && (
-                        <div className="text-[10px] text-slate-400 mr-2 self-end mb-1 font-medium">{getUserName(msg.senderId)}</div>
+
+                    {/* Center: Overlapping Mini-Avatars of Guild Members */}
+                    <div className="hidden sm:flex items-center -space-x-2 flex-shrink-0">
+                      {activeGuild.members.slice(0, 6).map(memberId => {
+                        const photo = getUserPhotoURL(memberId);
+                        const name = getUserName(memberId);
+                        return photo ? (
+                          <img
+                            key={memberId}
+                            src={photo}
+                            alt={name}
+                            title={`${name}: ${(memberStats[memberId] || 0).toLocaleString('pt-BR')} palavras`}
+                            className="w-6 h-6 rounded-full object-cover ring-2 ring-white shadow-2xs"
+                          />
+                        ) : (
+                          <div
+                            key={memberId}
+                            title={`${name}: ${(memberStats[memberId] || 0).toLocaleString('pt-BR')} palavras`}
+                            className={`w-6 h-6 rounded-full bg-gradient-to-br ${getAvatarGradient(name)} text-white flex items-center justify-center text-[10px] font-black ring-2 ring-white shadow-2xs`}
+                          >
+                            {name.charAt(0).toUpperCase()}
+                          </div>
+                        );
+                      })}
+                      {activeGuild.members.length > 6 && (
+                        <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[9px] font-black ring-2 ring-white">
+                          +{activeGuild.members.length - 6}
+                        </div>
                       )}
-                      <div className={`max-w-[75%] md:max-w-[60%] rounded-2xl px-4 py-3 shadow-sm ${isMe
-                        ? 'bg-indigo-600 text-white rounded-tr-none'
-                        : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'
-                        }`}>
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                        <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-indigo-200' : 'text-slate-400'}`}>
-                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      </div>
                     </div>
-                  );
-                })}
-                <div ref={messagesEndRef} />
+
+                    {/* Right: Total Words Pill & Toggle Button */}
+                    <button
+                      type="button"
+                      onClick={() => setShowGuildChatProduction(prev => !prev)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-[11px] font-extrabold transition-all cursor-pointer flex-shrink-0 shadow-2xs"
+                    >
+                      <span>✍️ {Math.round(Object.values(memberStats).reduce((a, b) => a + b, 0)).toLocaleString('pt-BR')} Palavras Totais</span>
+                      <span className="text-indigo-400">•</span>
+                      <span className="underline decoration-indigo-300">
+                        {showGuildChatProduction ? 'Ocultar Produção ▴' : 'Ver Produção ▾'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Expanded Member Production Cards */}
+                  {showGuildChatProduction && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 animate-fade-in">
+                      {activeGuild.members.map(memberId => {
+                        const mName = getUserName(memberId);
+                        const mPhoto = getUserPhotoURL(memberId);
+                        const mWords = Math.round(memberStats[memberId] || 0);
+                        return (
+                          <div key={memberId} className="flex items-center gap-2 p-2 rounded-xl bg-slate-50/90 border border-slate-200/70 shadow-2xs">
+                            <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs ring-2 ring-white overflow-hidden flex-shrink-0">
+                              {mPhoto ? (
+                                <img src={mPhoto} alt={mName} className="w-full h-full object-cover" />
+                              ) : (
+                                mName.charAt(0).toUpperCase()
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-bold text-slate-700 truncate">{mName}</p>
+                              <p className="text-[10px] font-extrabold text-indigo-600">
+                                {mWords.toLocaleString('pt-BR')} <span className="text-slate-400 font-normal">{t('social.guilds.words')}</span>
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Scrollable Messages Area */}
+                <div className="flex-1 overflow-y-auto px-6 md:px-12 py-5">
+                  {renderChatMessagesList(messages, 'guild')}
+                  <div ref={messagesEndRef} className="h-2" />
+                </div>
               </div>
             )}
 
@@ -3857,46 +4129,111 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             )}
 
             {selectedChat.type === 'direct' && (
-              <>
-                <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50">
-                  {messages.map((msg) => {
-                    const isMe = msg.senderId === currentUser.id;
-                    return (
-                      <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[75%] md:max-w-[60%] rounded-2xl px-4 py-3 shadow-sm ${isMe
-                          ? 'bg-teal-500 text-white rounded-tr-none'
-                          : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'
-                          }`}>
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                          <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-teal-100' : 'text-slate-400'}`}>
-                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div ref={messagesEndRef} />
-                </div>
-              </>
+              <div className="flex-1 overflow-y-auto px-6 md:px-12 py-5 bg-slate-50/70 bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:18px_18px]">
+                {renderChatMessagesList(messages, 'direct')}
+                <div ref={messagesEndRef} className="h-2" />
+              </div>
             )}
 
             {(selectedChat.type === 'direct' || (selectedChat.type === 'group' && guildSubTab === 'chat' && activeGuild && isGuildMember(activeGuild))) && (
-              <div className="p-4 bg-white border-t border-slate-200 flex-shrink-0">
-                <form onSubmit={handleSendMessage} className="flex gap-2">
+              <div className="px-4 md:px-10 pb-4 pt-2 bg-slate-50/80 border-t border-slate-200/60 flex-shrink-0 relative">
+                {/* Popover Literary Emoji & Reaction Selector */}
+                {showChatEmojiPicker && (
+                  <div className="absolute bottom-full left-4 md:left-10 mb-2 bg-white rounded-2xl shadow-lg border border-slate-200/90 p-2.5 flex items-center gap-1.5 z-20 animate-fade-in">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-2 hidden sm:inline">
+                      Reações Literárias:
+                    </span>
+                    {[
+                      { emoji: '🔥', label: 'Chama Literária' },
+                      { emoji: '👏', label: 'Aplausos' },
+                      { emoji: '📚', label: 'Leitura & Escrita' },
+                      { emoji: '☕', label: 'Café Criativo' },
+                      { emoji: '✨', label: 'Inspiração' },
+                      { emoji: '❤️', label: 'Apoio' }
+                    ].map(item => (
+                      <button
+                        key={item.emoji}
+                        type="button"
+                        onClick={() => handleInsertChatEmoji(item.emoji)}
+                        title={item.label}
+                        className="w-9 h-9 rounded-xl hover:bg-slate-100 active:scale-95 flex items-center justify-center text-lg transition-all cursor-pointer"
+                      >
+                        {item.emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <form
+                  onSubmit={handleSendMessage}
+                  className={`rounded-2xl bg-white shadow-md border border-slate-200/80 p-2 flex items-center gap-2 transition-all ${
+                    selectedChat.type === 'direct'
+                      ? 'focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-500/15'
+                      : 'focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-500/15'
+                  }`}
+                >
+                  {/* Left: Quick Literary Emoji Selector Button + Inline Quick Reactions on wider screens */}
+                  <div className="flex items-center gap-1 pl-1 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowChatEmojiPicker(prev => !prev)}
+                      title="Inserir reação literária"
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center text-base transition-colors cursor-pointer ${
+                        showChatEmojiPicker
+                          ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                          : 'bg-slate-100/80 hover:bg-slate-200/70 text-slate-600'
+                      }`}
+                    >
+                      😊
+                    </button>
+                    <div className="hidden lg:flex items-center gap-0.5 bg-slate-50 border border-slate-200/60 rounded-xl px-1.5 py-1">
+                      {['🔥', '👏', '📚', '☕', '✨', '❤️'].map(emoji => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => handleInsertChatEmoji(emoji)}
+                          title={`Inserir ${emoji}`}
+                          className="w-7 h-7 rounded-lg hover:bg-white hover:shadow-2xs flex items-center justify-center text-sm transition-all cursor-pointer"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Center: Text Input */}
                   <input
+                    ref={chatInputRef}
                     type="text"
                     maxLength={1000}
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder={t('social.chat.typeMessage')}
-                    className="flex-1 bg-slate-100 border-transparent focus:bg-white border focus:border-indigo-400 rounded-xl px-4 py-3 outline-none transition-all"
+                    className="flex-1 bg-transparent px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 outline-none min-w-0"
                   />
+
+                  {/* Right: Vibrant Send Button with Paper Plane Icon */}
                   <button
                     type="submit"
                     disabled={!newMessage.trim() || isActionSubmitting || isCooldownActive}
-                    className={`${selectedChat.type === 'direct' ? 'bg-teal-500 hover:bg-teal-600' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-xl px-5 py-3 font-medium transition-colors disabled:opacity-50 shadow-md shadow-slate-100`}
+                    className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs md:text-sm font-extrabold transition-all cursor-pointer flex-shrink-0 ${
+                      newMessage.trim() && !isActionSubmitting && !isCooldownActive
+                        ? selectedChat.type === 'direct'
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-sm'
+                          : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    }`}
                   >
-                    {isActionSubmitting ? '...' : t('social.chat.send')}
+                    <span>{isActionSubmitting ? '...' : t('social.chat.send')}</span>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4 transform rotate-45 -mt-0.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
                   </button>
                 </form>
               </div>
