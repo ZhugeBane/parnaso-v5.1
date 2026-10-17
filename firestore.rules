@@ -1,126 +1,270 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
+    // ============================================================================
+    // FUNÇÕES AUXILIARES DE SEGURANÇA (PARNASOTEC SECURITY HARDENING)
+    // ============================================================================
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
-    
+
+    function isDocOwner() {
+      return isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    function isCreatingOwnDoc() {
+      return isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    function isValidNonNegativeNumber(val, maxVal) {
+      return val is number && val >= 0 && val <= maxVal;
+    }
+
     function isAdmin() {
-      return isSignedIn() && 
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
-    
+
+    // ============================================================================
+    // 1. PERFIS DE USUÁRIOS (Leitura pública autenticada; escrita exclusiva do dono)
+    // ============================================================================
     match /users/{userId} {
       allow read: if isSignedIn();
-      // Permitir criação durante registro (usuário já está autenticado mas documento ainda não existe)
-      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isOwner(userId);
       allow update: if isOwner(userId) || isAdmin();
       allow delete: if isAdmin();
     }
-    
+
+    // ============================================================================
+    // 2. COLEÇÕES PRIVADAS DO ESCRITOR (Sessões, Obras, Personagens, Mapas, Configs)
+    // Somente o proprietário (request.auth.uid == resource.data.userId) possui acesso.
+    // ============================================================================
     match /writing_sessions/{sessionId} {
-      // Permitir leitura por usuários autenticados (necessário para rankings de guildas e desafios)
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-    }
-    
-    match /projects/{projectId} {
-      // Permitir leitura pelo próprio usuário ou por admins
       allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isCreatingOwnDoc() &&
+                    isValidNonNegativeNumber(request.resource.data.wordCount, 100000);
+      allow update: if isDocOwner() &&
+                    request.resource.data.userId == request.auth.uid &&
+                    isValidNonNegativeNumber(request.resource.data.wordCount, 100000);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    // Alias de compatibilidade para coleções nomeadas como 'sessions'
+    match /sessions/{sessionId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isCreatingOwnDoc() &&
+                    isValidNonNegativeNumber(request.resource.data.wordCount, 100000);
+      allow update: if isDocOwner() &&
+                    request.resource.data.userId == request.auth.uid &&
+                    isValidNonNegativeNumber(request.resource.data.wordCount, 100000);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /projects/{projectId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isCreatingOwnDoc();
+      allow update: if isDocOwner() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    // Alias de compatibilidade para coleções nomeadas como 'works'
+    match /works/{workId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isCreatingOwnDoc();
+      allow update: if isDocOwner() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isDocOwner() || isAdmin();
     }
 
     match /project_characters/{characterId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isCreatingOwnDoc();
+      allow update: if isDocOwner() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    // Alias de compatibilidade para coleções nomeadas como 'characters'
+    match /characters/{characterId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isCreatingOwnDoc();
+      allow update: if isDocOwner() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isDocOwner() || isAdmin();
     }
 
     match /project_concept_maps/{mapId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isCreatingOwnDoc();
+      allow update: if isDocOwner() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isDocOwner() || isAdmin();
     }
 
     match /project_comments/{commentId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isCreatingOwnDoc();
+      allow update: if isDocOwner() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isDocOwner() || isAdmin();
     }
-    
+
     match /user_settings/{userId} {
-      // Permitir leitura e escrita pelo próprio usuário, apenas leitura por admins
       allow read: if isOwner(userId) || isAdmin();
       allow write: if isOwner(userId);
     }
-    
-    match /friendships/{friendshipId} {
-      allow read, write: if isSignedIn();
+
+    // ============================================================================
+    // 3. ECONOMIA DE DIAMANTES ROXOS & RECOMPENSAS PESSOAIS
+    // ============================================================================
+    match /user_rewards/{rewardId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isCreatingOwnDoc() &&
+                    isValidNonNegativeNumber(request.resource.data.costDiamonds, 100000);
+      allow update: if isDocOwner() &&
+                    request.resource.data.userId == request.auth.uid &&
+                    isValidNonNegativeNumber(request.resource.data.costDiamonds, 100000);
+      allow delete: if isDocOwner() || isAdmin();
     }
-    
-    match /groups/{groupId} {
-      // Allow read for signed-in users to search and explore guilds
+
+    match /user_reward_claims/{claimId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isCreatingOwnDoc() &&
+                    isValidNonNegativeNumber(request.resource.data.costDiamonds, 100000);
+      allow update, delete: if isDocOwner() || isAdmin();
+    }
+
+    // ============================================================================
+    // 4. COMUNIDADE: AMIZADES, GUILDAS, FÓRUM, CHATS E DESAFIOS
+    // Exige autenticação (request.auth != null) e valida autoria na criação/exclusão.
+    // ============================================================================
+    match /friendships/{friendshipId} {
       allow read: if isSignedIn();
-      // Allow create if user is the admin (creator)
-      allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
-      // Allow update for signed-in users (joining guild, Agora room presence, challenges, and admin actions)
+      allow create: if isSignedIn() && (
+        request.resource.data.requesterId == request.auth.uid ||
+        request.resource.data.user1 == request.auth.uid
+      );
+      allow update: if isSignedIn() && (
+        resource.data.requesterId == request.auth.uid ||
+        resource.data.recipientId == request.auth.uid ||
+        resource.data.user1 == request.auth.uid ||
+        resource.data.user2 == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isSignedIn() && (
+        resource.data.requesterId == request.auth.uid ||
+        resource.data.recipientId == request.auth.uid ||
+        resource.data.user1 == request.auth.uid ||
+        resource.data.user2 == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    match /groups/{groupId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+                    request.resource.data.adminId == request.auth.uid &&
+                    request.resource.data.name is string &&
+                    request.resource.data.name.size() <= 80;
       allow update: if isSignedIn();
-      // Allow delete if user is group admin OR app admin
       allow delete: if isSignedIn() && (resource.data.adminId == request.auth.uid || isAdmin());
     }
-    
+
+    match /guilds/{guildId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && (resource.data.adminId == request.auth.uid || isAdmin());
+    }
+
     match /messages/{messageId} {
-      // Allow read if:
-      // 1. It's a direct message and user is sender or receiver
-      // 2. It's a group message and user is a member of that group
-      // 3. User is an app admin
       allow read: if isSignedIn() && (
-        resource.data.senderId == request.auth.uid || 
+        resource.data.senderId == request.auth.uid ||
         resource.data.receiverId == request.auth.uid ||
         (resource.data.groupId != null && request.auth.uid in get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.members) ||
         isAdmin()
       );
-      
-      // Allow create if:
-      // 1. Sending a direct message as self
-      // 2. Sending a group message to a group where user is a member
-      allow create: if isSignedIn() && (
-        (request.resource.data.senderId == request.auth.uid) && (
-          request.resource.data.receiverId != null ||
-          (request.resource.data.groupId != null && request.auth.uid in get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.members)
-        )
-      );
-      
-      // Messages are generally not updated or deleted by users in this app's current flow, 
-      // but we'll allow app admins or owners if needed for moderation.
-      allow update, delete: if isAdmin();
+      allow create: if isSignedIn() &&
+                    request.resource.data.senderId == request.auth.uid &&
+                    request.resource.data.content is string &&
+                    request.resource.data.content.size() <= 1000 && (
+                      request.resource.data.receiverId != null ||
+                      (request.resource.data.groupId != null && request.auth.uid in get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.members)
+                    );
+      allow update, delete: if isSignedIn() && (resource.data.senderId == request.auth.uid || isAdmin());
     }
-    
+
+    match /chats/{chatId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.senderId == request.auth.uid;
+      allow update, delete: if isSignedIn() && (resource.data.senderId == request.auth.uid || isAdmin());
+    }
+
     match /guild_threads/{threadId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+                    request.resource.data.authorId == request.auth.uid &&
+                    request.resource.data.title is string &&
+                    request.resource.data.title.size() <= 80 &&
+                    request.resource.data.content is string &&
+                    request.resource.data.content.size() <= 3000;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && (resource.data.authorId == request.auth.uid || isAdmin());
     }
-    
+
     match /guild_replies/{replyId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+                    request.resource.data.authorId == request.auth.uid &&
+                    request.resource.data.content is string &&
+                    request.resource.data.content.size() <= 3000;
+      allow update: if isSignedIn() && (resource.data.authorId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (resource.data.authorId == request.auth.uid || isAdmin());
     }
-    
+
     match /forum_threads/{threadId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (
+        request.resource.data.authorId == request.auth.uid ||
+        request.resource.data.creatorId == request.auth.uid
+      );
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && (
+        resource.data.authorId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
     }
-    
+
+    match /forum/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && (resource.data.authorId == request.auth.uid || isAdmin());
+    }
+
     match /forum_replies/{replyId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+      allow update, delete: if isSignedIn() && (resource.data.authorId == request.auth.uid || isAdmin());
     }
-    
+
     match /competitions/{competitionId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+                    request.resource.data.creatorId == request.auth.uid &&
+                    request.resource.data.title is string &&
+                    request.resource.data.title.size() <= 80;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && (resource.data.creatorId == request.auth.uid || isAdmin());
+    }
+
+    match /challenges/{challengeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.creatorId == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && (resource.data.creatorId == request.auth.uid || isAdmin());
     }
   }
 }

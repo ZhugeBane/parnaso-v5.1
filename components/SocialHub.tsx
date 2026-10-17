@@ -55,6 +55,7 @@ import { ImagePicker } from './ui/ImagePicker';
 import { useLanguage } from '../i18n/LanguageContext';
 import { getSessions } from '../services/sessionService';
 import { getAllUsers, isUserCurrentlyOnline, updateUserPresence } from '../services/authService';
+import { sanitizeText, toSafePublicUser } from '../utils/cryptoUtils';
 
 interface SocialHubProps {
   currentUser: User;
@@ -65,6 +66,24 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'friends' | 'guilds' | 'forum' | 'competitions' | 'find'>('friends');
   const [allUsers, setAllUsers] = useState<User[]>([]);
+
+  // Anti-Spam & Flood Protection: 3-second Cooldown (Rate Limit) + isSubmitting state
+  const [isActionSubmitting, setIsActionSubmitting] = useState(false);
+  const [isCooldownActive, setIsCooldownActive] = useState(false);
+  const lastActionTimestampRef = useRef<number>(0);
+
+  const canPerformSocialAction = (): boolean => {
+    const now = Date.now();
+    if (isActionSubmitting || isCooldownActive || now - lastActionTimestampRef.current < 3000) {
+      return false;
+    }
+    lastActionTimestampRef.current = now;
+    setIsCooldownActive(true);
+    setTimeout(() => {
+      setIsCooldownActive(false);
+    }, 3000);
+    return true;
+  };
 
   // Friends & Blocking Data
   const [friends, setFriends] = useState<{ user: User, friendshipId: string }[]>([]);
@@ -236,7 +255,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         getCompetitions().catch(() => competitions)
       ]);
 
-      setAllUsers(usersRes);
+      setAllUsers(usersRes.map(u => u.id === currentUser.id ? u : toSafePublicUser(u, u.id)));
       setFriends(friendsRes);
       setBlockedUsers(blockedRes);
       setRequests(requestsRes);
@@ -423,30 +442,45 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   // --- Handlers: Chat ---
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedChat) return;
+    const cleanMsg = sanitizeText(newMessage, 1000);
+    if (!cleanMsg || !selectedChat) return;
+    if (!canPerformSocialAction()) return;
 
-    if (selectedChat.type === 'direct') {
-      const user = selectedChat.target as User;
-      await sendMessage(currentUser.id, user.id, newMessage);
-      setMessages(await getConversation(currentUser.id, user.id));
-    } else {
-      const guild = activeGuild || (selectedChat.target as Guild);
-      await sendGroupMessage(currentUser.id, guild.id, newMessage);
-      setMessages(await getGroupMessages(guild.id));
+    try {
+      setIsActionSubmitting(true);
+      if (selectedChat.type === 'direct') {
+        const user = selectedChat.target as User;
+        await sendMessage(currentUser.id, user.id, cleanMsg);
+        setMessages(await getConversation(currentUser.id, user.id));
+      } else {
+        const guild = activeGuild || (selectedChat.target as Guild);
+        await sendGroupMessage(currentUser.id, guild.id, cleanMsg);
+        setMessages(await getGroupMessages(guild.id));
+      }
+      setNewMessage('');
+    } finally {
+      setIsActionSubmitting(false);
     }
-    setNewMessage('');
   };
 
   // --- Handlers: Guilds ---
   const handleCreateGuild = async () => {
-    if (!newGuildName.trim()) return;
-    await createGuild(newGuildName, currentUser.id, selectedGuildMembers, newGroupDesc, newGuildEmblemBase64);
-    setShowCreateGuild(false);
-    setNewGuildName('');
-    setNewGroupDesc('');
-    setNewGuildEmblemBase64('');
-    setSelectedGuildMembers([]);
-    await refreshData();
+    const cleanName = sanitizeText(newGuildName, 80);
+    const cleanDesc = sanitizeText(newGroupDesc, 500);
+    if (!cleanName) return;
+    if (!canPerformSocialAction()) return;
+    try {
+      setIsActionSubmitting(true);
+      await createGuild(cleanName, currentUser.id, selectedGuildMembers, cleanDesc, newGuildEmblemBase64);
+      setShowCreateGuild(false);
+      setNewGuildName('');
+      setNewGroupDesc('');
+      setNewGuildEmblemBase64('');
+      setSelectedGuildMembers([]);
+      await refreshData();
+    } finally {
+      setIsActionSubmitting(false);
+    }
   };
 
   const handleJoinGuild = async (e: React.MouseEvent, guild: Guild) => {
@@ -502,11 +536,15 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   };
 
   const handleCreateGuildThread = async () => {
-    if (selectedChat?.type === 'group' && activeGuild && newThreadTitle.trim()) {
+    const cleanTitle = sanitizeText(newThreadTitle, 80);
+    const cleanContent = sanitizeText(newThreadContent, 3000);
+    if (selectedChat?.type === 'group' && activeGuild && cleanTitle && cleanContent) {
+      if (!canPerformSocialAction()) return;
       try {
+        setIsActionSubmitting(true);
         setForumError(null);
         const guild = activeGuild;
-        await createGuildThread(guild.id, currentUser.id, newThreadTitle, newThreadContent);
+        await createGuildThread(guild.id, currentUser.id, cleanTitle, cleanContent);
         setNewThreadTitle('');
         setNewThreadContent('');
         setShowCreateGuildThread(false);
@@ -514,6 +552,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         await refreshData();
       } catch (error) {
         setForumError(t('social.forum.errorPublish'));
+      } finally {
+        setIsActionSubmitting(false);
       }
     }
   };
@@ -524,10 +564,17 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   };
 
   const handleReplyGuildThread = async () => {
-    if (selectedGuildThread && newReplyContent.trim()) {
-      await replyToGuildThread(currentUser.id, selectedGuildThread.id, newReplyContent);
-      setNewReplyContent('');
-      setGuildReplies(await getGuildReplies(selectedGuildThread.id));
+    const cleanReply = sanitizeText(newReplyContent, 3000);
+    if (selectedGuildThread && cleanReply) {
+      if (!canPerformSocialAction()) return;
+      try {
+        setIsActionSubmitting(true);
+        await replyToGuildThread(currentUser.id, selectedGuildThread.id, cleanReply);
+        setNewReplyContent('');
+        setGuildReplies(await getGuildReplies(selectedGuildThread.id));
+      } finally {
+        setIsActionSubmitting(false);
+      }
     }
   };
 
@@ -539,13 +586,17 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
   // --- Handlers: Forum ---
   const handleCreateThread = async () => {
-    if (!newThreadTitle.trim() || !newThreadContent.trim()) {
+    const cleanTitle = sanitizeText(newThreadTitle, 80);
+    const cleanContent = sanitizeText(newThreadContent, 3000);
+    if (!cleanTitle || !cleanContent) {
       setForumError(t('social.forum.titleContentRequired'));
       return;
     }
+    if (!canPerformSocialAction()) return;
     try {
+      setIsActionSubmitting(true);
       setForumError(null);
-      await createForumThread(currentUser.id, newThreadTitle, newThreadContent, newThreadCategory);
+      await createForumThread(currentUser.id, cleanTitle, cleanContent, newThreadCategory);
       setShowCreateThread(false);
       setNewThreadTitle('');
       setNewThreadContent('');
@@ -553,6 +604,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     } catch (error) {
       console.error("Erro ao criar tópico:", error);
       setForumError(t('social.forum.errorCreateThread'));
+    } finally {
+      setIsActionSubmitting(false);
     }
   };
 
@@ -657,23 +710,32 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   };
 
   const handleReplyThread = async () => {
-    if (!selectedThread || !newReplyContent) return;
-    await replyToThread(currentUser.id, selectedThread.id, newReplyContent);
-    setThreadReplies(await getForumReplies(selectedThread.id));
-    setNewReplyContent('');
+    const cleanReply = sanitizeText(newReplyContent, 3000);
+    if (!selectedThread || !cleanReply) return;
+    if (!canPerformSocialAction()) return;
+    try {
+      setIsActionSubmitting(true);
+      await replyToThread(currentUser.id, selectedThread.id, cleanReply);
+      setThreadReplies(await getForumReplies(selectedThread.id));
+      setNewReplyContent('');
+    } finally {
+      setIsActionSubmitting(false);
+    }
   };
 
   // --- Handlers: Competitions ---
   const handleCreateCompetition = async () => {
-    if (!newCompTitle.trim()) {
+    const cleanTitle = sanitizeText(newCompTitle, 80);
+    if (!cleanTitle) {
       setCompError("Informe um título para lançar o desafio literário.");
       return;
     }
+    if (!canPerformSocialAction()) return;
     try {
       setIsSubmittingComp(true);
+      setIsActionSubmitting(true);
       setCompError(null);
-      const cleanTitle = newCompTitle.trim();
-      const cleanDesc = newCompDesc.trim() || "Desafio literário da comunidade ParnasoTec.";
+      const cleanDesc = sanitizeText(newCompDesc, 500) || "Desafio literário da comunidade ParnasoTec.";
       const cleanTarget = Math.max(1, Number(newCompTarget) || 1000);
       const cleanDuration = Math.max(1, Number(newCompDuration) || 7);
 
@@ -710,6 +772,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
       setCompError("Não foi possível lançar o desafio. Tente novamente.");
     } finally {
       setIsSubmittingComp(false);
+      setIsActionSubmitting(false);
     }
   };
 
@@ -731,18 +794,21 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   };
 
   const handleCreateChallenge = async () => {
-    if (!newChallengeTitle.trim()) {
+    const cleanTitle = sanitizeText(newChallengeTitle, 80);
+    if (!cleanTitle) {
       setChallengeError("Informe um nome para a missão da guilda.");
       return;
     }
     if (!selectedChat || selectedChat.type !== 'group' || !activeGuild) return;
+    if (!canPerformSocialAction()) return;
     try {
       setIsSubmittingChallenge(true);
+      setIsActionSubmitting(true);
       setChallengeError(null);
       const guild = activeGuild;
       const createdChallenge = await createGuildChallenge(guild.id, {
-        title: newChallengeTitle.trim(),
-        description: newChallengeDesc.trim() || "Missão literária dos membros da guilda.",
+        title: cleanTitle,
+        description: sanitizeText(newChallengeDesc, 500) || "Missão literária dos membros da guilda.",
         type: 'word_count',
         target: Math.max(1, Number(newChallengeTarget) || 1000),
         durationDays: Math.max(1, Number(newChallengeDuration) || 7)
@@ -765,6 +831,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
       setChallengeError("Não foi possível criar o desafio da guilda.");
     } finally {
       setIsSubmittingChallenge(false);
+      setIsActionSubmitting(false);
     }
   };
 
@@ -2061,6 +2128,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
                             <textarea
                               value={newReplyContent}
+                              maxLength={3000}
                               onChange={(e) => setNewReplyContent(e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && newReplyContent.trim()) {
@@ -2074,13 +2142,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             />
 
                             <div className="flex items-center justify-between pt-1">
-                              <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Pressione <strong>Ctrl + Enter</strong> para enviar</span>
+                              <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Pressione <strong>Ctrl + Enter</strong> para enviar ({newReplyContent.length}/3000)</span>
                               <button
                                 onClick={handleReplyGuildThread}
-                                disabled={!newReplyContent.trim()}
+                                disabled={!newReplyContent.trim() || isActionSubmitting || isCooldownActive}
                                 className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer ml-auto"
                               >
-                                <span>{t('social.forum.replyButton')}</span>
+                                <span>{isActionSubmitting ? 'Enviando...' : t('social.forum.replyButton')}</span>
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                                 </svg>
@@ -2105,12 +2173,14 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-xl mb-8 animate-fade-in">
                         <input
                           type="text"
+                          maxLength={80}
                           placeholder={t('social.forum.threadTitlePlaceholder')}
                           value={newThreadTitle}
                           onChange={(e) => setNewThreadTitle(e.target.value)}
                           className="w-full px-4 py-3 bg-slate-50 rounded-xl mb-3 font-bold outline-none border border-transparent focus:border-indigo-200"
                         />
                         <textarea
+                          maxLength={3000}
                           placeholder={t('social.forum.contentPlaceholder')}
                           value={newThreadContent}
                           onChange={(e) => setNewThreadContent(e.target.value)}
@@ -2120,7 +2190,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         {forumError && <p className="text-rose-500 text-[10px] mb-2 font-bold uppercase tracking-wider">{forumError}</p>}
                         <div className="flex justify-end gap-2">
                           <button onClick={() => setShowCreateGuildThread(false)} className="px-4 py-2 text-slate-500 font-bold text-xs">{t('social.friends.cancel')}</button>
-                          <button onClick={handleCreateGuildThread} className="px-6 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl">{t('social.forum.publishButton')}</button>
+                          <button
+                            onClick={handleCreateGuildThread}
+                            disabled={isActionSubmitting || isCooldownActive || !newThreadTitle.trim() || !newThreadContent.trim()}
+                            className="px-6 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl disabled:opacity-50"
+                          >
+                            {isActionSubmitting ? 'Publicando...' : t('social.forum.publishButton')}
+                          </button>
                         </div>
                       </div>
                     )}
@@ -2358,13 +2434,18 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 <form onSubmit={handleSendMessage} className="flex gap-2">
                   <input
                     type="text"
+                    maxLength={1000}
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder={t('social.chat.typeMessage')}
                     className="flex-1 bg-slate-100 border-transparent focus:bg-white border focus:border-indigo-400 rounded-xl px-4 py-3 outline-none transition-all"
                   />
-                  <button type="submit" disabled={!newMessage.trim()} className={`${selectedChat.type === 'direct' ? 'bg-teal-500 hover:bg-teal-600' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-xl px-5 py-3 font-medium transition-colors disabled:opacity-50 shadow-md shadow-slate-100`}>
-                    {t('social.chat.send')}
+                  <button
+                    type="submit"
+                    disabled={!newMessage.trim() || isActionSubmitting || isCooldownActive}
+                    className={`${selectedChat.type === 'direct' ? 'bg-teal-500 hover:bg-teal-600' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-xl px-5 py-3 font-medium transition-colors disabled:opacity-50 shadow-md shadow-slate-100`}
+                  >
+                    {isActionSubmitting ? '...' : t('social.chat.send')}
                   </button>
                 </form>
               </div>
@@ -2552,6 +2633,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
                     <textarea
                       value={newReplyContent}
+                      maxLength={3000}
                       onChange={(e) => setNewReplyContent(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && newReplyContent.trim()) {
@@ -2565,13 +2647,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     />
 
                     <div className="flex items-center justify-between pt-1">
-                      <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Pressione <strong>Ctrl + Enter</strong> para enviar</span>
+                      <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Pressione <strong>Ctrl + Enter</strong> para enviar ({newReplyContent.length}/3000)</span>
                       <button
                         onClick={handleReplyThread}
-                        disabled={!newReplyContent.trim()}
+                        disabled={!newReplyContent.trim() || isActionSubmitting || isCooldownActive}
                         className="px-6 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-md shadow-teal-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer ml-auto"
                       >
-                        <span>{t('social.forum.replyButton')}</span>
+                        <span>{isActionSubmitting ? 'Enviando...' : t('social.forum.replyButton')}</span>
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                         </svg>
@@ -2898,10 +2980,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   {t('social.guilds.guildName')}
                 </label>
                 <input
+                  maxLength={80}
                   className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-semibold text-slate-800 transition-all"
                   placeholder={t('social.guilds.guildName')}
                   value={newGuildName}
-                  onChange={(e) => setNewGuildName(e.target.value)}
+                  onChange={(e) => setNewGuildName(e.target.value.slice(0, 80))}
                 />
               </div>
 
@@ -2910,10 +2993,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   Descrição ou Lema
                 </label>
                 <textarea
+                  maxLength={500}
                   className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm h-20 resize-none text-slate-700 transition-all"
                   placeholder={t('social.guilds.guildDescription')}
                   value={newGroupDesc}
-                  onChange={(e) => setNewGroupDesc(e.target.value)}
+                  onChange={(e) => setNewGroupDesc(e.target.value.slice(0, 500))}
                 />
               </div>
 
@@ -2981,7 +3065,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 </button>
                 <button
                   onClick={handleCreateGuild}
-                  disabled={!newGuildName.trim()}
+                  disabled={!newGuildName.trim() || isActionSubmitting || isCooldownActive}
                   className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50 cursor-pointer"
                 >
                   🛡️ {t('social.guilds.foundButton')}
@@ -3023,10 +3107,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   Título da Discussão
                 </label>
                 <input
+                  maxLength={80}
                   className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-semibold text-slate-800 transition-all"
                   placeholder={t('social.forum.threadTitlePlaceholder')}
                   value={newThreadTitle}
-                  onChange={(e) => setNewThreadTitle(e.target.value)}
+                  onChange={(e) => setNewThreadTitle(e.target.value.slice(0, 80))}
                 />
               </div>
 
@@ -3051,10 +3136,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   Mensagem / Conteúdo
                 </label>
                 <textarea
+                  maxLength={3000}
                   className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm h-32 resize-none text-slate-700 leading-relaxed transition-all"
                   placeholder={t('social.forum.contentPlaceholder')}
                   value={newThreadContent}
-                  onChange={(e) => setNewThreadContent(e.target.value)}
+                  onChange={(e) => setNewThreadContent(e.target.value.slice(0, 3000))}
                 />
               </div>
 
@@ -3069,7 +3155,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 </button>
                 <button
                   onClick={handleCreateThread}
-                  className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+                  disabled={isActionSubmitting || isCooldownActive}
+                  className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50 cursor-pointer"
                 >
                   ✍️ {t('social.forum.publishButton')}
                 </button>
@@ -3110,10 +3197,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   Título do Desafio *
                 </label>
                 <input
+                  maxLength={80}
                   className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-semibold text-slate-800 transition-all"
                   placeholder={t('social.competitions.challengeNamePlaceholder')}
                   value={newCompTitle}
-                  onChange={(e) => { setNewCompTitle(e.target.value); if (compError) setCompError(null); }}
+                  onChange={(e) => { setNewCompTitle(e.target.value.slice(0, 80)); if (compError) setCompError(null); }}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleCreateCompetition(); }}
                 />
               </div>
@@ -3123,10 +3211,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   Regras & Descrição (opcional)
                 </label>
                 <textarea
+                  maxLength={500}
                   className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm text-slate-700 resize-none transition-all"
                   placeholder={t('social.competitions.rulesDescription')}
                   value={newCompDesc}
-                  onChange={(e) => setNewCompDesc(e.target.value)}
+                  onChange={(e) => setNewCompDesc(e.target.value.slice(0, 500))}
                   rows={2}
                 />
               </div>
@@ -3187,7 +3276,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 </button>
                 <button
                   onClick={handleCreateCompetition}
-                  disabled={isSubmittingComp}
+                  disabled={isSubmittingComp || isActionSubmitting || isCooldownActive}
                   className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-amber-500/25 transition-all disabled:opacity-50 cursor-pointer"
                 >
                   {isSubmittingComp ? 'Lançando...' : t('social.competitions.launchChallenge')}
@@ -3210,10 +3299,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">{t('social.guilds.challengeNameLabel')} *</label>
                 <input
+                  maxLength={80}
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-bold"
                   placeholder={t('social.guilds.challengeNamePlaceholder')}
                   value={newChallengeTitle}
-                  onChange={(e) => { setNewChallengeTitle(e.target.value); if (challengeError) setChallengeError(null); }}
+                  onChange={(e) => { setNewChallengeTitle(e.target.value.slice(0, 80)); if (challengeError) setChallengeError(null); }}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleCreateChallenge(); }}
                 />
               </div>
@@ -3221,10 +3311,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">{t('social.guilds.shortDescriptionLabel')}</label>
                 <textarea
+                  maxLength={500}
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm h-24 resize-none leading-relaxed"
                   placeholder={t('social.guilds.shortDescriptionPlaceholder')}
                   value={newChallengeDesc}
-                  onChange={(e) => setNewChallengeDesc(e.target.value)}
+                  onChange={(e) => setNewChallengeDesc(e.target.value.slice(0, 500))}
                 />
               </div>
 
@@ -3267,7 +3358,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               </button>
               <button
                 onClick={handleCreateChallenge}
-                disabled={isSubmittingChallenge}
+                disabled={isSubmittingChallenge || isActionSubmitting || isCooldownActive}
                 className="flex-[2] py-3 bg-indigo-600 text-white font-black text-xs rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all uppercase tracking-widest disabled:opacity-50 cursor-pointer"
               >
                 {isSubmittingChallenge ? 'Lançando...' : t('social.guilds.launchChallenge')}

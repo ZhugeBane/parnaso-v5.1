@@ -28,6 +28,7 @@ import {
   setDoc
 } from 'firebase/firestore';
 import { getAllUsers } from './authService';
+import { sanitizeText, sanitizeMetricNumber, toSafePublicUser } from '../utils/cryptoUtils';
 
 // --- Friendships & Blocking ---
 
@@ -38,7 +39,7 @@ export const getFriendships = async (): Promise<Friendship[]> => {
 
 export const getFriendsList = async (userId: string): Promise<{ user: User, friendshipId: string }[]> => {
   const snapshot = await getDocs(collection(db, 'friendships'));
-  const allUsers = await getAllUsers();
+  const allUsers = (await getAllUsers()).map(u => toSafePublicUser(u, u.id));
   const allDocs = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Friendship, 'id'>) }));
 
   // Identify any user where a block exists in either direction
@@ -71,7 +72,7 @@ export const getFriendsList = async (userId: string): Promise<{ user: User, frie
 
 export const getPendingRequests = async (userId: string): Promise<{ user: User, friendshipId: string, type: 'received' | 'sent' }[]> => {
   const snapshot = await getDocs(collection(db, 'friendships'));
-  const allUsers = await getAllUsers();
+  const allUsers = (await getAllUsers()).map(u => toSafePublicUser(u, u.id));
   const allDocs = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Friendship, 'id'>) }));
 
   const blockedUserIds = new Set<string>();
@@ -109,7 +110,7 @@ export const getPendingRequests = async (userId: string): Promise<{ user: User, 
 
 export const getBlockedUsersList = async (userId: string): Promise<{ user: User, friendshipId: string }[]> => {
   const snapshot = await getDocs(collection(db, 'friendships'));
-  const allUsers = await getAllUsers();
+  const allUsers = (await getAllUsers()).map(u => toSafePublicUser(u, u.id));
   const seenIds = new Set<string>();
 
   return snapshot.docs
@@ -131,27 +132,29 @@ export const getBlockedUsersList = async (userId: string): Promise<{ user: User,
 };
 
 export const getAvailableUsers = async (currentUserId: string): Promise<User[]> => {
-  const allUsers = await getAllUsers();
+  const rawUsers = await getAllUsers();
 
   const snapshot = await getDocs(collection(db, 'friendships'));
   const friendships = snapshot.docs
     .map(d => d.data() as Friendship)
     .filter(f => f.requesterId === currentUserId || f.receiverId === currentUserId);
 
-  return allUsers.filter(u => {
-    if (u.id === currentUserId) return false;
-    if (u.role === 'admin') return false;
-    if (u.isBlocked) return false;
+  return rawUsers
+    .filter(u => {
+      if (u.id === currentUserId) return false;
+      if (u.role === 'admin') return false;
+      if (u.isBlocked) return false;
 
-    // Exclude only if there is an active pending, accepted, or blocked relationship
-    const hasRelation = friendships.some(f =>
-      ((f.requesterId === currentUserId && f.receiverId === u.id) ||
-       (f.requesterId === u.id && f.receiverId === currentUserId)) &&
-      (f.status === 'accepted' || f.status === 'pending' || f.status === 'blocked')
-    );
+      // Exclude only if there is an active pending, accepted, or blocked relationship
+      const hasRelation = friendships.some(f =>
+        ((f.requesterId === currentUserId && f.receiverId === u.id) ||
+         (f.requesterId === u.id && f.receiverId === currentUserId)) &&
+        (f.status === 'accepted' || f.status === 'pending' || f.status === 'blocked')
+      );
 
-    return !hasRelation;
-  });
+      return !hasRelation;
+    })
+    .map(u => toSafePublicUser(u, u.id));
 };
 
 export const sendFriendRequest = async (requesterId: string, receiverId: string) => {
@@ -468,13 +471,16 @@ export const createGuild = async (
   description?: string,
   emblemBase64?: string
 ) => {
+  const safeName = sanitizeText(name, 80);
+  if (!safeName) throw new Error('Nome da guilda inválido.');
+  const safeDescription = sanitizeText(description || '', 500);
   const uniqueMembers = Array.from(new Set([adminId, ...(memberIds || [])]));
   const createdAt = new Date().toISOString();
   const guildData = {
-    name,
+    name: safeName,
     adminId,
     adminIds: [adminId],
-    description: description || '',
+    description: safeDescription,
     emblemBase64: emblemBase64 || '',
     emblemUrl: emblemBase64 || '',
     members: uniqueMembers,
@@ -546,12 +552,16 @@ export const createGuildChallenge = async (
   guildId: string,
   challenge: Omit<GuildChallenge, 'id' | 'createdAt' | 'status'>
 ): Promise<GuildChallenge> => {
+  const safeTitle = sanitizeText(challenge.title, 80);
+  if (!safeTitle) throw new Error('Título do desafio inválido.');
+  const safeDesc = sanitizeText(challenge.description || '', 500) || 'Alcance a meta estipulada pela guilda!';
+
   const newChallenge: GuildChallenge = {
-    title: challenge.title.trim(),
-    description: (challenge.description || '').trim() || 'Alcance a meta estipulada pela guilda!',
+    title: safeTitle,
+    description: safeDesc,
     type: challenge.type || 'word_count',
-    target: Math.max(1, Number(challenge.target) || 1000),
-    durationDays: Math.max(1, Number(challenge.durationDays) || 7),
+    target: sanitizeMetricNumber(challenge.target, 1, 10000000, 1000),
+    durationDays: sanitizeMetricNumber(challenge.durationDays, 1, 365, 7),
     id: Math.random().toString(36).substring(2, 11),
     createdAt: new Date().toISOString(),
     status: 'active'
@@ -601,7 +611,7 @@ export const pingGuildAgoraPresence = async (
       _docType: 'agora_presence',
       guildId,
       userId: user.id,
-      name: user.name,
+      name: sanitizeText(user.name, 80) || 'Escritor',
       photoURL: user.photoBase64 || user.photoURL || '',
       isMuted,
       joinedAt: new Date().toISOString(),
@@ -636,7 +646,7 @@ export const getGuildAgoraParticipants = async (guildId: string): Promise<AgoraP
       })
       .map(data => ({
         userId: data.userId,
-        name: data.name,
+        name: sanitizeText(data.name, 80) || 'Escritor',
         joinedAt: data.joinedAt,
         lastPing: data.lastPing,
         isMuted: Boolean(data.isMuted)
@@ -658,23 +668,42 @@ export const getGuildThreads = async (guildId: string): Promise<GuildForumThread
     const snapshot = await getDocs(q);
     return snapshot.docs
       .filter(d => !(d.data() as any)._docType)
-      .map(d => ({ id: d.id, ...d.data() } as GuildForumThread));
+      .map(d => {
+        const data = d.data() as GuildForumThread;
+        return {
+          ...data,
+          id: d.id,
+          title: sanitizeText(data.title, 80),
+          content: sanitizeText(data.content, 3000)
+        };
+      });
   } catch {
     const q = query(collection(db, 'guild_threads'), where('guildId', '==', guildId));
     const snapshot = await getDocs(q);
     const threads = snapshot.docs
       .filter(d => !(d.data() as any)._docType)
-      .map(d => ({ id: d.id, ...d.data() } as GuildForumThread));
+      .map(d => {
+        const data = d.data() as GuildForumThread;
+        return {
+          ...data,
+          id: d.id,
+          title: sanitizeText(data.title, 80),
+          content: sanitizeText(data.content, 3000)
+        };
+      });
     return threads.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 };
 
 export const createGuildThread = async (guildId: string, authorId: string, title: string, content: string) => {
+  const safeTitle = sanitizeText(title, 80);
+  const safeContent = sanitizeText(content, 3000);
+  if (!safeTitle || !safeContent) return;
   await addDoc(collection(db, 'guild_threads'), {
     guildId,
     authorId,
-    title,
-    content,
+    title: safeTitle,
+    content: safeContent,
     createdAt: new Date().toISOString()
   });
 };
@@ -682,15 +711,24 @@ export const createGuildThread = async (guildId: string, authorId: string, title
 export const getGuildReplies = async (threadId: string): Promise<GuildForumReply[]> => {
   const q = query(collection(db, 'guild_replies'), where('threadId', '==', threadId));
   const snapshot = await getDocs(q);
-  const replies = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GuildForumReply));
+  const replies = snapshot.docs.map(d => {
+    const data = d.data() as GuildForumReply;
+    return {
+      ...data,
+      id: d.id,
+      content: sanitizeText(data.content, 3000)
+    };
+  });
   return replies.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 };
 
 export const replyToGuildThread = async (authorId: string, threadId: string, content: string) => {
+  const safeContent = sanitizeText(content, 3000);
+  if (!safeContent) return;
   await addDoc(collection(db, 'guild_replies'), {
     threadId,
     authorId,
-    content,
+    content: safeContent,
     createdAt: new Date().toISOString()
   });
 };
@@ -708,7 +746,14 @@ export const deleteGuildForumReply = async (replyId: string) => {
 export const getConversation = async (userId1: string, userId2: string): Promise<Message[]> => {
   const snapshot = await getDocs(collection(db, 'messages'));
   const msgs = snapshot.docs
-    .map(d => ({ id: d.id, ...d.data() } as Message))
+    .map(d => {
+      const data = d.data() as Message;
+      return {
+        ...data,
+        id: d.id,
+        content: sanitizeText(data.content, 1000)
+      };
+    })
     .filter(msg =>
       (msg.senderId === userId1 && msg.receiverId === userId2) ||
       (msg.senderId === userId2 && msg.receiverId === userId1)
@@ -719,25 +764,36 @@ export const getConversation = async (userId1: string, userId2: string): Promise
 export const getGroupMessages = async (groupId: string): Promise<Message[]> => {
   const q = query(collection(db, 'messages'), where('groupId', '==', groupId));
   const snapshot = await getDocs(q);
-  const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Message));
+  const msgs = snapshot.docs.map(d => {
+    const data = d.data() as Message;
+    return {
+      ...data,
+      id: d.id,
+      content: sanitizeText(data.content, 1000)
+    };
+  });
   return msgs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 
 export const sendMessage = async (senderId: string, receiverId: string, content: string) => {
+  const safeContent = sanitizeText(content, 1000);
+  if (!safeContent) return;
   await addDoc(collection(db, 'messages'), {
     senderId,
     receiverId,
-    content,
+    content: safeContent,
     timestamp: new Date().toISOString(),
     read: false
   });
 };
 
 export const sendGroupMessage = async (senderId: string, groupId: string, content: string) => {
+  const safeContent = sanitizeText(content, 1000);
+  if (!safeContent) return;
   await addDoc(collection(db, 'messages'), {
     senderId,
     groupId,
-    content,
+    content: safeContent,
     timestamp: new Date().toISOString(),
     read: false
   });
@@ -755,12 +811,28 @@ export const getForumThreads = async (): Promise<ForumThread[]> => {
     const snapshot = await getDocs(q);
     return snapshot.docs
       .filter(d => !(d.data() as any)._docType)
-      .map(d => ({ id: d.id, ...d.data() } as ForumThread));
+      .map(d => {
+        const data = d.data() as ForumThread;
+        return {
+          ...data,
+          id: d.id,
+          title: sanitizeText(data.title, 80),
+          content: sanitizeText(data.content, 3000)
+        };
+      });
   } catch {
     const snapshot = await getDocs(collection(db, 'forum_threads'));
     return snapshot.docs
       .filter(d => !(d.data() as any)._docType)
-      .map(d => ({ id: d.id, ...d.data() } as ForumThread))
+      .map(d => {
+        const data = d.data() as ForumThread;
+        return {
+          ...data,
+          id: d.id,
+          title: sanitizeText(data.title, 80),
+          content: sanitizeText(data.content, 3000)
+        };
+      })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 };
@@ -769,26 +841,38 @@ export const getForumReplies = async (threadId: string): Promise<ForumReply[]> =
   const q = query(collection(db, 'forum_replies'), where('threadId', '==', threadId));
   const snapshot = await getDocs(q);
   return snapshot.docs
-    .map(d => ({ id: d.id, ...d.data() } as ForumReply))
+    .map(d => {
+      const data = d.data() as ForumReply;
+      return {
+        ...data,
+        id: d.id,
+        content: sanitizeText(data.content, 3000)
+      };
+    })
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 };
 
 export const createForumThread = async (authorId: string, title: string, content: string, category: string) => {
+  const safeTitle = sanitizeText(title, 80);
+  const safeContent = sanitizeText(content, 3000);
+  if (!safeTitle || !safeContent) return;
   await addDoc(collection(db, 'forum_threads'), {
     authorId,
-    title,
-    content,
-    category,
+    title: safeTitle,
+    content: safeContent,
+    category: sanitizeText(category, 40) || 'Geral',
     createdAt: new Date().toISOString(),
     likes: []
   });
 };
 
 export const replyToThread = async (authorId: string, threadId: string, content: string) => {
+  const safeContent = sanitizeText(content, 3000);
+  if (!safeContent) return;
   await addDoc(collection(db, 'forum_replies'), {
     threadId,
     authorId,
-    content,
+    content: safeContent,
     createdAt: new Date().toISOString()
   });
 };
@@ -817,7 +901,13 @@ export const getCompetitions = async (): Promise<Competition[]> => {
   try {
     const snapshot = await getDocs(collection(db, 'competitions'));
     snapshot.docs.forEach(d => {
-      compMap.set(d.id, { id: d.id, ...d.data() } as Competition);
+      const data = d.data() as Competition;
+      compMap.set(d.id, {
+        ...data,
+        id: d.id,
+        title: sanitizeText(data.title, 80),
+        description: sanitizeText(data.description, 500)
+      });
     });
   } catch (err) {
     console.warn('Fallback reading competitions:', err);
@@ -832,8 +922,8 @@ export const getCompetitions = async (): Promise<Competition[]> => {
         compMap.set(d.id, {
           id: d.id,
           creatorId: data.creatorId,
-          title: data.title,
-          description: data.description,
+          title: sanitizeText(data.title, 80),
+          description: sanitizeText(data.description, 500),
           type: data.type || 'word_count',
           target: Number(data.target) || 1000,
           startDate: data.startDate,
@@ -860,8 +950,11 @@ export const createCompetition = async (
   target: number,
   durationDays: number
 ): Promise<Competition> => {
-  const validTarget = Math.max(1, Number(target) || 1000);
-  const validDuration = Math.max(1, Number(durationDays) || 7);
+  const safeTitle = sanitizeText(title, 80);
+  if (!safeTitle) throw new Error('Título do desafio inválido.');
+  const safeDesc = sanitizeText(description || '', 500) || 'Complete a meta dentro do prazo do desafio!';
+  const validTarget = sanitizeMetricNumber(target, 1, 10000000, 1000);
+  const validDuration = sanitizeMetricNumber(durationDays, 1, 365, 7);
 
   const startDate = new Date();
   const endDate = new Date();
@@ -869,8 +962,8 @@ export const createCompetition = async (
 
   const payload = {
     creatorId,
-    title: title.trim(),
-    description: (description || '').trim() || 'Complete a meta dentro do prazo do desafio!',
+    title: safeTitle,
+    description: safeDesc,
     type: type || 'word_count',
     target: validTarget,
     startDate: startDate.toISOString(),

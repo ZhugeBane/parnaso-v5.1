@@ -14,6 +14,12 @@ import {
   deleteDoc,
   writeBatch
 } from 'firebase/firestore';
+import {
+  encryptSessionText,
+  decryptSessionText,
+  sanitizeMetricNumber,
+  sanitizeText
+} from '../utils/cryptoUtils';
 
 // --- Sessions ---
 
@@ -25,10 +31,30 @@ export const getSessions = async (userId: string): Promise<WritingSession[]> => 
     const q = query(collection(db, 'writing_sessions'), where('userId', '==', userId));
     const querySnapshot = await getDocs(q);
 
-    const sessions = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as WritingSession[];
+    const rawSessions = querySnapshot.docs.map(docSnap => ({
+      id: docSnap.id,
+      ...docSnap.data()
+    })) as (WritingSession & { userId?: string })[];
+
+    // Descriptografa automaticamente em memória textos com prefixo ENC_V1:;
+    // Textos antigos sem prefixo são exibidos normalmente sem dar erro.
+    const sessions = await Promise.all(
+      rawSessions.map(async (s) => {
+        const ownerUid = s.userId || userId;
+        const decryptedContent = s.content
+          ? await decryptSessionText(s.content, ownerUid)
+          : '';
+        return {
+          ...s,
+          wordCount: sanitizeMetricNumber(s.wordCount, 0, 100000, 0),
+          stressLevel: sanitizeMetricNumber(s.stressLevel, 1, 5, 3),
+          difficultyLevel: sanitizeMetricNumber(s.difficultyLevel, 1, 5, 1),
+          autoCorrectionFrequency: sanitizeMetricNumber(s.autoCorrectionFrequency, 1, 5, 1),
+          sessionRating: sanitizeMetricNumber(s.sessionRating, 1, 5, 3),
+          content: decryptedContent
+        } as WritingSession;
+      })
+    );
 
     // Sort descending by date
     return sessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -39,13 +65,39 @@ export const getSessions = async (userId: string): Promise<WritingSession[]> => 
 };
 
 export const saveSession = async (session: WritingSession, userId: string): Promise<void> => {
-  console.log('[saveSession] Iniciando salvamento:', { session, userId });
+  console.log('[saveSession] Iniciando salvamento:', { sessionId: session.id, userId });
 
   try {
     const { id, ...data } = session;
 
+    // Validação de integridade das métricas para impedir valores negativos, NaN ou saltos irreais
+    const safeWordCount = sanitizeMetricNumber(data.wordCount, 0, 100000, 0);
+    const safeStressLevel = sanitizeMetricNumber(data.stressLevel, 1, 5, 3);
+    const safeDifficultyLevel = sanitizeMetricNumber(data.difficultyLevel, 1, 5, 1);
+    const safeAutoCorrection = sanitizeMetricNumber(data.autoCorrectionFrequency, 1, 5, 1);
+    const safeRating = sanitizeMetricNumber(data.sessionRating, 1, 5, 3);
+
+    // Criptografia Real Client-Side (AES-GCM / Web Crypto API) com prefixo ENC_V1:
+    const encryptedContent = data.content
+      ? await encryptSessionText(data.content, userId)
+      : '';
+
+    const validatedData = {
+      ...data,
+      wordCount: safeWordCount,
+      stressLevel: safeStressLevel,
+      difficultyLevel: safeDifficultyLevel,
+      autoCorrectionFrequency: safeAutoCorrection,
+      sessionRating: safeRating,
+      specificDifficulties: data.specificDifficulties ? sanitizeText(data.specificDifficulties, 2000) : '',
+      multitaskingDescription: data.multitaskingDescription ? sanitizeText(data.multitaskingDescription, 500) : '',
+      timeStrategyDescription: data.timeStrategyDescription ? sanitizeText(data.timeStrategyDescription, 500) : '',
+      rewardDescription: data.rewardDescription ? sanitizeText(data.rewardDescription, 500) : '',
+      content: encryptedContent
+    };
+
     // Remover campos undefined (Firestore não aceita undefined)
-    const cleanData = Object.entries(data).reduce((acc, [key, value]) => {
+    const cleanData = Object.entries(validatedData).reduce((acc, [key, value]) => {
       if (value !== undefined) {
         acc[key] = value;
       }
@@ -57,17 +109,11 @@ export const saveSession = async (session: WritingSession, userId: string): Prom
       userId
     };
 
-    console.log('[saveSession] Dados a salvar:', docData);
-    console.log('[saveSession] Firestore DB instance:', db ? 'OK' : 'ERRO - DB não inicializado');
-
     const docRef = await addDoc(collection(db, 'writing_sessions'), docData);
 
-    console.log('[saveSession] ✅ Sessão salva com sucesso! ID:', docRef.id);
+    console.log('[saveSession] ✅ Sessão salva e criptografada com sucesso! ID:', docRef.id);
   } catch (error: any) {
     console.error("[saveSession] ❌ ERRO ao salvar sessão:", error);
-    console.error("[saveSession] Tipo de erro:", error?.constructor?.name);
-    console.error("[saveSession] Código do erro:", error?.code);
-    console.error("[saveSession] Mensagem:", error?.message);
     throw error; // Re-lançar erro para não engolir
   }
 };

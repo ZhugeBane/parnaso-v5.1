@@ -282,10 +282,23 @@ export const SessionForm: React.FC<SessionFormProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (showSuccess || pendingSession) return;
     if (!formData.startTime || !formData.endTime) {
       alert(t('sessionForm.fillTimes'));
       return;
     }
+
+    const safeWordCount = Math.max(
+      0,
+      Math.min(
+        100000,
+        Number(formData.wordCount) > 0
+          ? Math.floor(Number(formData.wordCount))
+          : formData.content
+            ? formData.content.trim().split(/\s+/).filter(Boolean).length
+            : 0
+      )
+    );
 
     const newSession: WritingSession = {
       id: Date.now().toString(),
@@ -293,7 +306,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({
       date: formData.date || new Date().toISOString(),
       startTime: formData.startTime!,
       endTime: formData.endTime!,
-      wordCount: Number(formData.wordCount) > 0 ? Number(formData.wordCount) : (formData.content ? formData.content.trim().split(/\s+/).filter(Boolean).length : 0),
+      wordCount: safeWordCount,
       content: formData.content || '',
       stressLevel: formData.stressLevel!,
       usedSkeleton: formData.usedSkeleton!,
@@ -830,9 +843,10 @@ export const SessionForm: React.FC<SessionFormProps> = ({
 
           <button
             type="submit"
-            className="px-8 py-3.5 rounded-2xl text-sm font-black text-white bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 shadow-xl shadow-teal-500/25 transition-all transform hover:scale-[1.02] active:scale-95 cursor-pointer flex items-center gap-2"
+            disabled={showSuccess || Boolean(pendingSession)}
+            className="px-8 py-3.5 rounded-2xl text-sm font-black text-white bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 disabled:opacity-50 disabled:pointer-events-none shadow-xl shadow-teal-500/25 transition-all transform hover:scale-[1.02] active:scale-95 cursor-pointer flex items-center gap-2"
           >
-            <span>Salvar Sessão</span>
+            <span>{showSuccess ? 'Salvando...' : 'Salvar Sessão'}</span>
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>

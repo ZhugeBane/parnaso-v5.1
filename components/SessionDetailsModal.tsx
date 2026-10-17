@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { WritingSession, Project } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
+import { decryptSessionText, isEncryptedText } from '../utils/cryptoUtils';
+import { auth } from '../lib/firebase';
 
 interface SessionDetailsModalProps {
     session: WritingSession;
@@ -36,6 +38,28 @@ export const SessionDetailsModal: React.FC<SessionDetailsModalProps> = ({
 }) => {
     const { t } = useLanguage();
     const [copied, setCopied] = useState(false);
+    const [decryptedContent, setDecryptedContent] = useState<string>(
+        session?.content && !isEncryptedText(session.content) ? session.content : ''
+    );
+
+    useEffect(() => {
+        let active = true;
+        if (!session?.content) {
+            setDecryptedContent('');
+            return;
+        }
+        if (!isEncryptedText(session.content)) {
+            setDecryptedContent(session.content);
+            return;
+        }
+        const uid = (session as any).userId || auth.currentUser?.uid || '';
+        decryptSessionText(session.content, uid).then((plain) => {
+            if (active) setDecryptedContent(plain);
+        });
+        return () => {
+            active = false;
+        };
+    }, [session]);
 
     if (!session) return null;
 
@@ -49,15 +73,16 @@ export const SessionDetailsModal: React.FC<SessionDetailsModalProps> = ({
     const durationMinutes = calculateDurationInMinutes(session.startTime, session.endTime);
     const formattedDuration = formatDuration(durationMinutes);
 
-    // Text & Word statistics
-    const textWordCount = session.content
-        ? session.content.trim().split(/\s+/).filter(Boolean).length
+    // Text & Word statistics (using decrypted content)
+    const displayContent = decryptedContent;
+    const textWordCount = displayContent
+        ? displayContent.trim().split(/\s+/).filter(Boolean).length
         : 0;
     const finalWordCount = session.wordCount > 0 ? session.wordCount : textWordCount;
     const isCountFromText = session.wordCount === 0 && textWordCount > 0;
-    const charCountWithSpaces = session.content ? session.content.length : 0;
-    const paragraphCount = session.content
-        ? session.content.split(/\n+/).filter(p => p.trim().length > 0).length
+    const charCountWithSpaces = displayContent ? displayContent.length : 0;
+    const paragraphCount = displayContent
+        ? displayContent.split(/\n+/).filter(p => p.trim().length > 0).length
         : 0;
 
     // Writing pace calculation
@@ -77,8 +102,8 @@ export const SessionDetailsModal: React.FC<SessionDetailsModalProps> = ({
         : session.date;
 
     const handleCopyContent = () => {
-        if (!session.content) return;
-        navigator.clipboard.writeText(session.content);
+        if (!displayContent) return;
+        navigator.clipboard.writeText(displayContent);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
@@ -381,14 +406,21 @@ export const SessionDetailsModal: React.FC<SessionDetailsModalProps> = ({
                     {/* Written Content Section */}
                     <div className="border-t border-slate-200 pt-6 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                                <span>{t('sessionDetails.writtenContent')}</span>
-                            </h3>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    <span>{t('sessionDetails.writtenContent')}</span>
+                                </h3>
+                                {displayContent && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                        🔒 AES-GCM Protegido
+                                    </span>
+                                )}
+                            </div>
 
-                            {!isPrivateView && session.content && (
+                            {!isPrivateView && displayContent && (
                                 <div className="flex items-center gap-3">
                                     <span className="text-xs text-slate-400 font-medium hidden sm:inline">
                                         {charCountWithSpaces.toLocaleString()} {t('sessionDetails.characters').toLowerCase()} • {paragraphCount} {t('sessionDetails.paragraphs').toLowerCase()}
@@ -429,9 +461,9 @@ export const SessionDetailsModal: React.FC<SessionDetailsModalProps> = ({
                                         {t('sessionDetails.privacyMessage')}
                                     </p>
                                 </div>
-                            ) : session.content?.trim() ? (
+                            ) : displayContent?.trim() ? (
                                 <div className="max-h-96 overflow-y-auto whitespace-pre-wrap text-slate-800 leading-relaxed font-serif text-sm bg-white p-5 rounded-xl border border-slate-200 shadow-2xs select-text">
-                                    {session.content}
+                                    {displayContent}
                                 </div>
                             ) : (
                                 <div className="text-slate-400 italic text-center py-8 text-xs">

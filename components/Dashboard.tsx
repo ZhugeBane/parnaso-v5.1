@@ -206,6 +206,49 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     return projects.filter(p => p.showInAutomonitoring !== false);
   }, [projects]);
 
+  // Modo Discreto / Cortina de Privacidade (shoulder-surfing protection)
+  // Obras ocultas do automonitoramento ficam automaticamente em Modo Discreto,
+  // e o usuário também pode ativar/desativar o cadeado em qualquer obra.
+  const [customDiscreetIds, setCustomDiscreetIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('parnaso_discreet_works');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [revealedDiscreetIds, setRevealedDiscreetIds] = useState<string[]>([]);
+
+  const isProjectDiscreet = (project: Project): boolean => {
+    const isHiddenFromAuto = project.showInAutomonitoring === false;
+    const isCustomDiscreet = customDiscreetIds.includes(project.id);
+    if (!isHiddenFromAuto && !isCustomDiscreet) return false;
+    return !revealedDiscreetIds.includes(project.id);
+  };
+
+  const toggleProjectDiscreetLock = (project: Project) => {
+    const isHiddenFromAuto = project.showInAutomonitoring === false;
+    const isCustomDiscreet = customDiscreetIds.includes(project.id);
+
+    if (isHiddenFromAuto || isCustomDiscreet) {
+      // Alterna revelação temporária ou remove do customDiscreetIds
+      if (revealedDiscreetIds.includes(project.id)) {
+        setRevealedDiscreetIds(prev => prev.filter(id => id !== project.id));
+      } else if (isCustomDiscreet && !isHiddenFromAuto) {
+        const next = customDiscreetIds.filter(id => id !== project.id);
+        setCustomDiscreetIds(next);
+        localStorage.setItem('parnaso_discreet_works', JSON.stringify(next));
+      } else {
+        setRevealedDiscreetIds(prev => [...prev, project.id]);
+      }
+    } else {
+      const next = [...customDiscreetIds, project.id];
+      setCustomDiscreetIds(next);
+      localStorage.setItem('parnaso_discreet_works', JSON.stringify(next));
+      setRevealedDiscreetIds(prev => prev.filter(id => id !== project.id));
+    }
+  };
+
   const handleToggleProjectInAutomonitoring = (project: Project, enabled: boolean) => {
     const updated: Project = { ...project, showInAutomonitoring: enabled };
     onAddProject(updated);
@@ -1585,12 +1628,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                             </div>
                             <div className="space-y-1 text-[11px]">
                               {d.sessions.map((s, sIdx) => {
-                                const sProj = projects.find(p => p.id === s.projectId);
+                                const sProj = getProjectForSession(s, projects);
+                                const isPrivateWork = sProj && (sProj.showInAutomonitoring === false || customDiscreetIds.includes(sProj.id));
+                                const calendarProjName = !sProj
+                                  ? 'Geral'
+                                  : isPrivacyMode
+                                    ? (isPrivateWork
+                                        ? 'Obra Privada 🔒'
+                                        : `${t('dashboard.workNumber')} #${Math.max(1, projectsInAutomonitoring.findIndex(p => p.id === sProj.id) + 1)}`)
+                                    : sProj.name;
                                 return (
                                   <div key={s.id || sIdx} className="flex items-center justify-between text-slate-300">
                                     <span className="flex items-center gap-1.5 truncate max-w-[110px]">
                                       <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: sProj?.color || '#94a3b8' }}></span>
-                                      <span className="truncate">{sProj ? sProj.name : 'Geral'}</span>
+                                      <span className="truncate">{calendarProjName}</span>
                                     </span>
                                     <span className="text-slate-400 font-mono text-[10px]">{s.wordCount} pal. • ⭐{s.sessionRating}/5</span>
                                   </div>
@@ -1711,7 +1762,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           </thead>
           <tbody className="divide-y divide-slate-100">
             {sortedSessions.slice().reverse().slice(0, 5).map((session) => {
-              const proj = projects.find(p => p.id === session.projectId);
+              const proj = getProjectForSession(session, projects);
+              const isPrivateProj = proj && (proj.showInAutomonitoring === false || customDiscreetIds.includes(proj.id));
+              const autoIdx = proj ? projectsInAutomonitoring.findIndex(p => p.id === proj.id) : -1;
               return (
                 <tr
                   key={session.id}
@@ -1722,13 +1775,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     <div className="font-medium text-slate-800 group-hover:text-teal-700 transition-colors">{new Date(session.date).toLocaleDateString()}</div>
                     <div className="text-xs text-slate-400">{session.startTime} - {session.endTime}</div>
                   </td>
-                  <td className="px-4 py-3 text-slate-500 truncate max-w-[120px]">
+                  <td className="px-4 py-3 text-slate-500 truncate max-w-[160px]">
                     {proj ? (
                       <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: proj.color }}></div>
-                        {isPrivacyMode
-                          ? `${t('dashboard.workNumber')} #${projectsInAutomonitoring.findIndex(p => p.id === proj.id) + 1 || 1}`
-                          : proj.name}
+                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: proj.color }}></div>
+                        {isPrivacyMode ? (
+                          <span className="text-slate-600 font-medium">
+                            {isPrivateProj || autoIdx === -1
+                              ? 'Obra Privada 🔒'
+                              : `${t('dashboard.workNumber')} #${autoIdx + 1}`}
+                          </span>
+                        ) : (
+                          <span
+                            style={isPrivateProj && isProjectDiscreet(proj) ? { filter: 'blur(6px)' } : undefined}
+                            className="transition-all duration-300 group-hover:!filter-none"
+                          >
+                            {proj.name}
+                          </span>
+                        )}
                       </div>
                     ) : <span className="text-slate-400 italic">{t('dashboard.general_project')}</span>}
                   </td>
@@ -2700,6 +2764,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             {filteredAndSortedProjects.map(project => {
               const projWords = sessions.filter(s => isSessionInProject(s, project, projects)).reduce((a, b) => a + b.wordCount, 0);
               const percent = project.targetWordCount ? Math.min(100, Math.round((projWords / project.targetWordCount) * 100)) : 0;
+              const isDiscreet = isProjectDiscreet(project);
+              const hasDiscreetModeEnabled = project.showInAutomonitoring === false || customDiscreetIds.includes(project.id);
               return (
                 <div
                   key={project.id}
@@ -2715,13 +2781,46 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   <div className="pl-3.5">
                     {/* Header: Title and Quick Action Buttons */}
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="text-lg sm:text-xl font-bold text-slate-800 group-hover:text-teal-600 transition-colors truncate">
+                      <h3
+                        style={isDiscreet ? { filter: 'blur(6px)' } : undefined}
+                        onClick={(e) => {
+                          if (isDiscreet) {
+                            e.stopPropagation();
+                            toggleProjectDiscreetLock(project);
+                          }
+                        }}
+                        className={`text-lg sm:text-xl font-bold text-slate-800 group-hover:text-teal-600 transition-all duration-300 truncate ${
+                          isDiscreet ? 'group-hover:!filter-none select-none' : ''
+                        }`}
+                        title={isDiscreet ? 'Modo Discreto ativo (passe o mouse ou clique para revelar)' : project.name}
+                      >
                         {project.name}
                       </h3>
 
                       {/* Quick Action Icons (Hover Menu) */}
                       {!readOnly && (
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 -mr-1 -mt-1 flex-shrink-0">
+                          {/* Lock / Discreet Mode Toggle */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleProjectDiscreetLock(project);
+                            }}
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                              isDiscreet
+                                ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
+                                : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                            }`}
+                            title={
+                              isDiscreet
+                                ? 'Modo Discreto ativo (clique para revelar título e sinopse)'
+                                : 'Ativar Modo Discreto (borrar título e sinopse contra curiosos)'
+                            }
+                          >
+                            <span className="text-xs leading-none">{isDiscreet ? '🔒' : '🔓'}</span>
+                          </button>
+
                           {/* Quick New Session */}
                           <button
                             type="button"
@@ -2806,17 +2905,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       </div>
                     ) : (
                       <p
+                        style={isDiscreet ? { filter: 'blur(6px)' } : undefined}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (isDiscreet) {
+                            toggleProjectDiscreetLock(project);
+                            return;
+                          }
                           setEditingDescProjectId(project.id);
                           setTempDescValue(project.description || '');
                         }}
-                        className={`text-sm mt-1 line-clamp-2 min-h-[2.5rem] transition-colors rounded p-1 -m-1 cursor-pointer hover:bg-slate-50 ${
+                        className={`text-sm mt-1 line-clamp-2 min-h-[2.5rem] transition-all duration-300 rounded p-1 -m-1 cursor-pointer hover:bg-slate-50 ${
+                          isDiscreet ? 'group-hover:!filter-none select-none' : ''
+                        } ${
                           project.description
                             ? 'text-slate-500 hover:text-slate-700'
                             : 'text-slate-400 italic hover:text-teal-600'
                         }`}
-                        title="Clique para editar a sinopse rapidamente"
+                        title={isDiscreet ? 'Modo Discreto ativo (passe o mouse ou clique para revelar)' : 'Clique para editar a sinopse rapidamente'}
                       >
                         {project.description || '+ Clique para adicionar uma sinopse ou tag...'}
                       </p>
@@ -2882,15 +2988,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       </span>
                     </div>
 
-                    {/* Modernized Automonitoring Toggle */}
+                    {/* Modernized Automonitoring & Discreet Curtain Toggle */}
                     <div
-                      className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between"
+                      className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <button
                         type="button"
                         onClick={() => handleToggleProjectInAutomonitoring(project, project.showInAutomonitoring === false)}
-                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border select-none ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border select-none ${
                           project.showInAutomonitoring !== false
                             ? 'bg-teal-50/80 border-teal-200 text-teal-700 hover:bg-teal-100/80 shadow-2xs'
                             : 'bg-amber-50/80 border-amber-200 text-amber-700 hover:bg-amber-100/80 shadow-2xs'
@@ -2909,6 +3015,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                             ? 'Visível nas Métricas'
                             : 'Oculto do Automonitoramento'}
                         </span>
+                      </button>
+
+                      {/* Discreet Mode / Privacy Curtain Button */}
+                      <button
+                        type="button"
+                        onClick={() => toggleProjectDiscreetLock(project)}
+                        className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer border select-none ${
+                          isDiscreet
+                            ? 'bg-slate-800 border-slate-700 text-amber-300 shadow-2xs'
+                            : hasDiscreetModeEnabled
+                              ? 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
+                              : 'bg-slate-50 border-slate-200/80 text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                        }`}
+                        title={
+                          isDiscreet
+                            ? 'Cortina de Privacidade ativa (clique para revelar permanentemente)'
+                            : 'Ativar Modo Discreto (borra título e descrição contra curiosos)'
+                        }
+                      >
+                        <span>{isDiscreet ? '🔒' : '🔓'}</span>
+                        <span>{isDiscreet ? 'Modo Discreto' : 'Discreto'}</span>
                       </button>
                     </div>
                   </div>

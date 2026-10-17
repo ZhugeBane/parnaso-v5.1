@@ -10,14 +10,17 @@ import {
   setDoc,
   deleteDoc
 } from 'firebase/firestore';
+import { sanitizeMetricNumber, sanitizeText } from '../utils/cryptoUtils';
 
 // Local storage key helpers
 const getLocalRewardsKey = (userId: string) => `parnaso_rewards_${userId}`;
 const getLocalClaimsKey = (userId: string) => `parnaso_claims_${userId}`;
 
 // Convert word count to purple diamonds (2 words = 1 purple diamond)
+// Blindado contra valores negativos, NaN, Infinity ou saltos irreais
 export const wordsToDiamonds = (words: number): number => {
-  return Math.max(0, Math.floor(words / 2));
+  const safeWords = sanitizeMetricNumber(words, 0, 50000000, 0);
+  return Math.max(0, Math.floor(safeWords / 2));
 };
 
 // Default starter rewards when the user has never created any
@@ -147,9 +150,9 @@ export const saveUserReward = async (
   const fullReward: UserReward = {
     id,
     userId,
-    title: reward.title.trim(),
-    cost: Math.max(1, Math.floor(reward.cost)),
-    description: reward.description?.trim() || '',
+    title: sanitizeText(reward.title, 100) || 'Recompensa',
+    cost: sanitizeMetricNumber(reward.cost, 1, 1000000, 10),
+    description: sanitizeText(reward.description || '', 500),
     icon: reward.icon || '🎁',
     category: reward.category || 'outro',
     createdAt
@@ -239,10 +242,10 @@ export const claimReward = async (
     id: claimId,
     userId,
     rewardId: reward.id,
-    rewardTitle: reward.title,
-    cost: reward.cost,
+    rewardTitle: sanitizeText(reward.title, 100) || 'Recompensa',
+    cost: sanitizeMetricNumber(reward.cost, 1, 1000000, 10),
     claimedAt,
-    notes: notes?.trim() || ''
+    notes: sanitizeText(notes || '', 500)
   };
 
   // Local update
