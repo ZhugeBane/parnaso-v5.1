@@ -85,7 +85,7 @@ export const ptBR = {
         wordProduction: 'Produção de Palavras',
         wordProductionSubtitle: 'Histórico de volume por sessão',
         qualityIndicators: 'Indicadores de Qualidade',
-        qualitySubtitle: 'Estresse, Dificuldade e Avaliação',
+        qualitySubtitle: 'Estresse, Dificuldade, Autocorreção e Avaliação',
         calendar: 'Calendário',
         calendarSubtitle: 'Dias escritos neste mês',
         strategies: 'Estratégias',

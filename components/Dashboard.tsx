@@ -150,8 +150,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const [selectedWorkId, setSelectedWorkId] = useState<string>('all');
   const slidebarScrollRef = useRef<HTMLDivElement>(null);
 
-  // Quality Chart Metric Filter ('all' | 'avaliacao' | 'estresse' | 'dificuldade')
-  const [qualityMetricFilter, setQualityMetricFilter] = useState<'all' | 'avaliacao' | 'estresse' | 'dificuldade'>('all');
+  // Quality Chart Metric Filter ('all' | 'avaliacao' | 'estresse' | 'dificuldade' | 'autocorrecao')
+  const [qualityMetricFilter, setQualityMetricFilter] = useState<'all' | 'avaliacao' | 'estresse' | 'dificuldade' | 'autocorrecao'>('all');
 
   // Interactive Goals Inline Edit State
   const [editingGoal, setEditingGoal] = useState<'daily' | 'weekly' | null>(null);
@@ -562,6 +562,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     estresseTotal: number;
     dificuldadeTotal: number;
     avaliacaoTotal: number;
+    autocorrecaoTotal: number;
     count: number;
   }>();
 
@@ -577,12 +578,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       estresseTotal: 0,
       dificuldadeTotal: 0,
       avaliacaoTotal: 0,
+      autocorrecaoTotal: 0,
       count: 0
     };
 
     existing.estresseTotal += (s.stressLevel || 1);
     existing.dificuldadeTotal += (s.difficultyLevel || 1);
     existing.avaliacaoTotal += (s.sessionRating || 1);
+    existing.autocorrecaoTotal += (s.autoCorrectionFrequency || 1);
     existing.count += 1;
 
     qualityMap.set(dateKey, existing);
@@ -594,7 +597,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     count: item.count,
     estresse: Number((item.estresseTotal / item.count).toFixed(1)),
     dificuldade: Number((item.dificuldadeTotal / item.count).toFixed(1)),
-    avaliacao: Number((item.avaliacaoTotal / item.count).toFixed(1))
+    avaliacao: Number((item.avaliacaoTotal / item.count).toFixed(1)),
+    autocorrecao: Number((item.autocorrecaoTotal / item.count).toFixed(1))
   }));
 
   const strategyUsage = [
@@ -621,6 +625,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const avgRating = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + (curr.sessionRating || 0), 0) / filteredSessions.length).toFixed(1) : '0';
   const avgStress = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + (curr.stressLevel || 0), 0) / filteredSessions.length).toFixed(1) : '0';
   const avgDifficulty = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + (curr.difficultyLevel || 0), 0) / filteredSessions.length).toFixed(1) : '0';
+  const avgAutoCorrection = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + (curr.autoCorrectionFrequency || 0), 0) / filteredSessions.length).toFixed(1) : '0';
   const avgWords = filteredSessions.length ? Math.round(totalWords / filteredSessions.length) : 0;
 
   // Streak calculation
@@ -1216,11 +1221,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       <span>⚡</span>
                       <span>Dificuldade</span>
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setQualityMetricFilter('autocorrecao')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                        qualityMetricFilter === 'autocorrecao'
+                          ? 'bg-white text-purple-700 shadow-2xs font-bold'
+                          : 'text-slate-500 hover:text-purple-600'
+                      }`}
+                    >
+                      <span>✏️</span>
+                      <span>Autocorreção</span>
+                    </button>
                   </div>
                 }
               >
                 {/* Mini Stat Summaries */}
-                <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-5 p-3 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-5 p-3 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
                   <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                     <div className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
@@ -1250,6 +1267,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       {avgDifficulty}<span className="text-xs text-slate-400 font-normal">/5</span>
                     </span>
                   </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-purple-500 flex-shrink-0"></span>
+                      <span className="text-slate-500 font-medium truncate">Média Autocorreção:</span>
+                    </div>
+                    <span className="font-extrabold text-slate-800 text-sm">
+                      {avgAutoCorrection}<span className="text-xs text-slate-400 font-normal">/5</span>
+                    </span>
+                  </div>
                 </div>
 
                 <div className="h-80 w-full">
@@ -1267,6 +1294,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         <linearGradient id="gradientDificuldade" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#f59e0b" stopOpacity={qualityMetricFilter === 'dificuldade' ? 0.35 : 0.08}/>
                           <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0}/>
+                        </linearGradient>
+                        <linearGradient id="gradientAutocorrecao" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={qualityMetricFilter === 'autocorrecao' ? 0.35 : 0.08}/>
+                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.0}/>
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -1294,7 +1325,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                           if (active && payload && payload.length) {
                             const data = payload[0].payload;
                             return (
-                              <div className="bg-slate-900/95 text-white p-3.5 rounded-2xl shadow-xl border border-slate-700/50 backdrop-blur-md text-xs space-y-2 min-w-[200px] animate-fade-in">
+                              <div className="bg-slate-900/95 text-white p-3.5 rounded-2xl shadow-xl border border-slate-700/50 backdrop-blur-md text-xs space-y-2 min-w-[210px] animate-fade-in">
                                 <div className="border-b border-slate-800 pb-1.5 flex justify-between items-center">
                                   <span className="font-bold text-slate-200">{data.fullDate || data.date}</span>
                                   {data.count > 1 && (
@@ -1339,6 +1370,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                                       </span>
                                     </div>
                                   )}
+
+                                  {(qualityMetricFilter === 'all' || qualityMetricFilter === 'autocorrecao') && (
+                                    <div className="flex items-center justify-between gap-4">
+                                      <span className="flex items-center gap-1.5 text-purple-400 font-semibold">
+                                        <span className="w-2 h-2 rounded-full bg-purple-400 inline-block"></span>
+                                        Autocorreção:
+                                      </span>
+                                      <span className="font-bold text-white bg-purple-950/60 border border-purple-800/40 px-1.5 py-0.5 rounded">
+                                        {data.autocorrecao}/5
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -1377,6 +1420,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                           dot={{ r: 3.5, strokeWidth: 1.5, fill: '#fff', stroke: '#f59e0b' }}
                           activeDot={{ r: 6, strokeWidth: 0, fill: '#f59e0b' }}
                           name="Dificuldade (1 a 5)"
+                        />
+                      )}
+
+                      {(qualityMetricFilter === 'all' || qualityMetricFilter === 'autocorrecao') && (
+                        <Area
+                          type="monotone"
+                          dataKey="autocorrecao"
+                          stroke="#8b5cf6"
+                          strokeWidth={qualityMetricFilter === 'autocorrecao' ? 3.5 : 2.5}
+                          fill="url(#gradientAutocorrecao)"
+                          dot={{ r: 3.5, strokeWidth: 1.5, fill: '#fff', stroke: '#8b5cf6' }}
+                          activeDot={{ r: 6, strokeWidth: 0, fill: '#8b5cf6' }}
+                          name="Autocorreção (1 a 5)"
                         />
                       )}
 

@@ -85,7 +85,7 @@ export const enUS = {
         wordProduction: 'Word Production',
         wordProductionSubtitle: 'Volume history per session',
         qualityIndicators: 'Quality Indicators',
-        qualitySubtitle: 'Stress, Difficulty and Rating',
+        qualitySubtitle: 'Stress, Difficulty, Self-Correction and Rating',
         calendar: 'Calendar',
         calendarSubtitle: 'Days written this month',
         strategies: 'Strategies',
