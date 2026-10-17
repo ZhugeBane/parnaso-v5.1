@@ -1101,47 +1101,180 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             {selectedChat.type === 'group' && guildSubTab === 'forum' && (
               <div className="flex-1 overflow-y-auto bg-slate-50 flex flex-col">
                 {selectedGuildThread ? (
-                  <div className="flex flex-col h-full bg-white animate-slide-in">
-                    <div className="p-6 border-b border-slate-100">
-                      <button onClick={() => setSelectedGuildThread(null)} className="text-xs text-indigo-600 font-bold mb-4 flex items-center gap-1">
-                        {t('social.guilds.backToForum')}
+                  <div className="flex flex-col h-full bg-slate-50 overflow-hidden animate-slide-in">
+                    {/* Top Bar Navigation */}
+                    <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+                      <button
+                        onClick={() => setSelectedGuildThread(null)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-indigo-700 text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                        <span>{t('social.guilds.backToForum')}</span>
                       </button>
-                      <h3 className="text-xl font-black text-slate-800 mb-2">{selectedGuildThread.title}</h3>
-                      <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100 italic">
-                        {selectedGuildThread.content}
-                      </p>
+
+                      {activeGuild && (isOwnerOrAdmin(activeGuild) || selectedGuildThread.authorId === currentUser.id) && (
+                        <button
+                          onClick={() => handleDeleteGuildThread(selectedGuildThread.id)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          <span>Excluir Tópico</span>
+                        </button>
+                      )}
                     </div>
-                    <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                      {guildReplies.map(reply => (
-                        <div key={reply.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm relative group">
-                          {selectedChat?.type === 'group' && activeGuild && (isOwnerOrAdmin(activeGuild) || reply.authorId === currentUser.id) && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDeleteGuildReply(reply.id); }}
-                              className="absolute top-2 right-2 p-1 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          )}
-                          <div className="flex justify-between mb-1">
-                            <span className="font-bold text-xs text-slate-700">{getUserName(reply.authorId)}</span>
-                            <span className="text-[10px] text-slate-400">{new Date(reply.createdAt).toLocaleDateString()}</span>
+
+                    {/* Scrollable Feed */}
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+                      <div className="max-w-3xl mx-auto space-y-6">
+
+                        {/* ORIGINAL POST CARD */}
+                        <article className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
+                          <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                            <div className="flex items-center gap-3.5">
+                              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-indigo-200 shadow-xs flex-shrink-0 bg-indigo-50 flex items-center justify-center font-black text-indigo-700 text-sm">
+                                {getUserPhotoURL(selectedGuildThread.authorId) ? (
+                                  <img src={getUserPhotoURL(selectedGuildThread.authorId)} alt={getUserName(selectedGuildThread.authorId)} className="w-full h-full object-cover" />
+                                ) : (
+                                  getUserName(selectedGuildThread.authorId).charAt(0).toUpperCase()
+                                )}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-extrabold text-slate-800 text-base leading-tight">
+                                    {getUserName(selectedGuildThread.authorId)}
+                                  </h4>
+                                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                    Autor
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                  {new Date(selectedGuildThread.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' })}
+                                </p>
+                              </div>
+                            </div>
                           </div>
-                          <p className="text-sm text-slate-600">{reply.content}</p>
+
+                          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight leading-snug">
+                            {selectedGuildThread.title}
+                          </h1>
+
+                          <div className="text-slate-800 leading-relaxed whitespace-pre-wrap text-base font-normal select-text space-y-4">
+                            {selectedGuildThread.content}
+                          </div>
+                        </article>
+
+                        {/* REPLIES SECTION */}
+                        <div className="space-y-4 pt-2">
+                          <div className="flex items-center justify-between px-2">
+                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                              <span>💬</span>
+                              <span>{t('social.forum.replies')} ({guildReplies.length})</span>
+                            </h3>
+                          </div>
+
+                          {/* Replies List */}
+                          {guildReplies.map(reply => {
+                            const isAuthor = reply.authorId === selectedGuildThread.authorId;
+                            return (
+                              <div key={reply.id} className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-2xs space-y-3 relative group transition-all hover:border-slate-300">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 rounded-full overflow-hidden border border-slate-200 flex-shrink-0 bg-slate-100 flex items-center justify-center font-bold text-slate-600 text-xs">
+                                      {getUserPhotoURL(reply.authorId) ? (
+                                        <img src={getUserPhotoURL(reply.authorId)} alt={getUserName(reply.authorId)} className="w-full h-full object-cover" />
+                                      ) : (
+                                        getUserName(reply.authorId).charAt(0).toUpperCase()
+                                      )}
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-bold text-sm text-slate-800">{getUserName(reply.authorId)}</span>
+                                        {isAuthor && (
+                                          <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                            Autor
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className="text-[11px] text-slate-400">
+                                        {new Date(reply.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {activeGuild && (isOwnerOrAdmin(activeGuild) || reply.authorId === currentUser.id) && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleDeleteGuildReply(reply.id); }}
+                                      className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-rose-50 cursor-pointer"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                </div>
+
+                                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap pl-12 font-normal">
+                                  {reply.content}
+                                </p>
+                              </div>
+                            );
+                          })}
+
+                          {guildReplies.length === 0 && (
+                            <div className="bg-white rounded-2xl border border-dashed border-slate-200 p-8 text-center space-y-2">
+                              <span className="text-3xl block">💭</span>
+                              <p className="text-sm font-bold text-slate-600">{t('social.forum.beTheFirst')}</p>
+                              <p className="text-xs text-slate-400">Responda para compartilhar com os membros da guilda.</p>
+                            </div>
+                          )}
+
+                          {/* GUILD REPLY INPUT BOX */}
+                          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-3 mt-6">
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 flex-shrink-0 bg-indigo-100 flex items-center justify-center font-bold text-indigo-700 text-xs">
+                                {(currentUser.photoBase64 || currentUser.photoURL) ? (
+                                  <img src={currentUser.photoBase64 || currentUser.photoURL} alt={currentUser.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  currentUser.name.charAt(0).toUpperCase()
+                                )}
+                              </div>
+                              <span className="text-xs font-bold text-slate-700">Responder como <strong className="text-indigo-700">{currentUser.name}</strong></span>
+                            </div>
+
+                            <textarea
+                              value={newReplyContent}
+                              onChange={(e) => setNewReplyContent(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && newReplyContent.trim()) {
+                                  e.preventDefault();
+                                  handleReplyGuildThread();
+                                }
+                              }}
+                              placeholder={t('social.forum.addReplyPlaceholder')}
+                              className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-400 focus:bg-white rounded-2xl p-4 text-sm outline-none transition-all resize-y min-h-[100px] leading-relaxed text-slate-800"
+                              rows={3}
+                            />
+
+                            <div className="flex items-center justify-between pt-1">
+                              <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Pressione <strong>Ctrl + Enter</strong> para enviar</span>
+                              <button
+                                onClick={handleReplyGuildThread}
+                                disabled={!newReplyContent.trim()}
+                                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer ml-auto"
+                              >
+                                <span>{t('social.forum.replyButton')}</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+
                         </div>
-                      ))}
-                    </div>
-                    <div className="p-4 border-t border-slate-100">
-                      <div className="flex gap-2">
-                        <textarea
-                          placeholder={t('social.forum.addReplyPlaceholder')}
-                          value={newReplyContent}
-                          onChange={(e) => setNewReplyContent(e.target.value)}
-                          className="flex-1 bg-slate-100 rounded-xl px-4 py-3 text-sm outline-none focus:bg-white border border-transparent focus:border-indigo-200"
-                          rows={1}
-                        />
-                        <button onClick={handleReplyGuildThread} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold">{t('social.forum.replyButton')}</button>
                       </div>
                     </div>
                   </div>
@@ -1302,90 +1435,213 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
         {/* VIEW: THREAD */}
         {selectedThread && (
-          <div className="flex flex-col h-full">
-            <div className="p-6 border-b border-slate-200 bg-white">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <button onClick={() => setSelectedThread(null)} className="md:hidden text-xs text-slate-500 mb-2">← Voltar</button>
-                  <span className="text-xs font-bold text-teal-600 uppercase tracking-wider">{selectedThread.category}</span>
-                  <h2 className="text-2xl font-bold text-slate-800 mb-2">{selectedThread.title}</h2>
-                </div>
-                {(currentUser.role === 'admin' || selectedThread.authorId === currentUser.id) && (
-                  <button
-                    onClick={(e) => handleDeleteThread(e, selectedThread.id)}
-                    className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
-                    title={t('social.forum.deleteThread')}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold">{getUserName(selectedThread.authorId).charAt(0)}</div>
-                <span className="text-xs text-slate-500">{t('social.forum.postedBy')} {getUserName(selectedThread.authorId)} {t('social.forum.on')} {new Date(selectedThread.createdAt).toLocaleDateString()}</span>
-              </div>
-              <div className="max-h-60 overflow-y-auto pr-2">
-                <p className="text-slate-700 leading-relaxed whitespace-pre-wrap p-4 bg-slate-50 rounded-lg">{selectedThread.content}</p>
+          <div className="flex flex-col h-full bg-slate-50 overflow-hidden animate-fade-in">
+            {/* Top Bar Navigation */}
+            <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSelectedThread(null)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span>Voltar aos tópicos</span>
+                </button>
+                <span className="text-[11px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-md bg-teal-50 text-teal-700 border border-teal-200">
+                  {selectedThread.category}
+                </span>
               </div>
 
-              {/* Likes & Interactions */}
-              <div className="flex items-center gap-3 mt-4">
+              {(currentUser.role === 'admin' || selectedThread.authorId === currentUser.id) && (
                 <button
-                  onClick={(e) => handleToggleLike(e, selectedThread.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    selectedThread.likes?.includes(currentUser.id)
-                      ? 'bg-rose-50 text-rose-600 border border-rose-200 shadow-sm'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent'
-                  }`}
+                  onClick={(e) => handleDeleteThread(e, selectedThread.id)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                  title={t('social.forum.deleteThread')}
                 >
-                  <span>{selectedThread.likes?.includes(currentUser.id) ? '❤️' : '🤍'}</span>
-                  <span>{selectedThread.likes?.length || 0}</span>
-                  <span>{t('social.forum.like')}</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  <span>Excluir Tópico</span>
                 </button>
-              </div>
+              )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              <h3 className="text-sm font-bold text-slate-400 uppercase">{t('social.forum.replies')}</h3>
-              {threadReplies.map(reply => (
-                <div key={reply.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm relative group">
-                  <div className="flex justify-between mb-2">
-                    <span className="font-bold text-sm text-slate-700">{getUserName(reply.authorId)}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400">{new Date(reply.createdAt).toLocaleDateString()}</span>
-                      {(currentUser.role === 'admin' || reply.authorId === currentUser.id) && (
-                        <button
-                          onClick={() => handleDeleteReply(reply.id)}
-                          className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title={t('social.forum.deleteReply')}
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      )}
+            {/* Scrollable Thread & Replies Feed */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+              <div className="max-w-3xl mx-auto space-y-6">
+
+                {/* ORIGINAL POST (OP) CARD */}
+                <article className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
+                  {/* Author Header */}
+                  <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-teal-200 shadow-xs flex-shrink-0 bg-slate-100 flex items-center justify-center font-black text-slate-600 text-sm">
+                        {getUserPhotoURL(selectedThread.authorId) ? (
+                          <img src={getUserPhotoURL(selectedThread.authorId)} alt={getUserName(selectedThread.authorId)} className="w-full h-full object-cover" />
+                        ) : (
+                          getUserName(selectedThread.authorId).charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-extrabold text-slate-800 text-base leading-tight">
+                            {getUserName(selectedThread.authorId)}
+                          </h4>
+                          <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
+                            Autor
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Postado em {new Date(selectedThread.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' })}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                  <p className="text-sm text-slate-600">{reply.content}</p>
-                </div>
-              ))}
-              {threadReplies.length === 0 && <p className="text-slate-400 text-sm italic">{t('social.forum.beTheFirst')}</p>}
-            </div>
 
-            <div className="p-4 bg-white border-t border-slate-200">
-              <div className="flex gap-2">
-                <textarea
-                  value={newReplyContent}
-                  onChange={(e) => setNewReplyContent(e.target.value)}
-                  placeholder={t('social.forum.addReplyPlaceholder')}
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-teal-200 outline-none resize-none"
-                  rows={2}
-                />
-                <button onClick={handleReplyThread} disabled={!newReplyContent.trim()} className="bg-slate-800 text-white px-4 rounded-lg text-sm font-bold hover:bg-slate-900 disabled:opacity-50">
-                  {t('social.forum.replyButton')}
-                </button>
+                  {/* Title */}
+                  <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight leading-snug">
+                    {selectedThread.title}
+                  </h1>
+
+                  {/* Post Content */}
+                  <div className="text-slate-800 leading-relaxed whitespace-pre-wrap text-base font-normal select-text space-y-4">
+                    {selectedThread.content}
+                  </div>
+
+                  {/* Post Actions & Likes */}
+                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                    <button
+                      onClick={(e) => handleToggleLike(e, selectedThread.id)}
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+                        selectedThread.likes?.includes(currentUser.id)
+                          ? 'bg-rose-50 text-rose-600 border border-rose-200 shadow-xs scale-105'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border border-transparent'
+                      }`}
+                    >
+                      <span>{selectedThread.likes?.includes(currentUser.id) ? '❤️' : '🤍'}</span>
+                      <span>{selectedThread.likes?.length || 0}</span>
+                      <span>{t('social.forum.like')}</span>
+                    </button>
+
+                    <span className="text-xs text-slate-400 font-semibold flex items-center gap-1.5">
+                      <span>💬</span>
+                      <span>{threadReplies.length} {threadReplies.length === 1 ? 'resposta' : 'respostas'}</span>
+                    </span>
+                  </div>
+                </article>
+
+                {/* REPLIES SECTION */}
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between px-2">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                      <span>💬</span>
+                      <span>{t('social.forum.replies')} ({threadReplies.length})</span>
+                    </h3>
+                  </div>
+
+                  {/* Replies List */}
+                  {threadReplies.map(reply => {
+                    const isAuthor = reply.authorId === selectedThread.authorId;
+                    return (
+                      <div key={reply.id} className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-2xs space-y-3 relative group transition-all hover:border-slate-300">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full overflow-hidden border border-slate-200 flex-shrink-0 bg-slate-100 flex items-center justify-center font-bold text-slate-600 text-xs">
+                              {getUserPhotoURL(reply.authorId) ? (
+                                <img src={getUserPhotoURL(reply.authorId)} alt={getUserName(reply.authorId)} className="w-full h-full object-cover" />
+                              ) : (
+                                getUserName(reply.authorId).charAt(0).toUpperCase()
+                              )}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-sm text-slate-800">{getUserName(reply.authorId)}</span>
+                                {isAuthor && (
+                                  <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
+                                    Autor
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[11px] text-slate-400">
+                                {new Date(reply.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
+                            </div>
+                          </div>
+
+                          {(currentUser.role === 'admin' || reply.authorId === currentUser.id) && (
+                            <button
+                              onClick={() => handleDeleteReply(reply.id)}
+                              className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-rose-50 cursor-pointer"
+                              title={t('social.forum.deleteReply')}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+
+                        <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap pl-12 font-normal">
+                          {reply.content}
+                        </p>
+                      </div>
+                    );
+                  })}
+
+                  {/* Empty Replies State */}
+                  {threadReplies.length === 0 && (
+                    <div className="bg-white rounded-2xl border border-dashed border-slate-200 p-8 text-center space-y-2">
+                      <span className="text-3xl block">💭</span>
+                      <p className="text-sm font-bold text-slate-600">{t('social.forum.beTheFirst')}</p>
+                      <p className="text-xs text-slate-400">Compartilhe suas ideias ou perguntas abaixo.</p>
+                    </div>
+                  )}
+
+                  {/* REPLY INPUT BOX (IN-FLOW) */}
+                  <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-3 mt-6">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 flex-shrink-0 bg-teal-100 flex items-center justify-center font-bold text-teal-700 text-xs">
+                        {(currentUser.photoBase64 || currentUser.photoURL) ? (
+                          <img src={currentUser.photoBase64 || currentUser.photoURL} alt={currentUser.name} className="w-full h-full object-cover" />
+                        ) : (
+                          currentUser.name.charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      <span className="text-xs font-bold text-slate-700">Responder como <strong className="text-teal-700">{currentUser.name}</strong></span>
+                    </div>
+
+                    <textarea
+                      value={newReplyContent}
+                      onChange={(e) => setNewReplyContent(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && newReplyContent.trim()) {
+                          e.preventDefault();
+                          handleReplyThread();
+                        }
+                      }}
+                      placeholder="Escreva sua resposta para este tópico... (Dica: Ctrl+Enter para enviar)"
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-teal-400 focus:bg-white rounded-2xl p-4 text-sm outline-none transition-all resize-y min-h-[100px] leading-relaxed text-slate-800"
+                      rows={3}
+                    />
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Pressione <strong>Ctrl + Enter</strong> para enviar</span>
+                      <button
+                        onClick={handleReplyThread}
+                        disabled={!newReplyContent.trim()}
+                        className="px-6 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-md shadow-teal-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer ml-auto"
+                      >
+                        <span>{t('social.forum.replyButton')}</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+
               </div>
             </div>
           </div>
