@@ -512,6 +512,26 @@ export const enUS = {
             title: 'The Great Book',
             description: '50,000 total words',
         },
+        total_100000: {
+            title: 'Legend of Letters',
+            description: '100,000 total words',
+        },
+        night_owl: {
+            title: 'Night Owl',
+            description: 'Write a session after 10 PM',
+        },
+        early_bird: {
+            title: 'Early Bird',
+            description: 'Write a session before 8 AM',
+        },
+        world_builder: {
+            title: 'World Builder',
+            description: 'Have 3 or more projects created',
+        },
+        phoenix: {
+            title: 'Phoenix',
+            description: 'Resume writing after a 5+ day break',
+        },
     },
 
     // Pomodoro Timer

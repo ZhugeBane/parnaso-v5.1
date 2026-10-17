@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 import { ProjectWorkspace } from './ProjectWorkspace';
 import { RewardsShop } from './RewardsShop';
+import { AchievementsGallery } from './AchievementsGallery';
 import { wordsToDiamonds } from '../services/rewardService';
 
 interface DashboardProps {
@@ -1729,73 +1730,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   const renderAchievements = () => {
     return (
-      <div className="space-y-6">
-        <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-slate-800">{t('dashboard.achievementsGallery')}</h2>
-          <p className="text-slate-500">{t('dashboard.achievementsSubtitle')}</p>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          {TROPHIES.map(trophy => {
-            const Icon = Icons[trophy.icon];
-            let unlocked = false;
-            let currentValue = 0;
-
-            switch (trophy.category) {
-              case 'daily':
-                currentValue = achievementStats.maxDailyWords;
-                break;
-              case 'weekly':
-                currentValue = achievementStats.maxWeeklyWords;
-                break;
-              case 'monthly':
-                currentValue = achievementStats.maxMonthlyWords;
-                break;
-              case 'total':
-                currentValue = achievementStats.totalWords;
-                break;
-              case 'streak':
-                currentValue = achievementStats.maxStreak;
-                break;
-            }
-
-            unlocked = currentValue >= trophy.threshold;
-            const progress = Math.min(100, (currentValue / trophy.threshold) * 100);
-
-            return (
-              <div
-                key={trophy.id}
-                className={`relative overflow-hidden rounded-2xl p-6 flex flex-col items-center text-center transition-all duration-300 border ${unlocked
-                  ? 'bg-white border-transparent shadow-lg shadow-slate-200 scale-100'
-                  : 'bg-slate-50 border-slate-200 opacity-60 grayscale hover:opacity-80 hover:scale-105 cursor-help'
-                  }`}
-              >
-                <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${unlocked ? trophy.color : 'bg-slate-200 text-slate-400'}`}>
-                  <Icon />
-                </div>
-                <h3 className="font-bold text-slate-800 mb-1">{t(`trophies.${trophy.id}.title`)}</h3>
-                <p className="text-xs text-slate-500 mb-4 h-8 flex items-center">{t(`trophies.${trophy.id}.description`)}</p>
-
-                {unlocked ? (
-                  <div className="mt-auto">
-                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase tracking-wider">{t('dashboard.unlocked')}</span>
-                  </div>
-                ) : (
-                  <div className="w-full mt-auto">
-                    <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase font-bold">
-                      <span>{t('dashboard.progress')}</span>
-                      <span>{Math.round(progress)}%</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-slate-400 rounded-full transition-all" style={{ width: `${progress}%` }}></div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </div>
+      <AchievementsGallery
+        sessions={sessions}
+        projects={projects}
+        totalWords={lifetimeTotalWords}
+      />
     );
   };
 

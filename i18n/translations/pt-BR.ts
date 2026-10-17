@@ -512,6 +512,26 @@ export const ptBR = {
             title: 'O Grande Livro',
             description: '50.000 palavras no total',
         },
+        total_100000: {
+            title: 'Lenda das Letras',
+            description: '100.000 palavras no total',
+        },
+        night_owl: {
+            title: 'Coruja Literária',
+            description: 'Escreva uma sessão após as 22h',
+        },
+        early_bird: {
+            title: 'Madrugador',
+            description: 'Escreva uma sessão antes das 08h da manhã',
+        },
+        world_builder: {
+            title: 'Criador de Mundos',
+            description: 'Tenha 3 ou mais obras cadastradas',
+        },
+        phoenix: {
+            title: 'Fênix',
+            description: 'Retorne a escrever após mais de 5 dias de pausa',
+        },
     },
 
     // Pomodoro Timer
