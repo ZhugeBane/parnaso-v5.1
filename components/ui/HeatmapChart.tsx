@@ -9,9 +9,10 @@ interface HeatmapData {
 
 interface HeatmapChartProps {
     data: HeatmapData[];
+    hideEarlyHours?: boolean;
 }
 
-export const HeatmapChart: React.FC<HeatmapChartProps> = ({ data }) => {
+export const HeatmapChart: React.FC<HeatmapChartProps> = ({ data, hideEarlyHours = true }) => {
     const { t } = useLanguage();
 
     // Days of week labels
@@ -53,6 +54,11 @@ export const HeatmapChart: React.FC<HeatmapChartProps> = ({ data }) => {
         return `${hour.toString().padStart(2, '0')}h`;
     };
 
+    // Hours to display (filtered 08h-23h if hideEarlyHours is true, otherwise 00h-23h)
+    const hours = hideEarlyHours
+        ? Array.from({ length: 16 }, (_, i) => i + 8)
+        : Array.from({ length: 24 }, (_, i) => i);
+
     return (
         <div className="w-full overflow-x-auto">
             <div className="min-w-max">
@@ -71,7 +77,7 @@ export const HeatmapChart: React.FC<HeatmapChartProps> = ({ data }) => {
 
                 {/* Heatmap grid */}
                 <div className="space-y-1">
-                    {Array.from({ length: 24 }, (_, hour) => (
+                    {hours.map(hour => (
                         <div key={hour} className="flex items-center">
                             {/* Hour label */}
                             <div className="w-12 flex-shrink-0 text-xs text-slate-500 dark:text-slate-400 text-right pr-2">
@@ -91,14 +97,23 @@ export const HeatmapChart: React.FC<HeatmapChartProps> = ({ data }) => {
                                     >
                                         <div
                                             className={`h-6 rounded-sm ${colorClass} transition-all hover:ring-2 hover:ring-teal-400 hover:scale-110 cursor-pointer relative group`}
-                                            title={`${days[day]}, ${formatHour(hour)}: ${wordCount} ${t('dashboard.words')}`}
                                         >
-                                            {/* Tooltip */}
-                                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-lg">
-                                                <div className="font-semibold">{days[day]}</div>
-                                                <div>{formatHour(hour)}</div>
-                                                <div className="text-teal-300">{wordCount} {t('dashboard.words')}</div>
-                                                <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-slate-900"></div>
+                                            {/* Rich Tooltip */}
+                                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900/95 backdrop-blur-xs text-white text-xs rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none whitespace-nowrap z-30 shadow-xl border border-slate-700">
+                                                <div className="flex items-center gap-1.5 font-bold text-slate-200 mb-0.5">
+                                                    <span>📅</span>
+                                                    <span>{days[day]}</span>
+                                                </div>
+                                                <div className="text-[11px] text-slate-400 mb-1 flex items-center gap-1">
+                                                    <span>⏰</span>
+                                                    <span>{formatHour(hour)} às {formatHour((hour + 1) % 24)}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 text-xs font-semibold border-t border-slate-700/80 pt-1">
+                                                    <span className="w-2 h-2 rounded-full bg-teal-400"></span>
+                                                    <span className="text-teal-300 font-bold">{wordCount.toLocaleString('pt-BR')}</span>
+                                                    <span className="text-slate-300">{t('dashboard.words')}</span>
+                                                </div>
+                                                <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-slate-900/95"></div>
                                             </div>
                                         </div>
                                     </div>

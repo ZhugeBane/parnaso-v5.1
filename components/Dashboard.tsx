@@ -96,13 +96,17 @@ const TROPHIES: TrophyType[] = [
 
 
 // Helper Component OUTSIDE Main
-const Stat = ({ label, value, colorClass, subValue }: any) => (
+const Stat = ({ label, value, colorClass, subValue, subtitle, badge }: any) => (
   <div className="flex flex-col">
-    <span className="text-sm text-slate-500 font-medium uppercase tracking-wider">{label}</span>
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-slate-500 font-medium uppercase tracking-wider">{label}</span>
+      {badge}
+    </div>
     <div className="flex items-baseline gap-2 mt-1">
       <span className={`text-3xl font-bold ${colorClass}`}>{value}</span>
       {subValue && <span className="text-sm text-slate-400">{subValue}</span>}
     </div>
+    {subtitle && <div className="mt-1.5 text-xs text-slate-500 font-medium">{subtitle}</div>}
   </div>
 );
 
@@ -148,6 +152,34 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   // Quality Chart Metric Filter ('all' | 'avaliacao' | 'estresse' | 'dificuldade')
   const [qualityMetricFilter, setQualityMetricFilter] = useState<'all' | 'avaliacao' | 'estresse' | 'dificuldade'>('all');
+
+  // Interactive Goals Inline Edit State
+  const [editingGoal, setEditingGoal] = useState<'daily' | 'weekly' | null>(null);
+  const [tempGoalInput, setTempGoalInput] = useState<string>('');
+
+  // Bar Chart Interactive Work Filter / Highlight
+  const [highlightedWorkId, setHighlightedWorkId] = useState<string | null>(null);
+
+  // Calendar Navigation
+  const [calendarMonthOffset, setCalendarMonthOffset] = useState<number>(0);
+
+  // Donut Chart Hovered Strategy
+  const [hoveredStrategy, setHoveredStrategy] = useState<{ name: string; value: number } | null>(null);
+
+  // Heatmap Hide Early Hours Toggle (default: true -> 08h-23h)
+  const [hideEarlyHours, setHideEarlyHours] = useState<boolean>(true);
+
+  const handleSaveGoal = (type: 'daily' | 'weekly') => {
+    const val = parseInt(tempGoalInput, 10);
+    if (!isNaN(val) && val > 0) {
+      if (type === 'daily') {
+        onUpdateSettings({ ...settings, dailyWordGoal: val });
+      } else {
+        onUpdateSettings({ ...settings, weeklyWordGoal: val });
+      }
+    }
+    setEditingGoal(null);
+  };
 
   // Privacy / Print Mode: hides secret project names in charts and legends for photos/screenshots
   const [isPrivacyMode, setIsPrivacyMode] = useState<boolean>(() => {
@@ -504,6 +536,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     { name: t('dashboard.multitasking'), value: filteredSessions.filter(s => s.wasMultitasking).length },
   ].filter(d => d.value > 0);
 
+  const totalStrategyCount = useMemo(() => {
+    return strategyUsage.reduce((acc, curr) => acc + curr.value, 0);
+  }, [strategyUsage]);
+
+  const topStrategy = useMemo(() => {
+    if (strategyUsage.length === 0) return null;
+    return [...strategyUsage].sort((a, b) => b.value - a.value)[0];
+  }, [strategyUsage]);
+
+  const activeStrategyDisplay = hoveredStrategy || topStrategy;
+
   // KPIs
   const totalWords = filteredSessions.reduce((acc, curr) => acc + curr.wordCount, 0);
   const lifetimeTotalWords = sessions.reduce((acc, curr) => acc + (curr.wordCount || 0), 0);
@@ -698,23 +741,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   const projectProgress = activeProject?.targetWordCount ? Math.min(100, Math.round((totalWords / activeProject.targetWordCount) * 100)) : 0;
 
-  // Calendar
-  const generateCalendarDays = () => {
-    const date = new Date();
-    const year = date.getFullYear();
-    const month = date.getMonth();
+  // Calendar Navigation and Rich Days Data
+  const currentCalendarDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + calendarMonthOffset);
+    return d;
+  }, [calendarMonthOffset]);
+
+  const calendarMonthLabel = useMemo(() => {
+    const monthName = currentCalendarDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    return monthName.charAt(0).toUpperCase() + monthName.slice(1);
+  }, [currentCalendarDate]);
+
+  const calendarDays = useMemo(() => {
+    const year = currentCalendarDate.getFullYear();
+    const month = currentCalendarDate.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const days = [];
     for (let i = 0; i < firstDay.getDay(); i++) days.push(null);
     for (let i = 1; i <= lastDay.getDate(); i++) {
       const checkDate = new Date(year, month, i).toLocaleDateString('en-CA');
-      const hasSession = filteredSessions.some(s => new Date(s.date).toLocaleDateString('en-CA') === checkDate);
-      days.push({ day: i, hasSession });
+      const daySessions = filteredSessions.filter(s => new Date(s.date).toLocaleDateString('en-CA') === checkDate);
+      const totalWords = daySessions.reduce((acc, s) => acc + s.wordCount, 0);
+      const avgRating = daySessions.length > 0 
+        ? (daySessions.reduce((acc, s) => acc + s.sessionRating, 0) / daySessions.length).toFixed(1)
+        : null;
+      days.push({
+        day: i,
+        dateKey: checkDate,
+        hasSession: daySessions.length > 0,
+        sessions: daySessions,
+        totalWords,
+        avgRating,
+      });
     }
     return days;
-  };
-  const calendarDays = generateCalendarDays();
+  }, [currentCalendarDate, filteredSessions]);
 
   // --- TROPHY CALCULATIONS ---
   const achievementStats = useMemo(() => {
@@ -832,25 +896,63 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   // --- Render Functions ---
 
-  const renderKPIs = () => (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-      <Card className="border-l-4 border-teal-400">
-        <Stat label={t('dashboard.totalWords')} value={totalWords.toLocaleString('pt-BR')} colorClass="text-teal-600" />
-        {activeProject && activeProject.targetWordCount && (
-          <div className="mt-2 text-xs text-slate-500">{t('dashboard.goal')}: {activeProject.targetWordCount} ({projectProgress}%)</div>
-        )}
-      </Card>
-      <Card className="border-l-4 border-purple-400">
-        <Stat label={t('dashboard.avgPerSession')} value={avgWords} subValue={t('dashboard.words')} colorClass="text-purple-600" />
-      </Card>
-      <Card className="border-l-4 border-amber-400">
-        <Stat label={t('dashboard.currentStreak')} value={currentStreak} subValue={t('dashboard.days')} colorClass="text-amber-500" />
-      </Card>
-      <Card className="border-l-4 border-rose-400">
-        <Stat label={t('dashboard.avgStress')} value={avgStress} colorClass="text-rose-500" />
-      </Card>
-    </div>
-  );
+  const renderKPIs = () => {
+    const stressNum = parseFloat(avgStress);
+    const stressSemantic = filteredSessions.length === 0
+      ? 'Sem dados'
+      : stressNum <= 2.0
+        ? 'Tranquilo 🌿'
+        : stressNum <= 3.5
+          ? 'Moderado ⚖️'
+          : 'Intenso ⚡';
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <Card className="border-l-4 border-teal-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <Stat
+            label={t('dashboard.totalWords')}
+            value={totalWords.toLocaleString('pt-BR')}
+            colorClass="text-teal-600"
+            subtitle={
+              activeProject && activeProject.targetWordCount
+                ? `${t('dashboard.goal')}: ${activeProject.targetWordCount.toLocaleString('pt-BR')} (${projectProgress}%)`
+                : `${filteredSessions.length} ${filteredSessions.length === 1 ? 'sessão analisada' : 'sessões analisadas'}`
+            }
+          />
+        </Card>
+        <Card className="border-l-4 border-purple-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <Stat
+            label={t('dashboard.avgPerSession')}
+            value={avgWords.toLocaleString('pt-BR')}
+            subValue={t('dashboard.words')}
+            colorClass="text-purple-600"
+            subtitle="Produção média por registro"
+          />
+        </Card>
+        <Card className="border-l-4 border-amber-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <Stat
+            label="Total de Sessões"
+            value={filteredSessions.length}
+            subValue="sessões"
+            colorClass="text-amber-500"
+            subtitle={
+              filteredSessions.length > 0
+                ? `${filteredSessions.filter(s => s.sessionRating >= 4).length} com nota alta (4+ ⭐)`
+                : 'Nenhuma sessão no período'
+            }
+          />
+        </Card>
+        <Card className="border-l-4 border-rose-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <Stat
+            label={t('dashboard.avgStress')}
+            value={avgStress}
+            colorClass="text-rose-500"
+            subtitle={stressSemantic}
+          />
+        </Card>
+      </div>
+    );
+  };
 
   const renderCharts = () => {
     const showWordProd = visibleModules.wordProduction;
@@ -893,13 +995,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                           padding: '12px'
                         }}
                       />
-                      <Legend iconType="circle" wrapperStyle={{ paddingTop: '15px' }} />
                       {/* General/No-Project Bar */}
                       {(selectedWorkId === 'all' || selectedWorkId === 'general') && (
                         <Bar
                           dataKey="general"
                           stackId="a"
-                          fill="#cbd5e1"
+                          fill="#94a3b8"
+                          fillOpacity={highlightedWorkId ? (highlightedWorkId === 'general' ? 1 : 0.15) : 1}
                           name={isPrivacyMode ? "Geral" : t('dashboard.general_project')}
                           radius={[4, 4, 0, 0]}
                         />
@@ -917,6 +1019,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                               dataKey={p.id}
                               stackId="a"
                               fill={p.color || '#2dd4bf'}
+                              fillOpacity={highlightedWorkId ? (highlightedWorkId === p.id ? 1 : 0.15) : 1}
                               name={displayName}
                               radius={[4, 4, 0, 0]}
                             />
@@ -924,6 +1027,70 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         })}
                     </BarChart>
                   </ResponsiveContainer>
+                </div>
+
+                {/* Interactive Legend Pills with Work Isolation / Highlight */}
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-4 pt-3 border-t border-slate-100">
+                  <span className="text-xs font-semibold text-slate-400 mr-1 flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                    </svg>
+                    Filtrar obra:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setHighlightedWorkId(null)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                      highlightedWorkId === null
+                        ? 'bg-slate-800 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    Todas
+                  </button>
+                  {(selectedWorkId === 'all' || selectedWorkId === 'general') && (
+                    <button
+                      type="button"
+                      onClick={() => setHighlightedWorkId(highlightedWorkId === 'general' ? null : 'general')}
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer border ${
+                        highlightedWorkId === 'general'
+                          ? 'bg-slate-200 text-slate-900 border-slate-400 shadow-xs ring-2 ring-slate-400/30 font-bold'
+                          : highlightedWorkId !== null
+                            ? 'opacity-40 bg-slate-50 border-transparent text-slate-400 hover:opacity-100'
+                            : 'bg-slate-100 text-slate-700 border-transparent hover:bg-slate-200'
+                      }`}
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+                      <span>{isPrivacyMode ? "Geral" : t('dashboard.general_project')}</span>
+                    </button>
+                  )}
+                  {projectsInAutomonitoring
+                    .filter(p => selectedWorkId === 'all' || selectedWorkId === p.id)
+                    .map((p, idx) => {
+                      const isHighlighted = highlightedWorkId === p.id;
+                      const displayName = isPrivacyMode ? `${t('dashboard.workNumber')} #${idx + 1}` : p.name;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setHighlightedWorkId(isHighlighted ? null : p.id)}
+                          className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer border ${
+                            isHighlighted
+                              ? 'bg-white shadow-xs ring-2 font-bold'
+                              : highlightedWorkId !== null
+                                ? 'opacity-40 bg-slate-50 border-transparent text-slate-400 hover:opacity-100'
+                                : 'bg-slate-100 text-slate-700 border-transparent hover:bg-slate-200'
+                          }`}
+                          style={{
+                            borderColor: isHighlighted ? (p.color || '#2dd4bf') : 'transparent',
+                            color: isHighlighted ? (p.color || '#0d9488') : undefined,
+                          }}
+                        >
+                          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.color || '#2dd4bf' }}></span>
+                          <span>{displayName}</span>
+                        </button>
+                      );
+                    })}
                 </div>
               </Card>
             )}
@@ -1168,53 +1335,145 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         {hasRightCol && (
           <div className={`${hasLeftCol ? 'col-span-1' : 'col-span-1'} space-y-8`}>
             {showCalendar && (
-              <Card title={t('dashboard.calendar')} subtitle={t('dashboard.calendarSubtitle')}>
+              <Card
+                title={t('dashboard.calendar')}
+                subtitle={t('dashboard.calendarSubtitle')}
+                headerAction={
+                  <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setCalendarMonthOffset(prev => prev - 1)}
+                      className="p-1 hover:bg-white rounded text-slate-600 hover:text-slate-900 transition-all cursor-pointer"
+                      title="Mês anterior"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <span className="px-1.5 font-semibold text-slate-700 text-xs min-w-[95px] text-center select-none">
+                      {calendarMonthLabel}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCalendarMonthOffset(prev => Math.min(0, prev + 1))}
+                      disabled={calendarMonthOffset === 0}
+                      className="p-1 hover:bg-white rounded text-slate-600 hover:text-slate-900 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Próximo mês"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </div>
+                }
+              >
                 <div className="grid grid-cols-7 gap-1 text-center text-sm">
                   {[t('days.sunday'), t('days.monday'), t('days.tuesday'), t('days.wednesday'), t('days.thursday'), t('days.friday'), t('days.saturday')].map((d, i) => (
                     <div key={i} className="text-slate-400 font-medium py-1">{d.charAt(0)}</div>
                   ))}
-                  {calendarDays.map((d, i) => (
-                    <div key={i} className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-all hover:scale-105 cursor-default ${!d ? 'bg-transparent' :
-                      d.hasSession ? 'bg-teal-500 text-white shadow-lg shadow-teal-200' : 'bg-slate-50 text-slate-300'
-                      }`}>
-                      {d?.day}
-                    </div>
-                  ))}
+                  {calendarDays.map((d, i) => {
+                    if (!d) {
+                      return <div key={i} className="aspect-square bg-transparent rounded-lg" />;
+                    }
+                    return (
+                      <div
+                        key={i}
+                        className={`aspect-square flex items-center justify-center rounded-lg text-xs font-semibold transition-all relative group ${
+                          d.hasSession
+                            ? 'bg-teal-500 text-white shadow-md shadow-teal-200 hover:scale-110 hover:bg-teal-600 cursor-pointer z-10'
+                            : 'bg-slate-50 text-slate-400 cursor-default'
+                        }`}
+                        onClick={() => {
+                          if (d.hasSession && d.sessions.length > 0) {
+                            setSelectedSession(d.sessions[0]);
+                          }
+                        }}
+                      >
+                        {d.day}
+
+                        {/* Rich Popover Tooltip for active writing days */}
+                        {d.hasSession && (
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2.5 bg-slate-900/95 backdrop-blur-xs text-white rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none z-30 shadow-xl border border-slate-700 text-left">
+                            <div className="flex items-center justify-between text-xs font-bold text-slate-200 border-b border-slate-700/80 pb-1 mb-1.5">
+                              <span>📅 Dia {d.day}</span>
+                              <span className="text-teal-300 font-extrabold">{d.totalWords.toLocaleString('pt-BR')} pal.</span>
+                            </div>
+                            <div className="space-y-1 text-[11px]">
+                              {d.sessions.map((s, sIdx) => {
+                                const sProj = projects.find(p => p.id === s.projectId);
+                                return (
+                                  <div key={s.id || sIdx} className="flex items-center justify-between text-slate-300">
+                                    <span className="flex items-center gap-1.5 truncate max-w-[110px]">
+                                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: sProj?.color || '#94a3b8' }}></span>
+                                      <span className="truncate">{sProj ? sProj.name : 'Geral'}</span>
+                                    </span>
+                                    <span className="text-slate-400 font-mono text-[10px]">{s.wordCount} pal. • ⭐{s.sessionRating}/5</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="mt-1.5 pt-1 border-t border-slate-700/50 text-[10px] text-teal-300 text-center font-medium">
+                              Clique para abrir sessão
+                            </div>
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900/95"></div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </Card>
             )}
 
             {showStrategies && (
               <Card title={t('dashboard.strategies')}>
-                <div className="h-64 w-full">
+                <div className="h-64 w-full relative">
                   {strategyUsage.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={strategyUsage}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={65}
-                          outerRadius={85}
-                          paddingAngle={4}
-                          cornerRadius={5}
-                          dataKey="value"
-                          stroke="none"
-                        >
-                          {strategyUsage.map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={STAT_COLORS[index % STAT_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <RechartsTooltip
-                          contentStyle={{
-                            borderRadius: '12px',
-                            border: 'none',
-                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                          }}
-                        />
-                        <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                      </PieChart>
-                    </ResponsiveContainer>
+                    <>
+                      {/* Center Dynamic Informational Hub */}
+                      {activeStrategyDisplay && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-8 z-10">
+                          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider text-center max-w-[110px] truncate px-1">
+                            {activeStrategyDisplay.name}
+                          </span>
+                          <span className="text-2xl font-black text-slate-800 my-0.5">
+                            {Math.round((activeStrategyDisplay.value / (totalStrategyCount || 1)) * 100)}%
+                          </span>
+                          <span className="text-[10px] font-medium text-slate-400">
+                            {activeStrategyDisplay.value} {activeStrategyDisplay.value === 1 ? 'uso' : 'usos'}
+                          </span>
+                        </div>
+                      )}
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={strategyUsage}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={65}
+                            outerRadius={85}
+                            paddingAngle={4}
+                            cornerRadius={5}
+                            dataKey="value"
+                            stroke="none"
+                            onMouseEnter={(_, index) => setHoveredStrategy(strategyUsage[index])}
+                            onMouseLeave={() => setHoveredStrategy(null)}
+                          >
+                            {strategyUsage.map((_, index) => (
+                              <Cell key={`cell-${index}`} fill={STAT_COLORS[index % STAT_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <RechartsTooltip
+                            contentStyle={{
+                              borderRadius: '12px',
+                              border: 'none',
+                              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                            }}
+                          />
+                          <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </>
                   ) : (
                     <div className="h-full flex items-center justify-center text-slate-400 text-sm">
                       {t('dashboard.insufficientData')}
@@ -1230,8 +1489,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   };
 
   const renderHeatmap = () => (
-    <Card title={t('dashboard.heatmapTitle')} subtitle={t('dashboard.heatmapSubtitle')} className="mb-8">
-      <HeatmapChart data={heatmapData} />
+    <Card
+      title={t('dashboard.heatmapTitle')}
+      subtitle={t('dashboard.heatmapSubtitle')}
+      className="mb-8"
+      headerAction={
+        <button
+          type="button"
+          onClick={() => setHideEarlyHours(!hideEarlyHours)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer border ${
+            hideEarlyHours
+              ? 'bg-teal-50 border-teal-200 text-teal-700 font-semibold shadow-2xs'
+              : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          <span>{hideEarlyHours ? '🌙 Madrugada oculta (08h-23h)' : '🕒 24 horas (completo)'}</span>
+        </button>
+      }
+    >
+      <HeatmapChart data={heatmapData} hideEarlyHours={hideEarlyHours} />
     </Card>
   );
 
@@ -1245,6 +1521,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.project')}</th>
               <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.totalWords')}</th>
               <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.rating')}</th>
+              <th scope="col" className="px-4 py-3 font-medium text-right">Ação</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -1253,11 +1530,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               return (
                 <tr
                   key={session.id}
-                  className="hover:bg-slate-50 transition-colors cursor-pointer"
+                  className="hover:bg-slate-50 transition-colors cursor-pointer group"
                   onClick={() => setSelectedSession(session)}
                 >
                   <td className="px-4 py-3 text-slate-600">
-                    <div className="font-medium">{new Date(session.date).toLocaleDateString()}</div>
+                    <div className="font-medium text-slate-800 group-hover:text-teal-700 transition-colors">{new Date(session.date).toLocaleDateString()}</div>
                     <div className="text-xs text-slate-400">{session.startTime} - {session.endTime}</div>
                   </td>
                   <td className="px-4 py-3 text-slate-500 truncate max-w-[120px]">
@@ -1270,7 +1547,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       </div>
                     ) : <span className="text-slate-400 italic">{t('dashboard.general_project')}</span>}
                   </td>
-                  <td className="px-4 py-3 font-medium text-slate-800">{session.wordCount}</td>
+                  <td className="px-4 py-3 font-medium text-slate-800">{session.wordCount.toLocaleString('pt-BR')}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-1 rounded-full text-xs font-semibold ${session.sessionRating >= 4 ? 'bg-emerald-100 text-emerald-700' :
                       session.sessionRating >= 3 ? 'bg-amber-100 text-amber-700' :
@@ -1279,12 +1556,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       {session.sessionRating}/5
                     </span>
                   </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400 group-hover:text-teal-600 transition-colors">
+                      <span>Ver detalhes</span>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 transform group-hover:translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </span>
+                  </td>
                 </tr>
               )
             })}
             {sortedSessions.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-slate-400">{t('dashboard.noRecords')}</td>
+                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">{t('dashboard.noRecords')}</td>
               </tr>
             )}
           </tbody>
@@ -1305,7 +1590,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Time of Day Preference */}
         {writingInsights.preferredTimeOfDay && (
-          <Card>
+          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg">
                 <span className="text-2xl">
@@ -1336,7 +1621,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
         {/* Most Productive Days */}
         {writingInsights.mostProductiveDays.length > 0 && (
-          <Card>
+          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-lg">
                 <span className="text-2xl">📅</span>
@@ -1356,7 +1641,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
         {/* Weekday vs Weekend */}
         {writingInsights.weekdayVsWeekend && (
-          <Card>
+          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-gradient-to-br from-indigo-400 to-purple-500 rounded-lg">
                 <span className="text-2xl">
@@ -1384,7 +1669,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
         {/* Longest Streak */}
         {writingInsights.longestStreak > 0 && (
-          <Card>
+          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-gradient-to-br from-rose-400 to-pink-500 rounded-lg">
                 <span className="text-2xl">🔥</span>
@@ -1404,7 +1689,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
         {/* Writer Profile */}
         {writingInsights.writerProfile && (
-          <Card>
+          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-gradient-to-br from-emerald-400 to-green-500 rounded-lg">
                 <span className="text-2xl">
@@ -1432,7 +1717,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
         {/* Current Streak */}
         {currentStreak > 0 && (
-          <Card>
+          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-gradient-to-br from-violet-400 to-purple-500 rounded-lg">
                 <span className="text-2xl">✨</span>
@@ -1689,22 +1974,169 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       {/* Goals */}
       {visibleModules.goals && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card>
-            <div className="flex justify-between items-end mb-2">
-              <span className="font-semibold text-slate-700">{t('dashboard.dailyGoal')}</span>
-              <span className="text-sm text-slate-500">{wordsToday} / {settings.dailyWordGoal} {t('dashboard.words')}</span>
+          {/* Daily Goal */}
+          <Card className="group relative hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+            <div className="flex justify-between items-center mb-2">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-700">{t('dashboard.dailyGoal')}</span>
+                {wordsToday >= settings.dailyWordGoal && (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-700 border border-teal-200">
+                    Meta Batida! 🎉
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {editingGoal === 'daily' ? (
+                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="number"
+                      min="1"
+                      className="w-20 px-2 py-0.5 text-xs font-semibold border border-teal-400 rounded-md focus:outline-none focus:ring-1 focus:ring-teal-500"
+                      value={tempGoalInput}
+                      onChange={(e) => setTempGoalInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveGoal('daily');
+                        if (e.key === 'Escape') setEditingGoal(null);
+                      }}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSaveGoal('daily')}
+                      className="p-1 bg-teal-500 text-white rounded hover:bg-teal-600 transition cursor-pointer"
+                      title="Salvar"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingGoal(null)}
+                      className="p-1 bg-slate-200 text-slate-600 rounded hover:bg-slate-300 transition cursor-pointer"
+                      title="Cancelar"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="text-sm text-slate-500 font-medium">
+                      {wordsToday.toLocaleString('pt-BR')} / {settings.dailyWordGoal.toLocaleString('pt-BR')} {t('dashboard.words')}
+                    </span>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingGoal('daily');
+                          setTempGoalInput(String(settings.dailyWordGoal));
+                        }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-teal-600 hover:bg-slate-100 rounded-md cursor-pointer"
+                        title="Editar Meta Diária"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
             <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-              <div className="bg-teal-400 h-3 rounded-full transition-all duration-1000" style={{ width: `${dailyProgress}%` }}></div>
+              <div
+                className={`h-3 rounded-full transition-all duration-1000 ${
+                  wordsToday >= settings.dailyWordGoal
+                    ? 'bg-teal-400 shadow-[0_0_12px_rgba(45,212,191,0.7)] ring-1 ring-teal-400/50'
+                    : 'bg-teal-400'
+                }`}
+                style={{ width: `${dailyProgress}%` }}
+              ></div>
             </div>
           </Card>
-          <Card>
-            <div className="flex justify-between items-end mb-2">
-              <span className="font-semibold text-slate-700">{t('dashboard.weeklyGoal')}</span>
-              <span className="text-sm text-slate-500">{wordsWeek} / {settings.weeklyWordGoal} {t('dashboard.words')}</span>
+
+          {/* Weekly Goal */}
+          <Card className="group relative hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+            <div className="flex justify-between items-center mb-2">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-700">{t('dashboard.weeklyGoal')}</span>
+                {wordsWeek >= settings.weeklyWordGoal && (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                    Meta Batida! 🎉
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {editingGoal === 'weekly' ? (
+                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="number"
+                      min="1"
+                      className="w-20 px-2 py-0.5 text-xs font-semibold border border-emerald-400 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      value={tempGoalInput}
+                      onChange={(e) => setTempGoalInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveGoal('weekly');
+                        if (e.key === 'Escape') setEditingGoal(null);
+                      }}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSaveGoal('weekly')}
+                      className="p-1 bg-emerald-500 text-white rounded hover:bg-emerald-600 transition cursor-pointer"
+                      title="Salvar"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingGoal(null)}
+                      className="p-1 bg-slate-200 text-slate-600 rounded hover:bg-slate-300 transition cursor-pointer"
+                      title="Cancelar"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="text-sm text-slate-500 font-medium">
+                      {wordsWeek.toLocaleString('pt-BR')} / {settings.weeklyWordGoal.toLocaleString('pt-BR')} {t('dashboard.words')}
+                    </span>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingGoal('weekly');
+                          setTempGoalInput(String(settings.weeklyWordGoal));
+                        }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 rounded-md cursor-pointer"
+                        title="Editar Meta Semanal"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
             <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-              <div className="bg-emerald-400 h-3 rounded-full transition-all duration-1000" style={{ width: `${weeklyProgress}%` }}></div>
+              <div
+                className={`h-3 rounded-full transition-all duration-1000 ${
+                  wordsWeek >= settings.weeklyWordGoal
+                    ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.7)] ring-1 ring-emerald-400/50'
+                    : 'bg-emerald-400'
+                }`}
+                style={{ width: `${weeklyProgress}%` }}
+              ></div>
             </div>
           </Card>
         </div>
