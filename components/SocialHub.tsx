@@ -558,182 +558,422 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     return allUsers.find(u => u.id === userId)?.name || 'Usuário';
   };
 
-  const getUserPhotoURL = (userId: string) => {
-    const u = allUsers.find(u => u.id === userId);
-    return u?.photoBase64 || u?.photoURL;
+  const getUserAvatar = (u?: User | null) => {
+    if (!u) return undefined;
+    return u.photoBase64 || u.photoURL || (u as any).avatarBase64;
   };
 
-  const filteredAvailable = availableUsers.filter(u =>
-    u.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const getUserPhotoURL = (userId: string) => {
+    const u = allUsers.find(u => u.id === userId);
+    return getUserAvatar(u);
+  };
+
+  const getAvatarGradient = (seed: string) => {
+    const gradients = [
+      'from-emerald-500 to-teal-600',
+      'from-violet-500 to-purple-600',
+      'from-blue-500 to-indigo-600',
+      'from-amber-500 to-orange-600',
+      'from-rose-500 to-pink-600',
+      'from-teal-500 to-cyan-600',
+    ];
+    let hash = 0;
+    const str = seed || 'Parnaso';
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return gradients[Math.abs(hash) % gradients.length];
+  };
+
+  const getCategoryBadgeStyle = (category?: string) => {
+    switch (category) {
+      case 'Dúvidas':
+        return 'bg-amber-50 text-amber-700 border-amber-200/80';
+      case 'Inspiração':
+        return 'bg-purple-50 text-purple-700 border-purple-200/80';
+      case 'Feedback':
+        return 'bg-blue-50 text-blue-700 border-blue-200/80';
+      case 'Geral':
+      default:
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200/80';
+    }
+  };
+
+  // Deduplicate friends list by user.id
+  const uniqueFriends = React.useMemo(() => {
+    const map = new Map<string, { user: User; friendshipId: string }>();
+    friends.forEach(item => {
+      if (item?.user?.id && !map.has(item.user.id)) {
+        map.set(item.user.id, item);
+      }
+    });
+    return Array.from(map.values());
+  }, [friends]);
+
+  const trimmedSearch = searchTerm.trim();
+  const hasValidSearch = trimmedSearch.length >= 2;
+
+  const filteredAvailable = hasValidSearch
+    ? availableUsers.filter(u =>
+        u.name.toLowerCase().includes(trimmedSearch.toLowerCase())
+      )
+    : [];
 
   return (
     <div className="h-screen bg-slate-50 flex flex-col md:flex-row overflow-hidden animate-fade-in">
 
       {/* LEFT SIDEBAR: Navigation & Lists */}
-      <div className={`${(selectedChat || selectedThread) ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 bg-white border-r border-slate-200 h-full`}>
+      <div className={`${(selectedChat || selectedThread) ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-88 lg:w-96 bg-white border-r border-slate-200/80 h-full shadow-xs z-10`}>
         {/* Header */}
-        <div className="p-4 border-b border-slate-100 bg-slate-50">
+        <div className="p-4 border-b border-slate-100 bg-gradient-to-b from-slate-50/90 to-white">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-slate-800 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-sm shadow-emerald-500/20">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="font-black text-slate-800 text-base leading-tight tracking-tight">
+                  {t('social.title')}
+                </h2>
+                <p className="text-[11px] text-slate-400 font-medium">ParnasoTec Social</p>
+              </div>
+            </div>
+            <button
+              onClick={onExit}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-xs text-slate-600 hover:text-slate-900 font-bold transition-all cursor-pointer"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
               </svg>
-              {t('social.title')}
-            </h2>
-            <button onClick={onExit} className="text-xs text-slate-500 hover:text-slate-800 font-medium">Voltar</button>
+              <span>Voltar</span>
+            </button>
           </div>
 
-          <div className="grid grid-cols-5 bg-slate-200 rounded-lg p-1 gap-1">
-            <button onClick={() => { setActiveTab('friends'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'friends' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>{t('social.tabs.friends')}</button>
-            <button onClick={() => { setActiveTab('guilds'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'guilds' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>{t('social.tabs.guilds')}</button>
-            <button onClick={() => { setActiveTab('forum'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'forum' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>{t('social.tabs.forum')}</button>
-            <button onClick={() => { setActiveTab('competitions'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'competitions' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>{t('social.tabs.competitions')}</button>
-            <button onClick={() => { setActiveTab('find'); setSelectedChat(null); setSelectedThread(null); }} className={`py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab === 'find' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>{t('social.tabs.find')}</button>
+          {/* Modern 5 Sub-Tabs Pill Bar */}
+          <div className="grid grid-cols-5 bg-slate-100/90 p-1 rounded-xl gap-1 border border-slate-200/60">
+            <button
+              onClick={() => { setActiveTab('friends'); setSelectedChat(null); setSelectedThread(null); }}
+              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+                activeTab === 'friends'
+                  ? 'bg-white text-emerald-700 shadow-xs ring-1 ring-emerald-500/20'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+              }`}
+            >
+              <span className="text-xs leading-none">👥</span>
+              <span className="truncate max-w-full">{t('social.tabs.friends')}</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('guilds'); setSelectedChat(null); setSelectedThread(null); }}
+              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+                activeTab === 'guilds'
+                  ? 'bg-white text-purple-700 shadow-xs ring-1 ring-purple-500/20'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+              }`}
+            >
+              <span className="text-xs leading-none">🛡️</span>
+              <span className="truncate max-w-full">{t('social.tabs.guilds')}</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('forum'); setSelectedChat(null); setSelectedThread(null); }}
+              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+                activeTab === 'forum'
+                  ? 'bg-white text-emerald-700 shadow-xs ring-1 ring-emerald-500/20'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+              }`}
+            >
+              <span className="text-xs leading-none">💬</span>
+              <span className="truncate max-w-full">{t('social.tabs.forum')}</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('competitions'); setSelectedChat(null); setSelectedThread(null); }}
+              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+                activeTab === 'competitions'
+                  ? 'bg-white text-amber-700 shadow-xs ring-1 ring-amber-500/20'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+              }`}
+            >
+              <span className="text-xs leading-none">🏆</span>
+              <span className="truncate max-w-full">{t('social.tabs.competitions')}</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('find'); setSelectedChat(null); setSelectedThread(null); }}
+              className={`relative flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+                activeTab === 'find'
+                  ? 'bg-white text-emerald-700 shadow-xs ring-1 ring-emerald-500/20'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+              }`}
+            >
+              <span className="text-xs leading-none">🔍</span>
+              <span className="truncate max-w-full">{t('social.tabs.find')}</span>
+              {requests.length > 0 && (
+                <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white"></span>
+              )}
+            </button>
           </div>
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-2">
+        <div className="flex-1 overflow-y-auto p-3">
 
           {/* TAB: FRIENDS */}
           {activeTab === 'friends' && (
-            <div className="space-y-1">
-              <div className="mb-2">
-                <button onClick={() => setActiveTab('find')} className="w-full text-left px-3 py-2 text-xs text-teal-600 hover:bg-teal-50 rounded-lg border border-dashed border-teal-200 flex items-center justify-center">
-                  {t('social.friends.addFriend')}
+            <div className="space-y-2">
+              <div className="mb-3">
+                <button
+                  onClick={() => setActiveTab('find')}
+                  className="w-full px-3.5 py-2.5 text-xs font-bold text-emerald-700 bg-emerald-50/60 hover:bg-emerald-50 rounded-xl border border-dashed border-emerald-300 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
+                >
+                  <span>🔍</span>
+                  <span>{t('social.friends.addFriend')}</span>
                 </button>
                 {requests.length > 0 && (
-                  <div className="mt-2 text-xs bg-indigo-50 text-indigo-700 p-2 rounded-lg cursor-pointer" onClick={() => setActiveTab('find')}>
-                    {requests.length} {t('social.friends.pendingRequests')}
+                  <div
+                    className="mt-2 text-xs bg-purple-50 border border-purple-200 text-purple-700 px-3 py-2 rounded-xl cursor-pointer font-bold flex items-center justify-between hover:bg-purple-100/70 transition-colors"
+                    onClick={() => setActiveTab('find')}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-purple-600 animate-pulse"></span>
+                      {requests.length} {t('social.friends.pendingRequests')}
+                    </span>
+                    <span>→</span>
                   </div>
                 )}
               </div>
-              {friends.map(({ user, friendshipId }) => (
-                <div
-                  key={user.id}
-                  className={`w-full flex items-center justify-between p-3 rounded-xl transition-colors group/friend ${selectedChat?.type === 'direct' && selectedChat.target.id === user.id ? 'bg-teal-50 border border-teal-100' : 'hover:bg-slate-50 border border-transparent'}`}
-                >
-                  <button
-                    onClick={() => { setSelectedChat({ type: 'direct', target: user }); setSelectedThread(null); }}
-                    className="flex items-center flex-1 min-w-0 text-left"
-                  >
-                    <div className={`w-10 h-10 rounded-full ${(user.photoBase64 || user.photoURL) ? '' : 'bg-slate-200'} flex items-center justify-center text-slate-600 font-bold mr-3 overflow-hidden border border-slate-100 flex-shrink-0`}>
-                      {(user.photoBase64 || user.photoURL) ? (
-                        <img src={user.photoBase64 || user.photoURL} alt={user.name} className="w-full h-full object-cover" />
-                      ) : (
-                        user.name.charAt(0).toUpperCase()
-                      )}
-                    </div>
-                    <div className="text-left flex-1 min-w-0">
-                      <div className="font-medium text-slate-800 truncate">{user.name}</div>
-                      <div className="text-xs text-slate-500 truncate">{t('social.friends.clickToChat')}</div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={(e) => handleRemoveFriend(e, friendshipId)}
-                    className="opacity-0 group-hover/friend:opacity-100 p-1.5 text-slate-300 hover:text-rose-500 transition-opacity rounded-lg"
-                    title={t('social.friends.removeFriend')}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
 
-          {/* TAB: GUILDS */}
-          {activeTab === 'guilds' && (
-            <div className="space-y-2">
-              <button onClick={() => setShowCreateGuild(true)} className="w-full text-left px-3 py-2 text-xs text-indigo-600 hover:bg-indigo-50 rounded-lg border border-dashed border-indigo-200 flex items-center justify-center">
-                {t('social.guilds.foundNewGuild')}
-              </button>
-              {guilds.map(guild => (
-                <button
-                  key={guild.id}
-                  onClick={() => {
-                    setSelectedChat({ type: 'group', target: guild });
-                    setSelectedThread(null);
-                    setGuildSubTab('home');
-                    fetchGuildThreadData(guild.id);
-                  }}
-                  className={`w-full flex items-center p-3 rounded-xl transition-colors ${selectedChat?.target.id === guild.id ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-50'}`}
-                >
-                  {(guild.emblemBase64 || guild.emblemUrl) ? (
-                    <img src={guild.emblemBase64 || guild.emblemUrl} alt="Emblem" className="w-10 h-10 rounded-full object-cover mr-3 border-2 border-indigo-200" />
-                  ) : (
-                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold mr-3 border-2 border-white shadow-sm">
-                      {guild.name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="text-left flex-1 min-w-0">
-                    <div className="font-medium text-slate-800 truncate">{guild.name}</div>
-                    <div className="text-xs text-slate-500 truncate">{guild.members.length} {t('social.guilds.members')}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* TAB: FORUM */}
-          {activeTab === 'forum' && (
-            <div className="space-y-2">
-              <button onClick={() => setShowCreateThread(true)} className="w-full text-left px-3 py-2 text-xs text-teal-600 hover:bg-teal-50 rounded-lg border border-dashed border-teal-200 flex items-center justify-center">
-                {t('social.forum.newThread')}
-              </button>
-              {threads.map(thread => (
-                <div key={thread.id} className="relative group">
-                  <button
-                    onClick={() => { setSelectedThread(thread); setSelectedChat(null); }}
-                    className={`w-full text-left p-3 rounded-xl border transition-all ${selectedThread?.id === thread.id ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100 hover:border-slate-300'}`}
+              {uniqueFriends.map(({ user, friendshipId }) => {
+                const avatar = getUserAvatar(user);
+                const isSelected = selectedChat?.type === 'direct' && selectedChat.target.id === user.id;
+                return (
+                  <div
+                    key={user.id}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-2xl transition-all group/friend ${
+                      isSelected
+                        ? 'bg-emerald-50/90 border border-emerald-200 shadow-xs'
+                        : 'bg-white hover:bg-slate-50 border border-slate-100 hover:border-slate-200'
+                    }`}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] uppercase font-bold text-slate-400">{thread.category}</span>
-                      {thread.likes && thread.likes.length > 0 && (
-                        <span className="text-[10px] text-rose-500 font-bold flex items-center gap-0.5">
-                          ❤️ {thread.likes.length}
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="font-bold text-slate-800 text-sm leading-tight mb-1">{thread.title}</h3>
-                    <p className="text-xs text-slate-500 truncate">{t('social.forum.by')} {getUserName(thread.authorId)}</p>
-                  </button>
-                  {(currentUser.role === 'admin' || thread.authorId === currentUser.id) && (
                     <button
-                      onClick={(e) => handleDeleteThread(e, thread.id)}
-                      className="absolute top-2 right-2 p-1 text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                      title={t('social.forum.deleteThread')}
+                      onClick={() => { setSelectedChat({ type: 'direct', target: user }); setSelectedThread(null); }}
+                      className="flex items-center flex-1 min-w-0 text-left cursor-pointer"
+                    >
+                      <div className="relative mr-3 flex-shrink-0">
+                        {avatar ? (
+                          <img
+                            src={avatar}
+                            alt={user.name}
+                            className="w-11 h-11 rounded-full object-cover border-2 border-white shadow-sm ring-1 ring-slate-200"
+                          />
+                        ) : (
+                          <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} flex items-center justify-center text-white font-extrabold text-sm border-2 border-white shadow-sm`}>
+                            {user.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full"></span>
+                      </div>
+                      <div className="text-left flex-1 min-w-0">
+                        <div className={`font-bold text-sm truncate ${isSelected ? 'text-emerald-900' : 'text-slate-800'}`}>
+                          {user.name}
+                        </div>
+                        <div className="text-[11px] text-slate-400 truncate flex items-center gap-1">
+                          <span>💬</span>
+                          <span>{t('social.friends.clickToChat')}</span>
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={(e) => handleRemoveFriend(e, friendshipId)}
+                      className="opacity-0 group-hover/friend:opacity-100 p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-all rounded-xl cursor-pointer"
+                      title={t('social.friends.removeFriend')}
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
                     </button>
-                  )}
+                  </div>
+                );
+              })}
+
+              {uniqueFriends.length === 0 && (
+                <div className="text-center py-10 px-4 bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-2.5 text-xl">
+                    👥
+                  </div>
+                  <p className="text-xs font-bold text-slate-600 mb-1">Sua lista de amigos está vazia</p>
+                  <p className="text-[11px] text-slate-400">Use a aba Buscar para encontrar e adicionar outros escritores.</p>
                 </div>
-              ))}
+              )}
+            </div>
+          )}
+
+          {/* TAB: GUILDS */}
+          {activeTab === 'guilds' && (
+            <div className="space-y-2.5">
+              <button
+                onClick={() => setShowCreateGuild(true)}
+                className="w-full px-3.5 py-2.5 text-xs font-bold text-purple-700 bg-purple-50/60 hover:bg-purple-50 rounded-xl border border-dashed border-purple-300 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
+              >
+                <span>🛡️</span>
+                <span>{t('social.guilds.foundNewGuild')}</span>
+              </button>
+
+              {guilds.map(guild => {
+                const isSelected = selectedChat?.target.id === guild.id;
+                return (
+                  <button
+                    key={guild.id}
+                    onClick={() => {
+                      setSelectedChat({ type: 'group', target: guild });
+                      setSelectedThread(null);
+                      setGuildSubTab('home');
+                      fetchGuildThreadData(guild.id);
+                    }}
+                    className={`w-full flex items-center p-3 rounded-2xl transition-all cursor-pointer border ${
+                      isSelected
+                        ? 'bg-purple-50/90 border-purple-200 shadow-xs'
+                        : 'bg-white hover:bg-slate-50 border-slate-100 hover:border-slate-200'
+                    }`}
+                  >
+                    {(guild.emblemBase64 || guild.emblemUrl) ? (
+                      <img
+                        src={guild.emblemBase64 || guild.emblemUrl}
+                        alt="Emblem"
+                        className="w-11 h-11 rounded-full object-cover mr-3 border-2 border-purple-200 shadow-xs flex-shrink-0"
+                      />
+                    ) : (
+                      <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(guild.name)} flex items-center justify-center text-white font-extrabold text-sm mr-3 border-2 border-white shadow-sm flex-shrink-0`}>
+                        {guild.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="text-left flex-1 min-w-0">
+                      <div className={`font-bold text-sm truncate ${isSelected ? 'text-purple-950' : 'text-slate-800'}`}>
+                        {guild.name}
+                      </div>
+                      <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5 mt-0.5">
+                        <span className="inline-flex items-center px-1.5 py-0.2 rounded-md bg-purple-50 text-purple-700 font-semibold text-[10px]">
+                          {guild.members.length} {t('social.guilds.members')}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+
+              {guilds.length === 0 && (
+                <div className="text-center py-10 px-4 bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
+                  <div className="w-12 h-12 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center mx-auto mb-2.5 text-xl">
+                    🛡️
+                  </div>
+                  <p className="text-xs font-bold text-slate-600 mb-1">Nenhuma guilda ainda</p>
+                  <p className="text-[11px] text-slate-400">Funde uma nova guilda literária e convide seus amigos!</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: FORUM */}
+          {activeTab === 'forum' && (
+            <div className="space-y-2.5">
+              <button
+                onClick={() => setShowCreateThread(true)}
+                className="w-full px-3.5 py-2.5 text-xs font-bold text-emerald-700 bg-emerald-50/60 hover:bg-emerald-50 rounded-xl border border-dashed border-emerald-300 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
+              >
+                <span>✍️</span>
+                <span>{t('social.forum.newThread')}</span>
+              </button>
+
+              {threads.map(thread => {
+                const authorName = getUserName(thread.authorId);
+                const authorAvatar = getUserPhotoURL(thread.authorId);
+                const isSelected = selectedThread?.id === thread.id;
+                const likeCount = thread.likes?.length || 0;
+
+                return (
+                  <div key={thread.id} className="relative group">
+                    <button
+                      onClick={() => { setSelectedThread(thread); setSelectedChat(null); }}
+                      className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-emerald-50/70 border-emerald-300 shadow-xs'
+                          : 'bg-white border-slate-100 hover:border-slate-300 hover:shadow-2xs'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2 pr-5">
+                        <span className={`text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full border ${getCategoryBadgeStyle(thread.category)}`}>
+                          {thread.category}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border ${
+                          likeCount > 0
+                            ? 'bg-rose-50 text-rose-600 border-rose-200/80'
+                            : 'bg-slate-50 text-slate-400 border-slate-200/60'
+                        }`}>
+                          <span>❤️</span>
+                          <span>{likeCount}</span>
+                        </span>
+                      </div>
+                      <h3 className="font-bold text-slate-800 text-sm leading-snug mb-2.5 line-clamp-2">{thread.title}</h3>
+                      <div className="flex items-center gap-2">
+                        {authorAvatar ? (
+                          <img src={authorAvatar} alt={authorName} className="w-5 h-5 rounded-full object-cover border border-slate-200 flex-shrink-0" />
+                        ) : (
+                          <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${getAvatarGradient(authorName)} text-white flex items-center justify-center text-[9px] font-bold flex-shrink-0`}>
+                            {authorName.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {t('social.forum.by')} <strong className="font-semibold text-slate-700">{authorName}</strong>
+                        </p>
+                      </div>
+                    </button>
+                    {(currentUser.role === 'admin' || thread.authorId === currentUser.id) && (
+                      <button
+                        onClick={(e) => handleDeleteThread(e, thread.id)}
+                        className="absolute top-3 right-2.5 p-1 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg hover:bg-rose-50 cursor-pointer"
+                        title={t('social.forum.deleteThread')}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 
           {/* TAB: COMPETITIONS */}
           {activeTab === 'competitions' && (
             <div className="space-y-3">
-              <button onClick={() => setShowCreateComp(true)} className="w-full text-left px-3 py-2 text-xs text-teal-600 hover:bg-teal-50 rounded-lg border border-dashed border-teal-200 flex items-center justify-center">
-                {t('social.competitions.createNewChallenge')}
+              <button
+                onClick={() => setShowCreateComp(true)}
+                className="w-full px-3.5 py-2.5 text-xs font-bold text-amber-700 bg-amber-50/70 hover:bg-amber-50 rounded-xl border border-dashed border-amber-300 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
+              >
+                <span>🏆</span>
+                <span>{t('social.competitions.createNewChallenge')}</span>
               </button>
               {competitions.map(comp => {
                 const isParticipant = comp.participants.includes(currentUser.id);
                 return (
-                  <div key={comp.id} className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm relative group">
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className="font-bold text-slate-800 text-sm pr-6">{comp.title}</h3>
-                      <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 uppercase">{comp.type === 'word_count' ? t('social.competitions.wordType') : t('social.competitions.streakType')}</span>
+                  <div key={comp.id} className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs relative group hover:border-amber-200 transition-all">
+                    <div className="flex justify-between items-start mb-1.5 gap-2">
+                      <h3 className="font-bold text-slate-800 text-sm leading-snug pr-4 flex items-center gap-1.5">
+                        <span className="text-amber-500">🏆</span>
+                        <span>{comp.title}</span>
+                      </h3>
+                      <span className="text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200/70 px-2 py-0.5 rounded-full uppercase flex-shrink-0">
+                        {comp.type === 'word_count' ? t('social.competitions.wordType') : t('social.competitions.streakType')}
+                      </span>
                     </div>
                     {currentUser.role === 'admin' && (
                       <button
                         onClick={() => handleDeleteCompetition(comp.id)}
-                        className="absolute top-3 right-12 p-1 text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-3 right-16 p-1 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                         title={t('social.competitions.deleteChallenge')}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -741,97 +981,176 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         </svg>
                       </button>
                     )}
-                    <p className="text-xs text-slate-500 mb-3">{comp.description}</p>
+                    <p className="text-xs text-slate-500 mb-3 leading-relaxed">{comp.description}</p>
 
                     {isParticipant ? (
-                      <div className="space-y-2">
+                      <div className="space-y-2.5 bg-slate-50/80 p-2.5 rounded-xl border border-slate-100">
                         {comp.participants.map(pid => {
                           const stat = compStats[comp.id]?.[pid] || { current: 0, percent: 0 };
                           const { current, percent } = stat;
+                          const pName = getUserName(pid);
+                          const pAvatar = getUserPhotoURL(pid);
                           return (
                             <div key={pid} className="text-xs">
-                              <div className="flex justify-between mb-1">
-                                <span>{getUserName(pid)}</span>
-                                <span>{current} / {comp.target}</span>
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="flex items-center gap-1.5 font-semibold text-slate-700 truncate">
+                                  {pAvatar ? (
+                                    <img src={pAvatar} alt={pName} className="w-4 h-4 rounded-full object-cover" />
+                                  ) : (
+                                    <span className={`w-4 h-4 rounded-full bg-gradient-to-br ${getAvatarGradient(pName)} text-white text-[8px] font-bold inline-flex items-center justify-center`}>
+                                      {pName.charAt(0).toUpperCase()}
+                                    </span>
+                                  )}
+                                  <span className="truncate">{pName}</span>
+                                </span>
+                                <span className="text-[11px] font-bold text-slate-600">{current.toLocaleString('pt-BR')} / {comp.target.toLocaleString('pt-BR')}</span>
                               </div>
-                              <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div className="h-full bg-yellow-400" style={{ width: `${percent}%` }}></div>
+                              <div className="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden">
+                                <div className="h-full bg-gradient-to-r from-amber-400 to-emerald-500 rounded-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
                               </div>
                             </div>
-                          )
+                          );
                         })}
                       </div>
                     ) : (
-                      <button onClick={() => handleJoinCompetition(comp.id)} className="w-full py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-slate-900">
+                      <button
+                        onClick={() => handleJoinCompetition(comp.id)}
+                        className="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+                      >
                         {t('social.competitions.joinChallenge')}
                       </button>
                     )}
                   </div>
-                )
+                );
               })}
             </div>
           )}
 
           {/* TAB: FIND */}
           {activeTab === 'find' && (
-            <div className="p-2">
+            <div className="space-y-3">
 
               {/* Pending Requests Section */}
               {requests.length > 0 && (
-                <div className="mb-4 space-y-2">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase">{t('social.friends.requests')} ({requests.length})</h3>
-                  {requests.map(({ user, friendshipId, type }) => (
-                    <div key={user.id} className="bg-white border border-slate-200 p-2 rounded-lg shadow-sm flex items-center justify-between">
-                      <span className="text-sm font-bold text-slate-700">{user.name} <span className="text-xs font-normal text-slate-400">({type === 'received' ? t('social.friends.received') : t('social.friends.sent')})</span></span>
-                      {type === 'received' ? (
-                        <div className="flex gap-1">
-                          <button onClick={() => handleAccept(friendshipId)} className="p-1 bg-teal-100 text-teal-700 rounded text-xs">{t('social.friends.accept')}</button>
-                          <button onClick={() => handleReject(friendshipId)} className="p-1 bg-slate-100 text-slate-700 rounded text-xs">X</button>
+                <div className="mb-4 space-y-2 bg-purple-50/50 p-3 rounded-2xl border border-purple-100">
+                  <h3 className="text-[11px] font-extrabold text-purple-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>📬</span>
+                    <span>{t('social.friends.requests')} ({requests.length})</span>
+                  </h3>
+                  {requests.map(({ user, friendshipId, type }) => {
+                    const reqAvatar = getUserAvatar(user);
+                    return (
+                      <div key={friendshipId || user.id} className="bg-white border border-slate-200/80 p-2.5 rounded-xl shadow-2xs flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {reqAvatar ? (
+                            <img src={reqAvatar} alt={user.name} className="w-8 h-8 rounded-full object-cover border border-slate-200 flex-shrink-0" />
+                          ) : (
+                            <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-xs font-bold flex-shrink-0`}>
+                              {user.name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-800 truncate">{user.name}</p>
+                            <p className="text-[10px] text-slate-400">
+                              {type === 'received' ? t('social.friends.received') : t('social.friends.sent')}
+                            </p>
+                          </div>
                         </div>
-                      ) : (
-                        <button onClick={() => handleReject(friendshipId)} className="text-xs text-rose-500">{t('social.friends.cancel')}</button>
-                      )}
-                    </div>
-                  ))}
+                        {type === 'received' ? (
+                          <div className="flex gap-1 flex-shrink-0">
+                            <button onClick={() => handleAccept(friendshipId)} className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer">
+                              {t('social.friends.accept')}
+                            </button>
+                            <button onClick={() => handleReject(friendshipId)} className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold rounded-lg text-[11px] transition-colors cursor-pointer">
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => handleReject(friendshipId)} className="text-[11px] font-bold text-rose-500 hover:underline px-2 py-1 cursor-pointer">
+                            {t('social.friends.cancel')}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
-              <input
-                type="text"
-                placeholder={t('social.friends.searchWriter')}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-100 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-200 mb-4"
-              />
-
-              <div className="space-y-2">
-                {filteredAvailable.map(user => (
-                  <div key={user.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl shadow-sm">
-                    <div className="flex items-center">
-                      <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold mr-3 overflow-hidden">
-                        {(user.photoBase64 || user.photoURL) ? (
-                          <img src={user.photoBase64 || user.photoURL} alt={user.name} className="w-full h-full object-cover" />
-                        ) : (
-                          user.name.charAt(0)
-                        )}
-                      </div>
-                      <span className="text-sm font-medium text-slate-700">{user.name}</span>
-                    </div>
-                    <button
-                      onClick={() => handleSendRequest(user.id)}
-                      className="p-1.5 bg-teal-50 text-teal-600 rounded-lg hover:bg-teal-100"
-                      title={t('social.friends.add')}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
-                {filteredAvailable.length === 0 && (
-                  <p className="text-center text-slate-400 text-xs mt-4">{t('social.friends.noWritersFound')}</p>
+              {/* Search Input */}
+              <div className="relative">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder={t('social.friends.searchWriter')}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-8 py-2.5 bg-slate-100/90 focus:bg-white border border-slate-200/80 focus:border-emerald-500 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all text-slate-800 placeholder:text-slate-400"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs p-1 cursor-pointer"
+                  >
+                    ✕
+                  </button>
                 )}
               </div>
+
+              {/* Privacy Guard: Only show users when at least 2 characters are typed */}
+              {!hasValidSearch ? (
+                <div className="text-center py-10 px-5 bg-slate-50/80 rounded-2xl border border-dashed border-slate-200 mt-2">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-3 shadow-2xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                  <p className="text-xs font-bold text-slate-700 mb-1">Busca Privada de Escritores</p>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Digite pelo menos 2 letras do nome do escritor para buscar na comunidade.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 pt-1">
+                  {filteredAvailable.map(user => {
+                    const uAvatar = getUserAvatar(user);
+                    return (
+                      <div key={user.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 hover:border-emerald-200 rounded-2xl shadow-2xs transition-all">
+                        <div className="flex items-center min-w-0 mr-2">
+                          {uAvatar ? (
+                            <img src={uAvatar} alt={user.name} className="w-10 h-10 rounded-full object-cover mr-3 border border-slate-200 flex-shrink-0" />
+                          ) : (
+                            <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-sm font-extrabold mr-3 shadow-2xs flex-shrink-0`}>
+                              {user.name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <span className="text-sm font-bold text-slate-800 block truncate">{user.name}</span>
+                            <span className="text-[10px] text-slate-400">Escritor da Comunidade</span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleSendRequest(user.id)}
+                          className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-500 text-emerald-700 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 flex-shrink-0 cursor-pointer border border-emerald-200/80"
+                          title={t('social.friends.add')}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                          </svg>
+                          <span>Adicionar</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {filteredAvailable.length === 0 && (
+                    <div className="text-center py-8 px-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      <p className="text-slate-500 font-semibold text-xs">{t('social.friends.noWritersFound')}</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1647,64 +1966,317 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
           </div>
         )}
 
-        {/* Empty State */}
+        {/* Empty State: Dynamic Community Hub */}
         {(!selectedChat && !selectedThread) && (
-          <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400 p-8">
-            <div className="w-32 h-32 bg-slate-100 rounded-full flex items-center justify-center mb-6">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-              </svg>
+          <div className="flex-1 overflow-y-auto bg-slate-50/70 p-6 sm:p-10 flex flex-col justify-center">
+            <div className="max-w-4xl mx-auto w-full space-y-8 animate-fade-in">
+
+              {/* Hero Welcome Banner */}
+              <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-900 via-teal-900 to-slate-900 text-white p-8 sm:p-10 shadow-xl border border-emerald-500/20">
+                <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-emerald-400/15 blur-3xl pointer-events-none"></div>
+                <div className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full bg-purple-500/15 blur-3xl pointer-events-none"></div>
+
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="space-y-3 max-w-2xl">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold tracking-wide">
+                      <span>✨</span>
+                      <span>Hub da Comunidade ParnasoTec</span>
+                    </div>
+                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white leading-tight">
+                      Bem-vindo à Comunidade Parnaso
+                    </h2>
+                    <p className="text-slate-300 text-sm sm:text-base leading-relaxed italic">
+                      “A escrita pode nascer no silêncio, mas floresce quando compartilhada. Conecte-se com outros autores, troque inspirações e alcance novas metas literárias em conjunto.”
+                    </p>
+                  </div>
+
+                  {/* Mini Community Stats */}
+                  <div className="grid grid-cols-2 gap-2.5 flex-shrink-0">
+                    <div className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-3 text-center">
+                      <span className="block text-xl font-black text-emerald-300">{uniqueFriends.length}</span>
+                      <span className="text-[10px] uppercase tracking-wider text-slate-300 font-bold">Amigos</span>
+                    </div>
+                    <div className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-3 text-center">
+                      <span className="block text-xl font-black text-purple-300">{guilds.length}</span>
+                      <span className="text-[10px] uppercase tracking-wider text-slate-300 font-bold">Guildas</span>
+                    </div>
+                    <div className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-3 text-center">
+                      <span className="block text-xl font-black text-teal-300">{threads.length}</span>
+                      <span className="text-[10px] uppercase tracking-wider text-slate-300 font-bold">Tópicos</span>
+                    </div>
+                    <div className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-3 text-center">
+                      <span className="block text-xl font-black text-amber-300">{competitions.length}</span>
+                      <span className="text-[10px] uppercase tracking-wider text-slate-300 font-bold">Desafios</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3 Clickable Quick Action Cards */}
+              <div>
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-3 px-1">
+                  Ações Rápidas da Comunidade
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+
+                  {/* Card 1: Guilds */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('guilds');
+                      setShowCreateGuild(true);
+                    }}
+                    className="group text-left bg-white hover:bg-gradient-to-b hover:from-white hover:to-purple-50/40 p-6 rounded-2xl border border-slate-200/80 hover:border-purple-300 shadow-xs hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex flex-col justify-between cursor-pointer"
+                  >
+                    <div>
+                      <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-200/60 text-purple-600 flex items-center justify-center text-2xl mb-4 group-hover:scale-110 group-hover:bg-purple-600 group-hover:text-white transition-all shadow-2xs">
+                        🛡️
+                      </div>
+                      <h4 className="font-extrabold text-slate-800 text-base mb-1.5 group-hover:text-purple-700 transition-colors">
+                        Explorar ou Fundar Guilda
+                      </h4>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Forme alianças literárias com seus amigos, acompanhe o ranking de palavras e converse na Ágora.
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-purple-600">
+                      <span>Fundar ou ver guildas</span>
+                      <span className="group-hover:translate-x-1 transition-transform">→</span>
+                    </div>
+                  </button>
+
+                  {/* Card 2: Forum */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('forum');
+                      if (threads.length > 0) {
+                        setSelectedThread(threads[0]);
+                      } else {
+                        setShowCreateThread(true);
+                      }
+                    }}
+                    className="group text-left bg-white hover:bg-gradient-to-b hover:from-white hover:to-emerald-50/40 p-6 rounded-2xl border border-slate-200/80 hover:border-emerald-300 shadow-xs hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex flex-col justify-between cursor-pointer"
+                  >
+                    <div>
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200/60 text-emerald-600 flex items-center justify-center text-2xl mb-4 group-hover:scale-110 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
+                        💬
+                      </div>
+                      <h4 className="font-extrabold text-slate-800 text-base mb-1.5 group-hover:text-emerald-700 transition-colors">
+                        Debater no Fórum
+                      </h4>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Participe das discussões da comunidade, tire dúvidas sobre bloqueio criativo e peça feedbacks.
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
+                      <span>Acessar discussões</span>
+                      <span className="group-hover:translate-x-1 transition-transform">→</span>
+                    </div>
+                  </button>
+
+                  {/* Card 3: Literary Challenges */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('competitions');
+                      setShowCreateComp(true);
+                    }}
+                    className="group text-left bg-white hover:bg-gradient-to-b hover:from-white hover:to-amber-50/40 p-6 rounded-2xl border border-slate-200/80 hover:border-amber-300 shadow-xs hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex flex-col justify-between cursor-pointer"
+                  >
+                    <div>
+                      <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200/60 text-amber-600 flex items-center justify-center text-2xl mb-4 group-hover:scale-110 group-hover:bg-amber-500 group-hover:text-white transition-all shadow-2xs">
+                        🏆
+                      </div>
+                      <h4 className="font-extrabold text-slate-800 text-base mb-1.5 group-hover:text-amber-600 transition-colors">
+                        Lançar Desafio Literário
+                      </h4>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Crie maratonas de contagem de palavras ou metas de ofensiva diária para engajar os escritores.
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
+                      <span>Criar novo desafio</span>
+                      <span className="group-hover:translate-x-1 transition-transform">→</span>
+                    </div>
+                  </button>
+
+                </div>
+              </div>
+
+              {/* Recent Community Highlights */}
+              {threads.length > 0 && (
+                <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                      <span>🔥</span>
+                      <span>Tópicos Recentes no Fórum</span>
+                    </h4>
+                    <button
+                      onClick={() => { setActiveTab('forum'); setShowCreateThread(true); }}
+                      className="text-xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                    >
+                      + Criar Tópico
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {threads.slice(0, 2).map(thread => (
+                      <button
+                        key={thread.id}
+                        onClick={() => { setActiveTab('forum'); setSelectedThread(thread); setSelectedChat(null); }}
+                        className="text-left p-3.5 rounded-xl bg-slate-50/70 hover:bg-emerald-50/40 border border-slate-200/60 hover:border-emerald-200 transition-all flex items-start justify-between gap-3 cursor-pointer"
+                      >
+                        <div className="min-w-0">
+                          <span className={`inline-block text-[9px] uppercase font-extrabold px-2 py-0.5 rounded-full border mb-1.5 ${getCategoryBadgeStyle(thread.category)}`}>
+                            {thread.category}
+                          </span>
+                          <p className="font-bold text-slate-800 text-xs truncate">{thread.title}</p>
+                          <p className="text-[11px] text-slate-400 truncate mt-0.5">por {getUserName(thread.authorId)}</p>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-200/70 flex items-center gap-1 flex-shrink-0">
+                          ❤️ {thread.likes?.length || 0}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
             </div>
-            <h3 className="text-xl font-medium text-slate-600 mb-2">{t('social.title')}</h3>
-            <p className="max-w-md text-center">{t('social.chat.selectChat')}</p>
           </div>
         )}
       </div>
 
       {/* MODAL: CREATE GUILD */}
       {showCreateGuild && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl animate-fade-in border-2 border-indigo-100">
-            <h3 className="font-black text-xl mb-4 text-indigo-900 uppercase tracking-tight">{t('social.guilds.createGuildTitle')}</h3>
-            <div className="mb-4 flex justify-center">
-              <ImagePicker
-                currentImage={newGuildEmblemBase64}
-                onImageSelected={setNewGuildEmblemBase64}
-                onImageRemoved={() => setNewGuildEmblemBase64('')}
-                label="Brasão da Guilda"
-                size="md"
-              />
-            </div>
-            <input
-              className="w-full mb-3 px-3 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-100 outline-none border-slate-200"
-              placeholder={t('social.guilds.guildName')}
-              value={newGuildName}
-              onChange={(e) => setNewGuildName(e.target.value)}
-            />
-            <textarea
-              className="w-full mb-4 px-3 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-100 outline-none border-slate-200 text-sm h-24 resize-none"
-              placeholder={t('social.guilds.guildDescription')}
-              value={newGroupDesc}
-              onChange={(e) => setNewGroupDesc(e.target.value)}
-            />
-            <p className="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">{t('social.guilds.selectFounders')}</p>
-            <div className="max-h-40 overflow-y-auto mb-6 border rounded-xl p-3 bg-slate-50 space-y-2">
-              {friends.map(({ user }) => (
-                <div key={user.id} className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
-                    checked={selectedGuildMembers.includes(user.id)}
-                    onChange={() => toggleGuildMember(user.id)}
-                  />
-                  <span className="text-sm font-medium text-slate-700">{user.name}</span>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-100">
+            {/* Modal Header with Subtle Gradient */}
+            <div className="bg-gradient-to-r from-purple-50 via-indigo-50/60 to-emerald-50/50 px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 text-white flex items-center justify-center text-xl shadow-md shadow-purple-500/20">
+                  🛡️
                 </div>
-              ))}
-              {friends.length === 0 && <p className="text-[10px] text-slate-400 italic">{t('social.guilds.needFriends')}</p>}
+                <div>
+                  <h3 className="font-black text-lg text-slate-800 tracking-tight leading-tight">
+                    {t('social.guilds.createGuildTitle')}
+                  </h3>
+                  <p className="text-xs text-slate-500">Crie uma irmandade literária com seus amigos</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCreateGuild(false)}
+                className="w-8 h-8 rounded-xl bg-white/80 hover:bg-white text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setShowCreateGuild(false)} className="px-4 py-2 text-slate-500 font-bold text-xs uppercase transition-colors hover:text-slate-800">{t('social.friends.cancel')}</button>
-              <button onClick={handleCreateGuild} disabled={!newGuildName.trim()} className="px-6 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all disabled:opacity-50">{t('social.guilds.foundButton')}</button>
+
+            <div className="p-6 space-y-4">
+              <div className="flex justify-center">
+                <ImagePicker
+                  currentImage={newGuildEmblemBase64}
+                  onImageSelected={setNewGuildEmblemBase64}
+                  onImageRemoved={() => setNewGuildEmblemBase64('')}
+                  label="Brasão da Guilda"
+                  size="md"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                  {t('social.guilds.guildName')}
+                </label>
+                <input
+                  className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-semibold text-slate-800 transition-all"
+                  placeholder={t('social.guilds.guildName')}
+                  value={newGuildName}
+                  onChange={(e) => setNewGuildName(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                  Descrição ou Lema
+                </label>
+                <textarea
+                  className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm h-20 resize-none text-slate-700 transition-all"
+                  placeholder={t('social.guilds.guildDescription')}
+                  value={newGroupDesc}
+                  onChange={(e) => setNewGroupDesc(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+                    {t('social.guilds.selectFounders')}
+                  </p>
+                  {selectedGuildMembers.length > 0 && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      {selectedGuildMembers.length} selecionado(s)
+                    </span>
+                  )}
+                </div>
+                <div className="max-h-44 overflow-y-auto border border-slate-200/80 rounded-xl p-2.5 bg-slate-50/60 space-y-2">
+                  {uniqueFriends.map(({ user }) => {
+                    const isChecked = selectedGuildMembers.includes(user.id);
+                    const fAvatar = getUserAvatar(user);
+                    return (
+                      <div
+                        key={user.id}
+                        onClick={() => toggleGuildMember(user.id)}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer select-none ${
+                          isChecked
+                            ? 'bg-emerald-50/90 border-emerald-400 shadow-2xs'
+                            : 'bg-white hover:bg-slate-50 border-slate-200/70'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {fAvatar ? (
+                            <img src={fAvatar} alt={user.name} className="w-8 h-8 rounded-full object-cover border border-slate-200 flex-shrink-0" />
+                          ) : (
+                            <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-xs font-extrabold flex-shrink-0`}>
+                              {user.name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <span className={`text-sm font-bold truncate ${isChecked ? 'text-emerald-950' : 'text-slate-700'}`}>
+                            {user.name}
+                          </span>
+                        </div>
+                        <div className={`w-5 h-5 rounded-lg flex items-center justify-center border transition-all flex-shrink-0 ${
+                          isChecked
+                            ? 'bg-emerald-500 border-emerald-500 text-white'
+                            : 'bg-white border-slate-300 text-transparent'
+                        }`}>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {uniqueFriends.length === 0 && (
+                    <p className="text-xs text-slate-400 italic text-center py-4">{t('social.guilds.needFriends')}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => setShowCreateGuild(false)}
+                  className="px-4 py-2.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  {t('social.friends.cancel')}
+                </button>
+                <button
+                  onClick={handleCreateGuild}
+                  disabled={!newGuildName.trim()}
+                  className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  🛡️ {t('social.guilds.foundButton')}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1712,35 +2284,86 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
       {/* MODAL: CREATE THREAD */}
       {showCreateThread && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl">
-            <h3 className="font-bold text-lg mb-4">{t('social.forum.newForumThread')}</h3>
-            <input
-              className="w-full mb-3 px-3 py-2 border rounded-lg"
-              placeholder={t('social.forum.threadTitlePlaceholder')}
-              value={newThreadTitle}
-              onChange={(e) => setNewThreadTitle(e.target.value)}
-            />
-            <select
-              className="w-full mb-3 px-3 py-2 border rounded-lg bg-white"
-              value={newThreadCategory}
-              onChange={(e) => setNewThreadCategory(e.target.value as any)}
-            >
-              <option>Geral</option>
-              <option>Dúvidas</option>
-              <option>Inspiração</option>
-              <option>Feedback</option>
-            </select>
-            <textarea
-              className="w-full mb-4 px-3 py-2 border rounded-lg h-32 resize-none"
-              placeholder={t('social.forum.contentPlaceholder')}
-              value={newThreadContent}
-              onChange={(e) => setNewThreadContent(e.target.value)}
-            />
-            {forumError && <p className="text-rose-500 text-xs mb-3 font-bold">{forumError}</p>}
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowCreateThread(false)} className="px-3 py-1.5 text-slate-500">{t('social.friends.cancel')}</button>
-              <button onClick={handleCreateThread} className="px-3 py-1.5 bg-teal-500 text-white rounded-lg">{t('social.forum.publishButton')}</button>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden border border-slate-100">
+            {/* Modal Header with Subtle Gradient */}
+            <div className="bg-gradient-to-r from-emerald-50 via-teal-50/70 to-slate-50 px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center text-xl shadow-md shadow-emerald-500/20">
+                  💬
+                </div>
+                <div>
+                  <h3 className="font-black text-lg text-slate-800 tracking-tight leading-tight">
+                    {t('social.forum.newForumThread')}
+                  </h3>
+                  <p className="text-xs text-slate-500">Inicie uma discussão ou compartilhe ideias com a comunidade</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCreateThread(false)}
+                className="w-8 h-8 rounded-xl bg-white/80 hover:bg-white text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                  Título da Discussão
+                </label>
+                <input
+                  className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-semibold text-slate-800 transition-all"
+                  placeholder={t('social.forum.threadTitlePlaceholder')}
+                  value={newThreadTitle}
+                  onChange={(e) => setNewThreadTitle(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                  Categoria
+                </label>
+                <select
+                  className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-semibold text-slate-700 transition-all"
+                  value={newThreadCategory}
+                  onChange={(e) => setNewThreadCategory(e.target.value as any)}
+                >
+                  <option>Geral</option>
+                  <option>Dúvidas</option>
+                  <option>Inspiração</option>
+                  <option>Feedback</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                  Mensagem / Conteúdo
+                </label>
+                <textarea
+                  className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm h-32 resize-none text-slate-700 leading-relaxed transition-all"
+                  placeholder={t('social.forum.contentPlaceholder')}
+                  value={newThreadContent}
+                  onChange={(e) => setNewThreadContent(e.target.value)}
+                />
+              </div>
+
+              {forumError && <p className="text-rose-500 text-xs font-bold bg-rose-50 px-3 py-2 rounded-xl border border-rose-200">{forumError}</p>}
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => setShowCreateThread(false)}
+                  className="px-4 py-2.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  {t('social.friends.cancel')}
+                </button>
+                <button
+                  onClick={handleCreateThread}
+                  className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+                >
+                  ✍️ {t('social.forum.publishButton')}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1748,45 +2371,108 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
       {/* MODAL: CREATE COMPETITION */}
       {showCreateComp && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
-            <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-              <span className="text-xl">🏆</span> {t('social.competitions.createLiteraryChallenge')}
-            </h3>
-            <input
-              className="w-full mb-3 px-3 py-2 border rounded-lg"
-              placeholder={t('social.competitions.challengeNamePlaceholder')}
-              value={newCompTitle}
-              onChange={(e) => setNewCompTitle(e.target.value)}
-            />
-            <textarea
-              className="w-full mb-3 px-3 py-2 border rounded-lg"
-              placeholder={t('social.competitions.rulesDescription')}
-              value={newCompDesc}
-              onChange={(e) => setNewCompDesc(e.target.value)}
-              rows={2}
-            />
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div>
-                <label className="text-xs font-bold text-slate-500">{t('social.competitions.typeLabel')}</label>
-                <select className="w-full border rounded-lg p-2" value={newCompType} onChange={(e) => setNewCompType(e.target.value as any)}>
-                  <option value="word_count">{t('social.competitions.wordCountOption')}</option>
-                  <option value="days_streak">{t('social.competitions.streakOption')}</option>
-                </select>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-100">
+            {/* Modal Header with Subtle Gradient */}
+            <div className="bg-gradient-to-r from-amber-50 via-orange-50/60 to-emerald-50/40 px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center text-xl shadow-md shadow-amber-500/20">
+                  🏆
+                </div>
+                <div>
+                  <h3 className="font-black text-lg text-slate-800 tracking-tight leading-tight">
+                    {t('social.competitions.createLiteraryChallenge')}
+                  </h3>
+                  <p className="text-xs text-slate-500">Desafie a comunidade a bater novas metas</p>
+                </div>
               </div>
-              <div>
-                <label className="text-xs font-bold text-slate-500">{t('social.competitions.durationDaysLabel')}</label>
-                <input type="number" className="w-full border rounded-lg p-2" value={newCompDuration} onChange={(e) => setNewCompDuration(Number(e.target.value))} />
-              </div>
-            </div>
-            <div className="mb-4">
-              <label className="text-xs font-bold text-slate-500">{t('social.competitions.targetLabel')} ({newCompType === 'word_count' ? t('social.competitions.wordType') : t('social.competitions.daysLabel')})</label>
-              <input type="number" className="w-full border rounded-lg p-2" value={newCompTarget} onChange={(e) => setNewCompTarget(Number(e.target.value))} />
+              <button
+                onClick={() => setShowCreateComp(false)}
+                className="w-8 h-8 rounded-xl bg-white/80 hover:bg-white text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
 
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowCreateComp(false)} className="px-3 py-1.5 text-slate-500">{t('social.friends.cancel')}</button>
-              <button onClick={handleCreateCompetition} className="px-3 py-1.5 bg-amber-500 text-white rounded-lg">{t('social.competitions.launchChallenge')}</button>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                  Título do Desafio
+                </label>
+                <input
+                  className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-semibold text-slate-800 transition-all"
+                  placeholder={t('social.competitions.challengeNamePlaceholder')}
+                  value={newCompTitle}
+                  onChange={(e) => setNewCompTitle(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                  Regras & Descrição
+                </label>
+                <textarea
+                  className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm text-slate-700 resize-none transition-all"
+                  placeholder={t('social.competitions.rulesDescription')}
+                  value={newCompDesc}
+                  onChange={(e) => setNewCompDesc(e.target.value)}
+                  rows={2}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                    {t('social.competitions.typeLabel')}
+                  </label>
+                  <select
+                    className="w-full px-3 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-xs font-bold text-slate-700 transition-all"
+                    value={newCompType}
+                    onChange={(e) => setNewCompType(e.target.value as any)}
+                  >
+                    <option value="word_count">{t('social.competitions.wordCountOption')}</option>
+                    <option value="days_streak">{t('social.competitions.streakOption')}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                    {t('social.competitions.durationDaysLabel')}
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-bold text-slate-800 transition-all"
+                    value={newCompDuration}
+                    onChange={(e) => setNewCompDuration(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                  {t('social.competitions.targetLabel')} ({newCompType === 'word_count' ? t('social.competitions.wordType') : t('social.competitions.daysLabel')})
+                </label>
+                <input
+                  type="number"
+                  className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-bold text-emerald-700 transition-all"
+                  value={newCompTarget}
+                  onChange={(e) => setNewCompTarget(Number(e.target.value))}
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => setShowCreateComp(false)}
+                  className="px-4 py-2.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  {t('social.friends.cancel')}
+                </button>
+                <button
+                  onClick={handleCreateCompetition}
+                  className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-amber-500/25 transition-all cursor-pointer"
+                >
+                  {t('social.competitions.launchChallenge')}
+                </button>
+              </div>
             </div>
           </div>
         </div>

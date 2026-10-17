@@ -30,6 +30,7 @@ export const getFriendsList = async (userId: string): Promise<{ user: User, frie
   // Fetch all friendships and filter in memory to avoid complex query syntax issues
   const snapshot = await getDocs(collection(db, 'friendships'));
   const allUsers = await getAllUsers();
+  const seenUserIds = new Set<string>();
 
   return snapshot.docs
     .map(doc => {
@@ -39,8 +40,11 @@ export const getFriendsList = async (userId: string): Promise<{ user: User, frie
       if (f.requesterId !== userId && f.receiverId !== userId) return null;
 
       const friendId = f.requesterId === userId ? f.receiverId : f.requesterId;
+      if (seenUserIds.has(friendId)) return null;
       const friendUser = allUsers.find(u => u.id === friendId);
-      return friendUser ? { user: friendUser, friendshipId: doc.id } : null;
+      if (!friendUser) return null;
+      seenUserIds.add(friendId);
+      return { user: friendUser, friendshipId: doc.id };
     })
     .filter(Boolean) as { user: User, friendshipId: string }[];
 };

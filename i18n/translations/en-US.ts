@@ -665,6 +665,7 @@ export const enUS = {
             durationDaysLabel: 'Duration (Days)',
             targetLabel: 'Target',
             daysLabel: 'Days',
+            launchChallenge: '🚀 Launch Challenge',
             confirmDelete: 'Are you sure you want to delete this challenge?',
         },
         chat: {

@@ -665,6 +665,7 @@ export const ptBR = {
             durationDaysLabel: 'Duração (Dias)',
             targetLabel: 'Meta',
             daysLabel: 'Dias',
+            launchChallenge: '🚀 Lançar Desafio',
             confirmDelete: 'Tem certeza que deseja excluir este desafio?',
         },
         chat: {
