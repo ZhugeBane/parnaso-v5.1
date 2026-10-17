@@ -12,7 +12,7 @@ import { compressImage, resizeImageToBase64 } from '../utils/imageProcessor';
 import { ImagePicker } from './ui/ImagePicker';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell, Legend
+  LineChart, Line, AreaChart, Area, ReferenceLine, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { ProjectWorkspace } from './ProjectWorkspace';
 
@@ -142,6 +142,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   // Work Slidebar Selection ('all' | 'general' | projectId)
   const [selectedWorkId, setSelectedWorkId] = useState<string>('all');
   const slidebarScrollRef = useRef<HTMLDivElement>(null);
+
+  // Quality Chart Metric Filter ('all' | 'avaliacao' | 'estresse' | 'dificuldade')
+  const [qualityMetricFilter, setQualityMetricFilter] = useState<'all' | 'avaliacao' | 'estresse' | 'dificuldade'>('all');
 
   // Privacy / Print Mode: hides secret project names in charts and legends for photos/screenshots
   const [isPrivacyMode, setIsPrivacyMode] = useState<boolean>(() => {
@@ -449,11 +452,46 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   const wordsOverTime = Array.from(dateMap.values());
 
-  const metricsData = sortedSessions.map(s => ({
-    date: new Date(s.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-    estresse: s.stressLevel,
-    dificuldade: s.difficultyLevel,
-    avaliacao: s.sessionRating
+  // Group quality metrics chronologically by calendar date to avoid duplicate X-axis points
+  const qualityMap = new Map<string, {
+    date: string;
+    fullDate: string;
+    estresseTotal: number;
+    dificuldadeTotal: number;
+    avaliacaoTotal: number;
+    count: number;
+  }>();
+
+  sortedSessions.forEach(s => {
+    const d = new Date(s.date);
+    const dateKey = !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : s.date;
+    const label = !isNaN(d.getTime()) ? d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : s.date;
+    const fullDate = !isNaN(d.getTime()) ? d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }) : s.date;
+
+    const existing = qualityMap.get(dateKey) || {
+      date: label,
+      fullDate,
+      estresseTotal: 0,
+      dificuldadeTotal: 0,
+      avaliacaoTotal: 0,
+      count: 0
+    };
+
+    existing.estresseTotal += (s.stressLevel || 1);
+    existing.dificuldadeTotal += (s.difficultyLevel || 1);
+    existing.avaliacaoTotal += (s.sessionRating || 1);
+    existing.count += 1;
+
+    qualityMap.set(dateKey, existing);
+  });
+
+  const metricsData = Array.from(qualityMap.values()).map(item => ({
+    date: item.date,
+    fullDate: item.fullDate,
+    count: item.count,
+    estresse: Number((item.estresseTotal / item.count).toFixed(1)),
+    dificuldade: Number((item.dificuldadeTotal / item.count).toFixed(1)),
+    avaliacao: Number((item.avaliacaoTotal / item.count).toFixed(1))
   }));
 
   const strategyUsage = [
@@ -465,7 +503,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   // KPIs
   const totalWords = filteredSessions.reduce((acc, curr) => acc + curr.wordCount, 0);
-  const avgStress = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + curr.stressLevel, 0) / filteredSessions.length).toFixed(1) : 0;
+  const avgRating = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + (curr.sessionRating || 0), 0) / filteredSessions.length).toFixed(1) : '0';
+  const avgStress = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + (curr.stressLevel || 0), 0) / filteredSessions.length).toFixed(1) : '0';
+  const avgDifficulty = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + (curr.difficultyLevel || 0), 0) / filteredSessions.length).toFixed(1) : '0';
   const avgWords = filteredSessions.length ? Math.round(totalWords / filteredSessions.length) : 0;
 
   // Streak calculation
@@ -885,49 +925,235 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             )}
 
             {showQuality && (
-              <Card title={t('dashboard.qualityIndicators')} subtitle={t('dashboard.qualitySubtitle')}>
-                <div className="h-72 w-full">
+              <Card
+                title={t('dashboard.qualityIndicators')}
+                subtitle={t('dashboard.qualitySubtitle')}
+                headerAction={
+                  <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setQualityMetricFilter('all')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                        qualityMetricFilter === 'all'
+                          ? 'bg-white text-slate-800 shadow-2xs font-bold'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQualityMetricFilter('avaliacao')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                        qualityMetricFilter === 'avaliacao'
+                          ? 'bg-white text-emerald-700 shadow-2xs font-bold'
+                          : 'text-slate-500 hover:text-emerald-600'
+                      }`}
+                    >
+                      <span>⭐</span>
+                      <span>Avaliação</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQualityMetricFilter('estresse')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                        qualityMetricFilter === 'estresse'
+                          ? 'bg-white text-rose-700 shadow-2xs font-bold'
+                          : 'text-slate-500 hover:text-rose-600'
+                      }`}
+                    >
+                      <span>🧘</span>
+                      <span>Estresse</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQualityMetricFilter('dificuldade')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                        qualityMetricFilter === 'dificuldade'
+                          ? 'bg-white text-amber-700 shadow-2xs font-bold'
+                          : 'text-slate-500 hover:text-amber-600'
+                      }`}
+                    >
+                      <span>⚡</span>
+                      <span>Dificuldade</span>
+                    </button>
+                  </div>
+                }
+              >
+                {/* Mini Stat Summaries */}
+                <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-5 p-3 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
+                      <span className="text-slate-500 font-medium truncate">Média Avaliação:</span>
+                    </div>
+                    <span className="font-extrabold text-slate-800 text-sm">
+                      {avgRating}<span className="text-xs text-slate-400 font-normal">/5</span>
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 flex-shrink-0"></span>
+                      <span className="text-slate-500 font-medium truncate">Média Estresse:</span>
+                    </div>
+                    <span className="font-extrabold text-slate-800 text-sm">
+                      {avgStress}<span className="text-xs text-slate-400 font-normal">/5</span>
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 flex-shrink-0"></span>
+                      <span className="text-slate-500 font-medium truncate">Média Dificuldade:</span>
+                    </div>
+                    <span className="font-extrabold text-slate-800 text-sm">
+                      {avgDifficulty}<span className="text-xs text-slate-400 font-normal">/5</span>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="h-80 w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={metricsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <AreaChart data={metricsData} margin={{ top: 15, right: 15, left: -20, bottom: 5 }}>
+                      <defs>
+                        <linearGradient id="gradientAvaliacao" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={qualityMetricFilter === 'avaliacao' ? 0.35 : 0.08}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
+                        </linearGradient>
+                        <linearGradient id="gradientEstresse" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f43f5e" stopOpacity={qualityMetricFilter === 'estresse' ? 0.35 : 0.08}/>
+                          <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0}/>
+                        </linearGradient>
+                        <linearGradient id="gradientDificuldade" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={qualityMetricFilter === 'dificuldade' ? 0.35 : 0.08}/>
+                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0}/>
+                        </linearGradient>
+                      </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} dy={10} />
-                      <YAxis domain={[0, 6]} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                      <XAxis
+                        dataKey="date"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }}
+                        dy={8}
+                      />
+                      <YAxis
+                        domain={[1, 5]}
+                        ticks={[1, 2, 3, 4, 5]}
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 600 }}
+                      />
+                      <ReferenceLine
+                        y={3}
+                        stroke="#cbd5e1"
+                        strokeDasharray="4 4"
+                      />
                       <RechartsTooltip
-                        contentStyle={{
-                          borderRadius: '12px',
-                          border: 'none',
-                          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                        content={({ active, payload }: any) => {
+                          if (active && payload && payload.length) {
+                            const data = payload[0].payload;
+                            return (
+                              <div className="bg-slate-900/95 text-white p-3.5 rounded-2xl shadow-xl border border-slate-700/50 backdrop-blur-md text-xs space-y-2 min-w-[200px] animate-fade-in">
+                                <div className="border-b border-slate-800 pb-1.5 flex justify-between items-center">
+                                  <span className="font-bold text-slate-200">{data.fullDate || data.date}</span>
+                                  {data.count > 1 && (
+                                    <span className="text-[10px] font-extrabold bg-teal-500/20 text-teal-300 px-1.5 py-0.5 rounded">
+                                      {data.count} sessões
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="space-y-1.5 pt-0.5">
+                                  {(qualityMetricFilter === 'all' || qualityMetricFilter === 'avaliacao') && (
+                                    <div className="flex items-center justify-between gap-4">
+                                      <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                                        Avaliação:
+                                      </span>
+                                      <span className="font-bold text-white bg-emerald-950/60 border border-emerald-800/40 px-1.5 py-0.5 rounded">
+                                        {data.avaliacao}/5
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {(qualityMetricFilter === 'all' || qualityMetricFilter === 'estresse') && (
+                                    <div className="flex items-center justify-between gap-4">
+                                      <span className="flex items-center gap-1.5 text-rose-400 font-semibold">
+                                        <span className="w-2 h-2 rounded-full bg-rose-400 inline-block"></span>
+                                        Estresse:
+                                      </span>
+                                      <span className="font-bold text-white bg-rose-950/60 border border-rose-800/40 px-1.5 py-0.5 rounded">
+                                        {data.estresse}/5
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {(qualityMetricFilter === 'all' || qualityMetricFilter === 'dificuldade') && (
+                                    <div className="flex items-center justify-between gap-4">
+                                      <span className="flex items-center gap-1.5 text-amber-400 font-semibold">
+                                        <span className="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>
+                                        Dificuldade:
+                                      </span>
+                                      <span className="font-bold text-white bg-amber-950/60 border border-amber-800/40 px-1.5 py-0.5 rounded">
+                                        {data.dificuldade}/5
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
                         }}
                       />
-                      <Legend iconType="circle" wrapperStyle={{ paddingTop: '15px' }} />
-                      <Line
-                        type="monotone"
-                        dataKey="estresse"
-                        stroke="#f43f5e"
-                        strokeWidth={3}
-                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#f43f5e' }}
-                        activeDot={{ r: 6, strokeWidth: 0, fill: '#f43f5e' }}
-                        name="Estresse"
+                      <Legend
+                        iconType="circle"
+                        wrapperStyle={{ paddingTop: '15px' }}
+                        formatter={(value) => (
+                          <span className="text-xs font-semibold text-slate-600 mr-2">{value}</span>
+                        )}
                       />
-                      <Line
-                        type="monotone"
-                        dataKey="dificuldade"
-                        stroke="#f59e0b"
-                        strokeWidth={3}
-                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#f59e0b' }}
-                        activeDot={{ r: 6, strokeWidth: 0, fill: '#f59e0b' }}
-                        name="Dificuldade"
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="avaliacao"
-                        stroke="#10b981"
-                        strokeWidth={3}
-                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#10b981' }}
-                        activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }}
-                        name="Avaliação"
-                      />
-                    </LineChart>
+
+                      {(qualityMetricFilter === 'all' || qualityMetricFilter === 'estresse') && (
+                        <Area
+                          type="monotone"
+                          dataKey="estresse"
+                          stroke="#f43f5e"
+                          strokeWidth={qualityMetricFilter === 'estresse' ? 3.5 : 2.5}
+                          fill="url(#gradientEstresse)"
+                          dot={{ r: 3.5, strokeWidth: 1.5, fill: '#fff', stroke: '#f43f5e' }}
+                          activeDot={{ r: 6, strokeWidth: 0, fill: '#f43f5e' }}
+                          name="Estresse (1 a 5)"
+                        />
+                      )}
+
+                      {(qualityMetricFilter === 'all' || qualityMetricFilter === 'dificuldade') && (
+                        <Area
+                          type="monotone"
+                          dataKey="dificuldade"
+                          stroke="#f59e0b"
+                          strokeWidth={qualityMetricFilter === 'dificuldade' ? 3.5 : 2.5}
+                          fill="url(#gradientDificuldade)"
+                          dot={{ r: 3.5, strokeWidth: 1.5, fill: '#fff', stroke: '#f59e0b' }}
+                          activeDot={{ r: 6, strokeWidth: 0, fill: '#f59e0b' }}
+                          name="Dificuldade (1 a 5)"
+                        />
+                      )}
+
+                      {(qualityMetricFilter === 'all' || qualityMetricFilter === 'avaliacao') && (
+                        <Area
+                          type="monotone"
+                          dataKey="avaliacao"
+                          stroke="#10b981"
+                          strokeWidth={qualityMetricFilter === 'avaliacao' ? 3.5 : 2.5}
+                          fill="url(#gradientAvaliacao)"
+                          dot={{ r: 3.5, strokeWidth: 1.5, fill: '#fff', stroke: '#10b981' }}
+                          activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }}
+                          name="Avaliação (1 a 5)"
+                        />
+                      )}
+                    </AreaChart>
                   </ResponsiveContainer>
                 </div>
               </Card>
