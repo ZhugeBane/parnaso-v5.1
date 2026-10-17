@@ -1897,7 +1897,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
           <div
             ref={slidebarScrollRef}
-            className="flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth py-1 px-1 w-full"
+            className="flex items-center gap-2 overflow-x-auto no-scrollbar scrollbar-none scroll-smooth py-1 px-1 w-full"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
             {/* Pill: Todas as Obras */}
             <button
@@ -2240,151 +2241,206 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
-        <div className="flex items-center gap-4">
-          {readOnly ? (
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-slate-800 text-white rounded-lg">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">{t('dashboard.inspecting')}: {user.name}</h1>
-                <span className="text-xs font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{t('dashboard.readOnly')}</span>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-4">
-              <div className="relative group cursor-pointer" onClick={() => !readOnly && fileInputRef.current?.click()}>
-                <div className="absolute inset-0 bg-teal-400 rounded-full blur opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none"></div>
-                {(user.photoBase64 || user.photoURL) ? (
-                  <img
-                    src={user.photoBase64 || user.photoURL}
-                    alt={user.name}
-                    className={`relative w-20 h-20 rounded-full object-cover border-4 border-white shadow-xl transform transition-transform group-hover:scale-105 ${isUpdatingAvatar ? 'opacity-50' : ''}`}
-                  />
-                ) : (
-                  <div className="relative w-20 h-20 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-full border-4 border-white shadow-xl flex items-center justify-center text-white text-3xl font-black transform transition-transform group-hover:scale-105">
-                    {user.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                {!readOnly && (
-                  <div className="absolute -bottom-1 -right-1 bg-white p-1.5 rounded-full shadow-lg border border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                  </div>
-                )}
-                <input type="file" ref={fileInputRef} className="hidden" accept="image/png, image/jpeg" onChange={handleUpdateAvatar} />
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Projeto Parnaso</h1>
-                <p className="text-slate-500 mt-1 text-sm sm:text-base leading-relaxed">
-                  {t('dashboard.welcome')}, <span className="font-semibold text-teal-600">{user.name}</span>. {t('dashboard.letsWrite')}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
+      {/* Imposing Hero Header Card */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-teal-950 to-emerald-950 text-white shadow-xl border border-teal-900/60 p-6 sm:p-7 mb-8">
+        {/* Subtle Ambient Glow Elements */}
+        <div className="absolute -top-24 -left-24 w-80 h-80 bg-teal-500/15 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none"></div>
 
-        <div className="flex gap-3">
-          {!readOnly && <LanguageSelector />}
-
-          {/* Purple Diamonds Balance Pill */}
-          {!readOnly && (
-            <button
-              type="button"
-              onClick={() => { setActiveTab('rewards'); setSelectedProjectId(null); }}
-              className={`flex items-center gap-2 px-3.5 py-3 rounded-xl font-bold text-xs transition-all shadow-sm cursor-pointer ${
-                activeTab === 'rewards'
-                  ? 'bg-purple-600 text-white shadow-purple-200 ring-2 ring-purple-400'
-                  : 'bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-900'
-              }`}
-              title="Loja de Autorrecompensas (2 palavras = 1 💎)"
-            >
-              <span className="text-base leading-none">💎</span>
-              <span className="font-extrabold">{wordsToDiamonds(lifetimeTotalWords).toLocaleString('pt-BR')}</span>
-              <span className="hidden sm:inline font-semibold opacity-90">{t('dashboard.purpleDiamonds')}</span>
-            </button>
-          )}
-          {user.role === 'admin' && !readOnly && (
-            <button
-              onClick={onAdminPanel}
-              className="flex items-center px-4 py-3 bg-slate-800 text-white font-medium rounded-xl hover:bg-slate-900 transition-colors shadow-lg shadow-slate-300"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              {t('dashboard.adminPanel')}
-            </button>
-          )}
-
-          {!readOnly && (
-            <>
-              {onSocial && (
-                <button
-                  onClick={onSocial}
-                  className="flex items-center justify-center px-4 py-3 bg-white border border-slate-200 text-teal-600 font-medium rounded-xl hover:bg-slate-50 transition-colors shadow-sm"
-                  title={t('dashboard.communityAndChat')}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+        <div className="relative z-10 flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+          {/* Left Column: Author Avatar + Greeting */}
+          <div className="flex items-center gap-5 sm:gap-6">
+            {readOnly ? (
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-white/10 backdrop-blur-md text-white rounded-2xl border border-white/10 shadow-lg">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                   </svg>
-                  {t('dashboard.social')}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-2xl font-black text-white tracking-tight">{t('dashboard.inspecting')}</h1>
+                    <span className="text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-0.5 rounded-full">{t('dashboard.readOnly')}</span>
+                  </div>
+                  <p className="text-teal-300 font-bold text-lg">{user.name}</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Imposing Avatar with Double Ring Frame */}
+                <div
+                  className="relative group cursor-pointer flex-shrink-0"
+                  onClick={() => !readOnly && fileInputRef.current?.click()}
+                  title="Clique para alterar a foto de perfil"
+                >
+                  <div className="absolute inset-0 bg-emerald-400 rounded-full blur-md opacity-25 group-hover:opacity-70 transition-opacity pointer-events-none"></div>
+                  {(user.photoBase64 || user.photoURL) ? (
+                    <img
+                      src={user.photoBase64 || user.photoURL}
+                      alt={user.name}
+                      className={`relative w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover border-2 border-emerald-400 ring-4 ring-emerald-500/30 shadow-2xl transform transition-transform duration-300 group-hover:scale-105 ${isUpdatingAvatar ? 'opacity-50' : ''}`}
+                    />
+                  ) : (
+                    <div className="relative w-24 h-24 sm:w-28 sm:h-28 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-full border-2 border-emerald-400 ring-4 ring-emerald-500/30 shadow-2xl flex items-center justify-center text-white text-4xl font-black transform transition-transform duration-300 group-hover:scale-105">
+                      {user.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+
+                  {!readOnly && (
+                    <div className="absolute -bottom-1 -right-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 p-2 rounded-full shadow-lg border-2 border-slate-900 opacity-90 group-hover:opacity-100 transition-all group-hover:scale-110">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </div>
+                  )}
+                  <input type="file" ref={fileInputRef} className="hidden" accept="image/png, image/jpeg" onChange={handleUpdateAvatar} />
+                </div>
+
+                {/* Typography and Greeting */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                      Projeto Parnaso
+                    </h1>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30 shadow-2xs">
+                      Plataforma Literária
+                    </span>
+                  </div>
+                  <p className="text-slate-300 text-sm sm:text-base font-normal tracking-wide">
+                    {t('dashboard.welcome')}, <strong className="font-extrabold text-teal-300">{user.name}.</strong> {t('dashboard.letsWrite')}
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Right Column: Actions and Controls */}
+          <div className="flex flex-col gap-3 xl:items-end">
+            {/* Top Sub-row: Badges and Secondary Controls */}
+            <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
+              {!readOnly && (
+                <>
+                  {/* Purple Diamonds Pill with Glassmorphism */}
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('rewards'); setSelectedProjectId(null); }}
+                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs transition-all shadow-sm cursor-pointer backdrop-blur-md ${
+                      activeTab === 'rewards'
+                        ? 'bg-purple-600 text-white shadow-purple-500/30 ring-2 ring-purple-400'
+                        : 'bg-purple-950/50 hover:bg-purple-900/60 border border-purple-500/30 text-purple-200'
+                    }`}
+                    title="Loja de Autorrecompensas (2 palavras = 1 💎)"
+                  >
+                    <span className="text-sm">💎</span>
+                    <span className="font-extrabold tracking-wide">{wordsToDiamonds(lifetimeTotalWords).toLocaleString('pt-BR')}</span>
+                    <span className="hidden sm:inline opacity-85 font-semibold">{t('dashboard.purpleDiamonds')}</span>
+                  </button>
+
+                  {/* Social Hub Pill */}
+                  {onSocial && (
+                    <button
+                      onClick={onSocial}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md bg-white/10 hover:bg-white/20 border border-white/15 text-white transition-all shadow-sm cursor-pointer"
+                      title={t('dashboard.communityAndChat')}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-teal-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                      <span>{t('dashboard.social')}</span>
+                    </button>
+                  )}
+
+                  {/* Compact Secondary Controls Tray */}
+                  <div className="flex items-center gap-1 bg-black/20 backdrop-blur-md p-1 rounded-xl border border-white/10">
+                    <LanguageSelector />
+
+                    <button
+                      onClick={() => { setTempSettings(settings); setShowSettings(true); setDeleteConfirm(false); }}
+                      className="p-2 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                      title={t('dashboard.configureGoals')}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </button>
+
+                    {onHelp && (
+                      <button
+                        onClick={onHelp}
+                        className="p-2 text-purple-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                        title={t('dashboard.helpAndAbout')}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </button>
+                    )}
+
+                    <button
+                      onClick={onLogout}
+                      className="p-2 text-rose-300 hover:text-rose-100 hover:bg-rose-500/20 rounded-lg transition-colors cursor-pointer"
+                      title={t('dashboard.logout')}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                      </svg>
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {user.role === 'admin' && !readOnly && (
+                <button
+                  onClick={onAdminPanel}
+                  className="flex items-center px-3.5 py-2 bg-slate-800/90 text-white font-medium rounded-xl hover:bg-slate-700 transition-colors shadow-md border border-slate-700 text-xs cursor-pointer"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  {t('dashboard.adminPanel')}
                 </button>
               )}
-              <button
-                onClick={() => { setTempSettings(settings); setShowSettings(true); setDeleteConfirm(false); }}
-                className="p-3 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition-colors shadow-sm"
-                title={t('dashboard.configureGoals')}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </button>
-              {onHelp && (
+
+              {readOnly && (
                 <button
-                  onClick={onHelp}
-                  className="p-3 bg-white border border-slate-200 text-purple-600 rounded-xl hover:bg-purple-50 transition-colors shadow-sm"
-                  title={t('dashboard.helpAndAbout')}
+                  onClick={onAdminPanel}
+                  className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white font-medium rounded-xl border border-white/20 transition-colors text-xs cursor-pointer"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+                  {t('dashboard.closeInspection')}
                 </button>
               )}
-              <button onClick={onFocusMode} className="flex items-center justify-center px-5 py-3 bg-slate-800 hover:bg-slate-900 text-white font-medium rounded-xl shadow-lg shadow-slate-300 transition-all hover:-translate-y-0.5">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                {t('dashboard.focusMode')}
-              </button>
-              <button onClick={() => onNewSession()} className="flex items-center justify-center px-5 py-3 bg-teal-500 hover:bg-teal-600 text-white font-medium rounded-xl shadow-lg shadow-teal-200 transition-all hover:-translate-y-0.5">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                {t('dashboard.newSession')}
-              </button>
-              <button onClick={onLogout} className="p-3 bg-rose-50 border border-rose-100 text-rose-600 rounded-xl hover:bg-rose-100 transition-colors shadow-sm ml-2" title={t('dashboard.logout')}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-              </button>
-            </>
-          )}
+            </div>
 
-          {readOnly && (
-            <button onClick={onAdminPanel} className="px-4 py-2 bg-slate-200 text-slate-700 font-medium rounded-xl hover:bg-slate-300 transition-colors">
-              {t('dashboard.closeInspection')}
-            </button>
-          )}
+            {/* Bottom Sub-row: Prominent Action Buttons */}
+            {!readOnly && (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={onFocusMode}
+                  className="flex items-center justify-center px-4 sm:px-5 py-2.5 bg-slate-800/90 hover:bg-slate-700/90 text-white font-semibold rounded-xl border border-slate-700/80 shadow-md transition-all hover:-translate-y-0.5 whitespace-nowrap text-xs sm:text-sm cursor-pointer"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  <span>{t('dashboard.focusMode')}</span>
+                </button>
+
+                <button
+                  onClick={() => onNewSession()}
+                  className="flex items-center justify-center px-5 sm:px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl shadow-lg shadow-emerald-500/25 transition-all hover:-translate-y-0.5 whitespace-nowrap text-xs sm:text-sm cursor-pointer"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span>{t('dashboard.newSession')}</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
