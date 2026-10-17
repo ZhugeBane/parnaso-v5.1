@@ -1168,291 +1168,352 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               </Card>
             )}
 
-            {showQuality && (
-              <Card
-                title={t('dashboard.qualityIndicators')}
-                subtitle={t('dashboard.qualitySubtitle')}
-                headerAction={
-                  <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
-                    <button
-                      type="button"
-                      onClick={() => setQualityMetricFilter('all')}
-                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                        qualityMetricFilter === 'all'
-                          ? 'bg-white text-slate-800 shadow-2xs font-bold'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      Todos
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setQualityMetricFilter('avaliacao')}
-                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
-                        qualityMetricFilter === 'avaliacao'
-                          ? 'bg-white text-emerald-700 shadow-2xs font-bold'
-                          : 'text-slate-500 hover:text-emerald-600'
-                      }`}
-                    >
-                      <span>⭐</span>
-                      <span>Avaliação</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setQualityMetricFilter('estresse')}
-                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
-                        qualityMetricFilter === 'estresse'
-                          ? 'bg-white text-rose-700 shadow-2xs font-bold'
-                          : 'text-slate-500 hover:text-rose-600'
-                      }`}
-                    >
-                      <span>🧘</span>
-                      <span>Estresse</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setQualityMetricFilter('dificuldade')}
-                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
-                        qualityMetricFilter === 'dificuldade'
-                          ? 'bg-white text-amber-700 shadow-2xs font-bold'
-                          : 'text-slate-500 hover:text-amber-600'
-                      }`}
-                    >
-                      <span>⚡</span>
-                      <span>Dificuldade</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setQualityMetricFilter('autocorrecao')}
-                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
-                        qualityMetricFilter === 'autocorrecao'
-                          ? 'bg-white text-purple-700 shadow-2xs font-bold'
-                          : 'text-slate-500 hover:text-purple-600'
-                      }`}
-                    >
-                      <span>✏️</span>
-                      <span>Autocorreção</span>
-                    </button>
-                  </div>
+            {showQuality && (() => {
+              const ratingNum = Number(avgRating) || 0;
+              const stressNum = Number(avgStress) || 0;
+              const difficultyNum = Number(avgDifficulty) || 0;
+              const autoCorrNum = Number(avgAutoCorrection) || 0;
+
+              const qualityCardsConfig = [
+                {
+                  key: 'avaliacao' as const,
+                  title: 'Avaliação',
+                  icon: '⭐',
+                  color: '#10b981',
+                  avg: avgRating,
+                  avgNum: ratingNum,
+                  semantic: ratingNum === 0 ? 'Sem dados' : ratingNum >= 4.0 ? 'Ótimo' : ratingNum >= 3.0 ? 'Bom' : 'Regular',
+                  cardBg: 'bg-emerald-50/25 hover:bg-emerald-50/45 border-emerald-100/90 hover:border-emerald-200',
+                  iconBg: 'bg-emerald-100/80 text-emerald-700',
+                  badgeClass: 'bg-emerald-100/80 text-emerald-700 border-emerald-200/70',
+                  textColor: 'text-emerald-700'
+                },
+                {
+                  key: 'estresse' as const,
+                  title: 'Estresse',
+                  icon: '🧘',
+                  color: '#f43f5e',
+                  avg: avgStress,
+                  avgNum: stressNum,
+                  semantic: stressNum === 0 ? 'Sem dados' : stressNum <= 2.0 ? 'Baixo' : stressNum <= 3.5 ? 'Moderado' : 'Elevado',
+                  cardBg: 'bg-rose-50/25 hover:bg-rose-50/45 border-rose-100/90 hover:border-rose-200',
+                  iconBg: 'bg-rose-100/80 text-rose-700',
+                  badgeClass: 'bg-rose-100/80 text-rose-700 border-rose-200/70',
+                  textColor: 'text-rose-700'
+                },
+                {
+                  key: 'dificuldade' as const,
+                  title: 'Dificuldade',
+                  icon: '⚡',
+                  color: '#f59e0b',
+                  avg: avgDifficulty,
+                  avgNum: difficultyNum,
+                  semantic: difficultyNum === 0 ? 'Sem dados' : difficultyNum <= 2.0 ? 'Baixo' : difficultyNum <= 3.5 ? 'Moderado' : 'Elevado',
+                  cardBg: 'bg-amber-50/25 hover:bg-amber-50/45 border-amber-100/90 hover:border-amber-200',
+                  iconBg: 'bg-amber-100/80 text-amber-700',
+                  badgeClass: 'bg-amber-100/80 text-amber-700 border-amber-200/70',
+                  textColor: 'text-amber-700'
+                },
+                {
+                  key: 'autocorrecao' as const,
+                  title: 'Autocorreção',
+                  icon: '✏️',
+                  color: '#8b5cf6',
+                  avg: avgAutoCorrection,
+                  avgNum: autoCorrNum,
+                  semantic: autoCorrNum === 0 ? 'Sem dados' : autoCorrNum <= 2.0 ? 'Baixo' : autoCorrNum <= 3.5 ? 'Moderado' : 'Frequente',
+                  cardBg: 'bg-purple-50/25 hover:bg-purple-50/45 border-purple-100/90 hover:border-purple-200',
+                  iconBg: 'bg-purple-100/80 text-purple-700',
+                  badgeClass: 'bg-purple-100/80 text-purple-700 border-purple-200/70',
+                  textColor: 'text-purple-700'
                 }
-              >
-                {/* Mini Stat Summaries */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-5 p-3 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
-                      <span className="text-slate-500 font-medium truncate">Média Avaliação:</span>
+              ];
+
+              const activeSingleMetric = qualityCardsConfig.find(c => c.key === qualityMetricFilter);
+
+              return (
+                <Card
+                  title={t('dashboard.qualityIndicators')}
+                  subtitle={t('dashboard.qualitySubtitle')}
+                  headerAction={
+                    <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setQualityMetricFilter('all')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                          qualityMetricFilter === 'all'
+                            ? 'bg-white text-slate-800 shadow-2xs font-bold'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        Todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQualityMetricFilter('avaliacao')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                          qualityMetricFilter === 'avaliacao'
+                            ? 'bg-white text-emerald-700 shadow-2xs font-bold'
+                            : 'text-slate-500 hover:text-emerald-600'
+                        }`}
+                      >
+                        <span>⭐</span>
+                        <span>Avaliação</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQualityMetricFilter('estresse')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                          qualityMetricFilter === 'estresse'
+                            ? 'bg-white text-rose-700 shadow-2xs font-bold'
+                            : 'text-slate-500 hover:text-rose-600'
+                        }`}
+                      >
+                        <span>🧘</span>
+                        <span>Estresse</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQualityMetricFilter('dificuldade')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                          qualityMetricFilter === 'dificuldade'
+                            ? 'bg-white text-amber-700 shadow-2xs font-bold'
+                            : 'text-slate-500 hover:text-amber-600'
+                        }`}
+                      >
+                        <span>⚡</span>
+                        <span>Dificuldade</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQualityMetricFilter('autocorrecao')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                          qualityMetricFilter === 'autocorrecao'
+                            ? 'bg-white text-purple-700 shadow-2xs font-bold'
+                            : 'text-slate-500 hover:text-purple-600'
+                        }`}
+                      >
+                        <span>✏️</span>
+                        <span>Autocorreção</span>
+                      </button>
                     </div>
-                    <span className="font-extrabold text-slate-800 text-sm">
-                      {avgRating}<span className="text-xs text-slate-400 font-normal">/5</span>
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 flex-shrink-0"></span>
-                      <span className="text-slate-500 font-medium truncate">Média Estresse:</span>
-                    </div>
-                    <span className="font-extrabold text-slate-800 text-sm">
-                      {avgStress}<span className="text-xs text-slate-400 font-normal">/5</span>
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 flex-shrink-0"></span>
-                      <span className="text-slate-500 font-medium truncate">Média Dificuldade:</span>
-                    </div>
-                    <span className="font-extrabold text-slate-800 text-sm">
-                      {avgDifficulty}<span className="text-xs text-slate-400 font-normal">/5</span>
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-purple-500 flex-shrink-0"></span>
-                      <span className="text-slate-500 font-medium truncate">Média Autocorreção:</span>
-                    </div>
-                    <span className="font-extrabold text-slate-800 text-sm">
-                      {avgAutoCorrection}<span className="text-xs text-slate-400 font-normal">/5</span>
-                    </span>
-                  </div>
-                </div>
-
-                <div className="h-80 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={metricsData} margin={{ top: 15, right: 15, left: -20, bottom: 5 }}>
-                      <defs>
-                        <linearGradient id="gradientAvaliacao" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10b981" stopOpacity={qualityMetricFilter === 'avaliacao' ? 0.35 : 0.08}/>
-                          <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
-                        </linearGradient>
-                        <linearGradient id="gradientEstresse" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f43f5e" stopOpacity={qualityMetricFilter === 'estresse' ? 0.35 : 0.08}/>
-                          <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0}/>
-                        </linearGradient>
-                        <linearGradient id="gradientDificuldade" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={qualityMetricFilter === 'dificuldade' ? 0.35 : 0.08}/>
-                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0}/>
-                        </linearGradient>
-                        <linearGradient id="gradientAutocorrecao" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={qualityMetricFilter === 'autocorrecao' ? 0.35 : 0.08}/>
-                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis
-                        dataKey="date"
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }}
-                        dy={8}
-                      />
-                      <YAxis
-                        domain={[1, 5]}
-                        ticks={[1, 2, 3, 4, 5]}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 600 }}
-                      />
-                      <ReferenceLine
-                        y={3}
-                        stroke="#cbd5e1"
-                        strokeDasharray="4 4"
-                      />
-                      <RechartsTooltip
-                        content={({ active, payload }: any) => {
-                          if (active && payload && payload.length) {
-                            const data = payload[0].payload;
-                            return (
-                              <div className="bg-slate-900/95 text-white p-3.5 rounded-2xl shadow-xl border border-slate-700/50 backdrop-blur-md text-xs space-y-2 min-w-[210px] animate-fade-in">
-                                <div className="border-b border-slate-800 pb-1.5 flex justify-between items-center">
-                                  <span className="font-bold text-slate-200">{data.fullDate || data.date}</span>
-                                  {data.count > 1 && (
-                                    <span className="text-[10px] font-extrabold bg-teal-500/20 text-teal-300 px-1.5 py-0.5 rounded">
-                                      {data.count} sessões
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="space-y-1.5 pt-0.5">
-                                  {(qualityMetricFilter === 'all' || qualityMetricFilter === 'avaliacao') && (
-                                    <div className="flex items-center justify-between gap-4">
-                                      <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
-                                        <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
-                                        Avaliação:
-                                      </span>
-                                      <span className="font-bold text-white bg-emerald-950/60 border border-emerald-800/40 px-1.5 py-0.5 rounded">
-                                        {data.avaliacao}/5
-                                      </span>
-                                    </div>
-                                  )}
-
-                                  {(qualityMetricFilter === 'all' || qualityMetricFilter === 'estresse') && (
-                                    <div className="flex items-center justify-between gap-4">
-                                      <span className="flex items-center gap-1.5 text-rose-400 font-semibold">
-                                        <span className="w-2 h-2 rounded-full bg-rose-400 inline-block"></span>
-                                        Estresse:
-                                      </span>
-                                      <span className="font-bold text-white bg-rose-950/60 border border-rose-800/40 px-1.5 py-0.5 rounded">
-                                        {data.estresse}/5
-                                      </span>
-                                    </div>
-                                  )}
-
-                                  {(qualityMetricFilter === 'all' || qualityMetricFilter === 'dificuldade') && (
-                                    <div className="flex items-center justify-between gap-4">
-                                      <span className="flex items-center gap-1.5 text-amber-400 font-semibold">
-                                        <span className="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>
-                                        Dificuldade:
-                                      </span>
-                                      <span className="font-bold text-white bg-amber-950/60 border border-amber-800/40 px-1.5 py-0.5 rounded">
-                                        {data.dificuldade}/5
-                                      </span>
-                                    </div>
-                                  )}
-
-                                  {(qualityMetricFilter === 'all' || qualityMetricFilter === 'autocorrecao') && (
-                                    <div className="flex items-center justify-between gap-4">
-                                      <span className="flex items-center gap-1.5 text-purple-400 font-semibold">
-                                        <span className="w-2 h-2 rounded-full bg-purple-400 inline-block"></span>
-                                        Autocorreção:
-                                      </span>
-                                      <span className="font-bold text-white bg-purple-950/60 border border-purple-800/40 px-1.5 py-0.5 rounded">
-                                        {data.autocorrecao}/5
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
+                  }
+                >
+                  {qualityMetricFilter === 'all' ? (
+                    /* 2x2 Sparkline Bento Grid */
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {qualityCardsConfig.map((item) => (
+                        <div
+                          key={item.key}
+                          onClick={() => setQualityMetricFilter(item.key)}
+                          className={`group rounded-2xl border p-4 transition-all duration-200 cursor-pointer hover:shadow-sm ${item.cardBg}`}
+                          title={`Clique para expandir o gráfico de ${item.title}`}
+                        >
+                          {/* Sub-card Top Header */}
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-7 h-7 rounded-xl flex items-center justify-center text-sm shadow-2xs ${item.iconBg}`}>
+                                {item.icon}
+                              </span>
+                              <div>
+                                <h4 className="text-xs font-extrabold text-slate-800 leading-tight group-hover:underline">
+                                  {item.title}
+                                </h4>
+                                <span className="text-[10px] text-slate-400 font-medium">Escala 1 a 5</span>
                               </div>
-                            );
-                          }
-                          return null;
-                        }}
-                      />
-                      <Legend
-                        iconType="circle"
-                        wrapperStyle={{ paddingTop: '15px' }}
-                        formatter={(value) => (
-                          <span className="text-xs font-semibold text-slate-600 mr-2">{value}</span>
-                        )}
-                      />
+                            </div>
 
-                      {(qualityMetricFilter === 'all' || qualityMetricFilter === 'estresse') && (
-                        <Area
-                          type="monotone"
-                          dataKey="estresse"
-                          stroke="#f43f5e"
-                          strokeWidth={qualityMetricFilter === 'estresse' ? 3.5 : 2.5}
-                          fill="url(#gradientEstresse)"
-                          dot={{ r: 3.5, strokeWidth: 1.5, fill: '#fff', stroke: '#f43f5e' }}
-                          activeDot={{ r: 6, strokeWidth: 0, fill: '#f43f5e' }}
-                          name="Estresse (1 a 5)"
-                        />
-                      )}
+                            <div className="flex flex-col items-end">
+                              <div className="flex items-baseline gap-1">
+                                <span className="text-base font-black text-slate-800 leading-none">
+                                  {item.avg}
+                                </span>
+                                <span className="text-[11px] text-slate-400 font-semibold">/ 5</span>
+                              </div>
+                              <span className={`mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${item.badgeClass}`}>
+                                {item.semantic}
+                              </span>
+                            </div>
+                          </div>
 
-                      {(qualityMetricFilter === 'all' || qualityMetricFilter === 'dificuldade') && (
-                        <Area
-                          type="monotone"
-                          dataKey="dificuldade"
-                          stroke="#f59e0b"
-                          strokeWidth={qualityMetricFilter === 'dificuldade' ? 3.5 : 2.5}
-                          fill="url(#gradientDificuldade)"
-                          dot={{ r: 3.5, strokeWidth: 1.5, fill: '#fff', stroke: '#f59e0b' }}
-                          activeDot={{ r: 6, strokeWidth: 0, fill: '#f59e0b' }}
-                          name="Dificuldade (1 a 5)"
-                        />
-                      )}
+                          {/* Smooth Sparkline AreaChart */}
+                          <div className="h-28 w-full mt-1">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={metricsData} margin={{ top: 8, right: 6, left: 6, bottom: 2 }}>
+                                <defs>
+                                  <linearGradient id={`sparkGrad_${item.key}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor={item.color} stopOpacity={0.25} />
+                                    <stop offset="100%" stopColor={item.color} stopOpacity={0.0} />
+                                  </linearGradient>
+                                </defs>
+                                <XAxis dataKey="date" hide />
+                                <YAxis domain={[1, 5]} hide />
+                                <RechartsTooltip
+                                  content={({ active, payload }: any) => {
+                                    if (active && payload && payload.length) {
+                                      const data = payload[0].payload;
+                                      return (
+                                        <div className="bg-slate-900/95 text-white px-3 py-2 rounded-xl shadow-lg border border-slate-700/60 text-xs space-y-1">
+                                          <div className="text-[10px] font-bold text-slate-300 border-b border-slate-700/70 pb-1 flex items-center justify-between gap-3">
+                                            <span>{data.fullDate || data.date}</span>
+                                            {data.count > 1 && (
+                                              <span className="text-[9px] text-teal-300">({data.count} sessões)</span>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center justify-between gap-3 pt-0.5">
+                                            <span className="font-semibold text-slate-200 flex items-center gap-1">
+                                              <span>{item.icon}</span>
+                                              <span>{item.title}:</span>
+                                            </span>
+                                            <span className="font-black text-white">
+                                              {data[item.key]} / 5
+                                            </span>
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  }}
+                                />
+                                <Area
+                                  type="monotone"
+                                  dataKey={item.key}
+                                  stroke={item.color}
+                                  strokeWidth={2.5}
+                                  fill={`url(#sparkGrad_${item.key})`}
+                                  dot={false}
+                                  activeDot={{ r: 4.5, strokeWidth: 2, fill: '#fff', stroke: item.color }}
+                                />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : activeSingleMetric ? (
+                    /* Full-Width Individual Indicator Area Chart */
+                    <div className="space-y-4 animate-fade-in">
+                      <div className={`flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl border ${activeSingleMetric.cardBg}`}>
+                        <div className="flex items-center gap-2.5">
+                          <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-base shadow-2xs ${activeSingleMetric.iconBg}`}>
+                            {activeSingleMetric.icon}
+                          </span>
+                          <div>
+                            <h4 className="text-sm font-extrabold text-slate-800 leading-tight">
+                              {activeSingleMetric.title}
+                            </h4>
+                            <p className="text-[11px] text-slate-500">
+                              Evolução histórica e linha de referência da média ({activeSingleMetric.avg} / 5)
+                            </p>
+                          </div>
+                        </div>
 
-                      {(qualityMetricFilter === 'all' || qualityMetricFilter === 'autocorrecao') && (
-                        <Area
-                          type="monotone"
-                          dataKey="autocorrecao"
-                          stroke="#8b5cf6"
-                          strokeWidth={qualityMetricFilter === 'autocorrecao' ? 3.5 : 2.5}
-                          fill="url(#gradientAutocorrecao)"
-                          dot={{ r: 3.5, strokeWidth: 1.5, fill: '#fff', stroke: '#8b5cf6' }}
-                          activeDot={{ r: 6, strokeWidth: 0, fill: '#8b5cf6' }}
-                          name="Autocorreção (1 a 5)"
-                        />
-                      )}
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2 bg-white/90 px-3 py-1.5 rounded-xl border border-slate-200/70 shadow-2xs">
+                            <span className="text-[11px] text-slate-500 font-semibold">Média:</span>
+                            <span className="text-sm font-black text-slate-800">
+                              {activeSingleMetric.avg} <span className="text-xs font-normal text-slate-400">/ 5</span>
+                            </span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${activeSingleMetric.badgeClass}`}>
+                              {activeSingleMetric.semantic}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setQualityMetricFilter('all')}
+                            className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/80 text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            ← Ver Todos
+                          </button>
+                        </div>
+                      </div>
 
-                      {(qualityMetricFilter === 'all' || qualityMetricFilter === 'avaliacao') && (
-                        <Area
-                          type="monotone"
-                          dataKey="avaliacao"
-                          stroke="#10b981"
-                          strokeWidth={qualityMetricFilter === 'avaliacao' ? 3.5 : 2.5}
-                          fill="url(#gradientAvaliacao)"
-                          dot={{ r: 3.5, strokeWidth: 1.5, fill: '#fff', stroke: '#10b981' }}
-                          activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }}
-                          name="Avaliação (1 a 5)"
-                        />
-                      )}
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </Card>
-            )}
+                      <div className="h-72 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={metricsData} margin={{ top: 15, right: 20, left: -20, bottom: 5 }}>
+                            <defs>
+                              <linearGradient id={`singleGrad_${activeSingleMetric.key}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={activeSingleMetric.color} stopOpacity={0.25} />
+                                <stop offset="100%" stopColor={activeSingleMetric.color} stopOpacity={0.0} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis
+                              dataKey="date"
+                              axisLine={false}
+                              tickLine={false}
+                              tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 500 }}
+                              dy={8}
+                            />
+                            <YAxis
+                              domain={[1, 5]}
+                              ticks={[1, 2, 3, 4, 5]}
+                              axisLine={false}
+                              tickLine={false}
+                              tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 600 }}
+                            />
+                            {activeSingleMetric.avgNum > 0 && (
+                              <ReferenceLine
+                                y={activeSingleMetric.avgNum}
+                                stroke={activeSingleMetric.color}
+                                strokeDasharray="5 5"
+                                strokeWidth={1.5}
+                                strokeOpacity={0.75}
+                                label={{
+                                  value: `Média: ${activeSingleMetric.avg}`,
+                                  position: 'insideTopRight',
+                                  fill: activeSingleMetric.color,
+                                  fontSize: 11,
+                                  fontWeight: 700
+                                }}
+                              />
+                            )}
+                            <RechartsTooltip
+                              content={({ active, payload }: any) => {
+                                if (active && payload && payload.length) {
+                                  const data = payload[0].payload;
+                                  return (
+                                    <div className="bg-slate-900/95 text-white p-3.5 rounded-2xl shadow-xl border border-slate-700/50 backdrop-blur-md text-xs space-y-2 min-w-[190px] animate-fade-in">
+                                      <div className="border-b border-slate-800 pb-1.5 flex justify-between items-center gap-3">
+                                        <span className="font-bold text-slate-200">{data.fullDate || data.date}</span>
+                                        {data.count > 1 && (
+                                          <span className="text-[10px] font-extrabold bg-teal-500/20 text-teal-300 px-1.5 py-0.5 rounded">
+                                            {data.count} sessões
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center justify-between gap-4 pt-0.5">
+                                        <span className="flex items-center gap-1.5 font-semibold text-slate-200">
+                                          <span>{activeSingleMetric.icon}</span>
+                                          <span>{activeSingleMetric.title}:</span>
+                                        </span>
+                                        <span className="font-black text-white bg-white/10 px-2 py-0.5 rounded-lg">
+                                          {data[activeSingleMetric.key]} / 5
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              }}
+                            />
+                            <Area
+                              type="monotone"
+                              dataKey={activeSingleMetric.key}
+                              stroke={activeSingleMetric.color}
+                              strokeWidth={3}
+                              fill={`url(#singleGrad_${activeSingleMetric.key})`}
+                              dot={false}
+                              activeDot={{ r: 5.5, strokeWidth: 2, fill: '#fff', stroke: activeSingleMetric.color }}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  ) : null}
+                </Card>
+              );
+            })()}
           </div>
         )}
 
