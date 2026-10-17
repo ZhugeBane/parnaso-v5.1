@@ -5,6 +5,7 @@ import {
   saveCharacter,
   deleteCharacter
 } from '../services/projectCreativeService';
+import { ImagePicker } from './ui/ImagePicker';
 
 interface CharactersFolderProps {
   projectId: string;
@@ -262,6 +263,8 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
       age: '',
       birthDate: '',
       occupation: '',
+      avatarBase64: '',
+      avatarUrl: '',
       color: DEFAULT_THEME_COLORS[Math.floor(Math.random() * DEFAULT_THEME_COLORS.length)],
       physicalTraits: '',
       psychologicalTraits: '',
@@ -284,6 +287,8 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
   const handleOpenEdit = (char: Character) => {
     setEditForm({
       ...char,
+      avatarBase64: char.avatarBase64 || char.avatarUrl || '',
+      avatarUrl: char.avatarBase64 || char.avatarUrl || '',
       identityItems: char.identityItems ? [...char.identityItems] : [],
       physicalItems: char.physicalItems ? [...char.physicalItems] : [],
       psychologicalItems: char.psychologicalItems ? [...char.psychologicalItems] : [],
@@ -319,7 +324,8 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
       age: editForm.age?.trim() || undefined,
       birthDate: editForm.birthDate?.trim() || undefined,
       occupation: editForm.occupation?.trim() || undefined,
-      avatarUrl: editForm.avatarUrl?.trim() || undefined,
+      avatarBase64: editForm.avatarBase64 || undefined,
+      avatarUrl: editForm.avatarBase64 || editForm.avatarUrl?.trim() || undefined,
       color: editForm.color || '#14b8a6',
       physicalTraits: editForm.physicalTraits?.trim() || undefined,
       psychologicalTraits: editForm.psychologicalTraits?.trim() || undefined,
@@ -526,9 +532,9 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
                 <div>
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex items-center gap-3">
-                      {char.avatarUrl ? (
+                      {(char.avatarBase64 || char.avatarUrl) ? (
                         <img
-                          src={char.avatarUrl}
+                          src={char.avatarBase64 || char.avatarUrl}
                           alt={char.name}
                           className="w-12 h-12 rounded-xl object-cover border border-slate-200 shadow-2xs"
                         />
@@ -647,12 +653,20 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
             {/* Modal Header */}
             <div className="p-4 sm:p-6 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-3">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-extrabold text-lg shadow-sm"
-                  style={{ backgroundColor: (isEditing ? editForm.color : viewingCharacter?.color) || '#14b8a6' }}
-                >
-                  {(isEditing ? editForm.name : viewingCharacter?.name)?.charAt(0).toUpperCase() || '👤'}
-                </div>
+                {(isEditing ? (editForm.avatarBase64 || editForm.avatarUrl) : (viewingCharacter?.avatarBase64 || viewingCharacter?.avatarUrl)) ? (
+                  <img
+                    src={(isEditing ? (editForm.avatarBase64 || editForm.avatarUrl) : (viewingCharacter?.avatarBase64 || viewingCharacter?.avatarUrl))}
+                    alt="Avatar"
+                    className="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-sm"
+                  />
+                ) : (
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-extrabold text-lg shadow-sm"
+                    style={{ backgroundColor: (isEditing ? editForm.color : viewingCharacter?.color) || '#14b8a6' }}
+                  >
+                    {(isEditing ? editForm.name : viewingCharacter?.name)?.charAt(0).toUpperCase() || '👤'}
+                  </div>
+                )}
 
                 <div>
                   <h3 className="text-xl font-bold text-slate-800 leading-tight">
@@ -817,16 +831,33 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                          URL da Foto / Avatar (opcional)
+                        <label className="block text-xs font-bold text-slate-700 uppercase mb-2">
+                          Foto / Retrato do Personagem (200x200 automático)
                         </label>
-                        <input
-                          type="url"
-                          placeholder="https://exemplo.com/foto.jpg"
-                          value={editForm.avatarUrl || ''}
-                          onChange={(e) => setEditForm(prev => ({ ...prev, avatarUrl: e.target.value }))}
-                          className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 outline-none focus:ring-2 focus:ring-teal-400"
-                        />
+                        <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                          <ImagePicker
+                            currentImage={editForm.avatarBase64 || editForm.avatarUrl}
+                            onImageSelected={(base64) => setEditForm(prev => ({ ...prev, avatarBase64: base64, avatarUrl: base64 }))}
+                            onImageRemoved={() => setEditForm(prev => ({ ...prev, avatarBase64: '', avatarUrl: '' }))}
+                            shape="rounded"
+                            size="lg"
+                            label="Escolher foto do personagem"
+                          />
+                          <div className="flex-1 w-full text-xs text-slate-500">
+                            <p className="font-bold text-slate-700 mb-1">Upload com corte automático Canvas</p>
+                            <p className="text-[11px] text-slate-500 mb-2">A foto é redimensionada instantaneamente para 200x200 JPEG com qualidade 0.7 e salva em base64 na ficha.</p>
+                            <input
+                              type="url"
+                              placeholder="Ou cole uma URL externa (opcional)"
+                              value={editForm.avatarUrl || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setEditForm(prev => ({ ...prev, avatarUrl: val, avatarBase64: val.startsWith('data:image') ? val : prev.avatarBase64 }));
+                              }}
+                              className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 outline-none focus:ring-1 focus:ring-teal-400"
+                            />
+                          </div>
+                        </div>
                       </div>
 
                       {/* Dynamic Identity Traits */}
@@ -1035,6 +1066,20 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
                   {/* TAB 1: IDENTIDADE */}
                   {activeDossierTab === 'identity' && (
                     <div className="space-y-4">
+                      {(viewingCharacter?.avatarBase64 || viewingCharacter?.avatarUrl) && (
+                        <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                          <img
+                            src={viewingCharacter.avatarBase64 || viewingCharacter.avatarUrl}
+                            alt={viewingCharacter.name}
+                            className="w-20 h-20 rounded-2xl object-cover border-2 border-white shadow-md flex-shrink-0"
+                          />
+                          <div>
+                            <span className="text-[10px] font-bold text-teal-600 uppercase tracking-wider block">Retrato Oficial</span>
+                            <h4 className="text-lg font-black text-slate-800">{viewingCharacter.name}</h4>
+                            <p className="text-xs text-slate-500">{viewingCharacter.role} {viewingCharacter.occupation ? `• ${viewingCharacter.occupation}` : ''}</p>
+                          </div>
+                        </div>
+                      )}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="bg-slate-50 p-4 rounded-2xl">
                           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Nome Completo</span>

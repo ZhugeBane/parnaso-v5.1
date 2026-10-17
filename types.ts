@@ -34,6 +34,7 @@ export interface Character {
   birthDate?: string;
   occupation?: string;
   avatarUrl?: string;
+  avatarBase64?: string; // 200x200 JPEG Base64
   color?: string; // Hex color code for badges/theme
   
   // Traits (general descriptions)
@@ -150,7 +151,8 @@ export interface User {
   role: 'admin' | 'user';
   isBlocked?: boolean;
   status?: 'pending' | 'approved' | 'rejected';
-  photoURL?: string; // NEW: User profile picture
+  photoURL?: string; // User profile picture (URL or Base64)
+  photoBase64?: string; // 200x200 JPEG Base64
 }
 
 export interface Friendship {
@@ -166,6 +168,7 @@ export interface Guild {
   name: string;
   description?: string;
   emblemUrl?: string;
+  emblemBase64?: string; // 200x200 JPEG Base64
   adminId: string; // Owner
   adminIds?: string[]; // Additional administrators
   members: string[];

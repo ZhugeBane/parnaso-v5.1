@@ -19,7 +19,8 @@ const mapUser = (docData: any, uid: string, email: string): User => ({
   role: docData.role || 'user',
   isBlocked: docData.isBlocked || false,
   status: docData.status, // Important to carry this over
-  photoURL: docData.photoURL
+  photoBase64: docData.photoBase64,
+  photoURL: docData.photoBase64 || docData.photoURL
 });
 
 export const register = async (name: string, email: string, password: string): Promise<User> => {
@@ -181,7 +182,8 @@ export const getAllUsers = async (): Promise<User[]> => {
         role: data.role || 'user',
         isBlocked: data.isBlocked || false,
         status: data.status || 'approved', // Default para usuários antigos
-        photoURL: data.photoURL
+        photoBase64: data.photoBase64,
+        photoURL: data.photoBase64 || data.photoURL
       };
     });
   } catch (e) {
@@ -260,18 +262,31 @@ export const resetPassword = async (email: string): Promise<void> => {
 import { storage } from '../lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-export const updateUserProfilePicture = async (userId: string, file: File | Blob): Promise<string> => {
-  const storageRef = ref(storage, `profiles/${userId}/avatar_${Date.now()}`);
-  await uploadBytes(storageRef, file);
-  const downloadURL = await getDownloadURL(storageRef);
-
+export const updateUserProfileBase64 = async (userId: string, photoBase64: string): Promise<string> => {
   const userRef = doc(db, 'users', userId);
-  await updateDoc(userRef, { photoURL: downloadURL });
+  await updateDoc(userRef, {
+    photoBase64,
+    photoURL: photoBase64
+  });
 
-  // Também atualizar o Auth Profile para consistência
   if (auth.currentUser && auth.currentUser.uid === userId) {
-    await updateProfile(auth.currentUser, { photoURL: downloadURL });
+    try {
+      await updateProfile(auth.currentUser, { photoURL: photoBase64 });
+    } catch (e) {
+      console.warn("Could not update Firebase Auth profile photoURL", e);
+    }
   }
 
-  return downloadURL;
+  return photoBase64;
+};
+
+export const updateUserProfilePicture = async (userId: string, fileOrBase64: File | Blob | string): Promise<string> => {
+  if (typeof fileOrBase64 === 'string') {
+    return updateUserProfileBase64(userId, fileOrBase64);
+  }
+
+  // Use HTML5 Canvas to resize to 200x200 JPEG 0.7 Base64
+  const { resizeImageToBase64 } = await import('../utils/imageProcessor');
+  const base64 = await resizeImageToBase64(fileOrBase64, 200, 200, 0.7);
+  return updateUserProfileBase64(userId, base64);
 };

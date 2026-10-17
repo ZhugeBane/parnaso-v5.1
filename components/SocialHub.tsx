@@ -39,9 +39,11 @@ import {
   promoteMemberToAdmin,
   resetGuildStats,
   createGuildChallenge,
-  toggleForumThreadLike
+  toggleForumThreadLike,
+  updateGuildEmblemBase64
 } from '../services/socialService';
-import { compressImage } from '../utils/imageProcessor';
+import { compressImage, resizeImageToBase64 } from '../utils/imageProcessor';
+import { ImagePicker } from './ui/ImagePicker';
 import { useLanguage } from '../i18n/LanguageContext';
 import { getSessions } from '../services/sessionService';
 import { getAllUsers } from '../services/authService';
@@ -68,6 +70,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [showCreateGuild, setShowCreateGuild] = useState(false);
   const [newGuildName, setNewGuildName] = useState('');
   const [newGroupDesc, setNewGroupDesc] = useState('');
+  const [newGuildEmblemBase64, setNewGuildEmblemBase64] = useState('');
   const [selectedGuildMembers, setSelectedGuildMembers] = useState<string[]>([]);
   const [guildSubTab, setGuildSubTab] = useState<'home' | 'chat' | 'forum' | 'agora'>('home');
   const [showCreateChallenge, setShowCreateChallenge] = useState(false);
@@ -327,10 +330,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   // --- Handlers: Guilds ---
   const handleCreateGuild = async () => {
     if (!newGuildName.trim()) return;
-    await createGuild(newGuildName, currentUser.id, selectedGuildMembers, newGroupDesc);
+    await createGuild(newGuildName, currentUser.id, selectedGuildMembers, newGroupDesc, newGuildEmblemBase64);
     setShowCreateGuild(false);
     setNewGuildName('');
     setNewGroupDesc('');
+    setNewGuildEmblemBase64('');
     setSelectedGuildMembers([]);
     await refreshData();
   };
@@ -342,13 +346,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         setIsUpdatingEmblem(true);
         const guild = activeGuild;
         
-        // Compress emblem to 512x512
-        const compressedBlob = await compressImage(file, 512, 512, 0.7);
-        
-        const downloadURL = await updateGuildEmblem(guild.id, compressedBlob);
+        // HTML5 Canvas resize to 200x200 JPEG 0.7 Base64
+        const base64 = await resizeImageToBase64(file, 200, 200, 0.7);
+        await updateGuildEmblemBase64(guild.id, base64);
 
         // Update local state immediately
-        const updatedGuild = { ...guild, emblemUrl: downloadURL };
+        const updatedGuild = { ...guild, emblemBase64: base64, emblemUrl: base64 };
         setGuilds(prev => prev.map(g => g.id === guild.id ? updatedGuild : g));
         setSelectedChat({ ...selectedChat, target: updatedGuild });
 
@@ -556,7 +559,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   };
 
   const getUserPhotoURL = (userId: string) => {
-    return allUsers.find(u => u.id === userId)?.photoURL;
+    const u = allUsers.find(u => u.id === userId);
+    return u?.photoBase64 || u?.photoURL;
   };
 
   const filteredAvailable = availableUsers.filter(u =>
@@ -614,9 +618,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     onClick={() => { setSelectedChat({ type: 'direct', target: user }); setSelectedThread(null); }}
                     className="flex items-center flex-1 min-w-0 text-left"
                   >
-                    <div className={`w-10 h-10 rounded-full ${user.photoURL ? '' : 'bg-slate-200'} flex items-center justify-center text-slate-600 font-bold mr-3 overflow-hidden border border-slate-100 flex-shrink-0`}>
-                      {user.photoURL ? (
-                        <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" />
+                    <div className={`w-10 h-10 rounded-full ${(user.photoBase64 || user.photoURL) ? '' : 'bg-slate-200'} flex items-center justify-center text-slate-600 font-bold mr-3 overflow-hidden border border-slate-100 flex-shrink-0`}>
+                      {(user.photoBase64 || user.photoURL) ? (
+                        <img src={user.photoBase64 || user.photoURL} alt={user.name} className="w-full h-full object-cover" />
                       ) : (
                         user.name.charAt(0).toUpperCase()
                       )}
@@ -657,8 +661,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   }}
                   className={`w-full flex items-center p-3 rounded-xl transition-colors ${selectedChat?.target.id === guild.id ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-50'}`}
                 >
-                  {guild.emblemUrl ? (
-                    <img src={guild.emblemUrl} alt="Emblem" className="w-10 h-10 rounded-full object-cover mr-3 border-2 border-indigo-200" />
+                  {(guild.emblemBase64 || guild.emblemUrl) ? (
+                    <img src={guild.emblemBase64 || guild.emblemUrl} alt="Emblem" className="w-10 h-10 rounded-full object-cover mr-3 border-2 border-indigo-200" />
                   ) : (
                     <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold mr-3 border-2 border-white shadow-sm">
                       {guild.name.charAt(0).toUpperCase()}
@@ -804,8 +808,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 {filteredAvailable.map(user => (
                   <div key={user.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl shadow-sm">
                     <div className="flex items-center">
-                      <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold mr-3">
-                        {user.name.charAt(0)}
+                      <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold mr-3 overflow-hidden">
+                        {(user.photoBase64 || user.photoURL) ? (
+                          <img src={user.photoBase64 || user.photoURL} alt={user.name} className="w-full h-full object-cover" />
+                        ) : (
+                          user.name.charAt(0)
+                        )}
                       </div>
                       <span className="text-sm font-medium text-slate-700">{user.name}</span>
                     </div>
@@ -843,10 +851,10 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                   </svg>
                 </button>
-                {selectedChat.type === 'group' && (activeGuild?.emblemUrl || (selectedChat.target as Guild).emblemUrl) ? (
+                {selectedChat.type === 'group' && (activeGuild?.emblemBase64 || activeGuild?.emblemUrl || (selectedChat.target as Guild).emblemBase64 || (selectedChat.target as Guild).emblemUrl) ? (
                   <div className="relative group/emblem">
                     <img
-                      src={activeGuild?.emblemUrl || (selectedChat.target as Guild).emblemUrl}
+                      src={activeGuild?.emblemBase64 || activeGuild?.emblemUrl || (selectedChat.target as Guild).emblemBase64 || (selectedChat.target as Guild).emblemUrl}
                       alt="Emblem"
                       className={`w-20 h-20 rounded-full object-cover mr-3 border-4 border-white shadow-xl transform transition-transform group-hover/emblem:scale-105 ${isUpdatingEmblem ? 'opacity-50' : ''}`}
                     />
@@ -856,8 +864,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       </div>
                     )}
                   </div>
-                ) : selectedChat.type === 'direct' && (selectedChat.target as User).photoURL ? (
-                  <img src={(selectedChat.target as User).photoURL} alt={(selectedChat.target as User).name} className="w-12 h-12 rounded-full object-cover mr-3 border-2 border-teal-200 shadow-sm" />
+                ) : selectedChat.type === 'direct' && ((selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL) ? (
+                  <img src={(selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL} alt={(selectedChat.target as User).name} className="w-12 h-12 rounded-full object-cover mr-3 border-2 border-teal-200 shadow-sm" />
                 ) : (
                   <div className={`w-12 h-12 rounded-full ${selectedChat.type === 'direct' ? 'bg-teal-500' : 'bg-indigo-600'} text-white flex items-center justify-center font-bold text-xl mr-3 shadow-md border-2 border-white`}>
                     {selectedChat.type === 'direct'
@@ -907,9 +915,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-60"></div>
 
                     <div className="relative">
-                      {activeGuild.emblemUrl ? (
+                      {(activeGuild.emblemBase64 || activeGuild.emblemUrl) ? (
                         <img
-                          src={activeGuild.emblemUrl}
+                          src={activeGuild.emblemBase64 || activeGuild.emblemUrl}
                           alt="Emblem"
                           className="w-32 h-32 md:w-40 md:h-40 rounded-full object-cover border-8 border-white shadow-2xl"
                         />
@@ -1402,6 +1410,15 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl animate-fade-in border-2 border-indigo-100">
             <h3 className="font-black text-xl mb-4 text-indigo-900 uppercase tracking-tight">{t('social.guilds.createGuildTitle')}</h3>
+            <div className="mb-4 flex justify-center">
+              <ImagePicker
+                currentImage={newGuildEmblemBase64}
+                onImageSelected={setNewGuildEmblemBase64}
+                onImageRemoved={() => setNewGuildEmblemBase64('')}
+                label="Brasão da Guilda"
+                size="md"
+              />
+            </div>
             <input
               className="w-full mb-3 px-3 py-2 border rounded-xl focus:ring-2 focus:ring-indigo-100 outline-none border-slate-200"
               placeholder={t('social.guilds.guildName')}

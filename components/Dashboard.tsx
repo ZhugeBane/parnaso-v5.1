@@ -7,8 +7,9 @@ import { SessionDetailsModal } from './SessionDetailsModal';
 import { LanguageSelector } from './ui/LanguageSelector';
 import { HeatmapChart } from './ui/HeatmapChart';
 import { useLanguage } from '../i18n/LanguageContext';
-import { updateUserProfilePicture } from '../services/authService';
-import { compressImage } from '../utils/imageProcessor';
+import { updateUserProfilePicture, updateUserProfileBase64 } from '../services/authService';
+import { compressImage, resizeImageToBase64 } from '../utils/imageProcessor';
+import { ImagePicker } from './ui/ImagePicker';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend
@@ -319,19 +320,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const handleUpdateAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || readOnly) return;
+    e.target.value = '';
 
     try {
       setIsUpdatingAvatar(true);
       
-      // Compress to 512x512 with 70% quality for faster loading
-      const compressedBlob = await compressImage(file, 512, 512, 0.7);
+      // HTML5 Canvas resize to 200x200 pixels JPEG (0.7 quality) Base64
+      const base64 = await resizeImageToBase64(file, 200, 200, 0.7);
       
-      await updateUserProfilePicture(user.id, compressedBlob);
-      // Recarregar a página ou notificar o pai para atualizar os dados do usuário
+      // Save directly to photoBase64 in Firestore users collection
+      await updateUserProfileBase64(user.id, base64);
+      user.photoBase64 = base64;
+      user.photoURL = base64;
+      
       window.location.reload();
     } catch (error) {
       console.error("Erro ao atualizar foto:", error);
-      alert("Erro ao enviar foto. Verifique o tamanho e o formato.");
+      alert("Erro ao processar imagem de perfil. Verifique o arquivo e tente novamente.");
+    } finally {
+      setIsUpdatingAvatar(false);
+    }
+  };
+
+  const handleSelectProfileBase64 = async (base64: string) => {
+    if (readOnly) return;
+    try {
+      setIsUpdatingAvatar(true);
+      await updateUserProfileBase64(user.id, base64);
+      user.photoBase64 = base64;
+      user.photoURL = base64;
+      window.location.reload();
+    } catch (error) {
+      console.error("Erro ao atualizar foto:", error);
+      alert("Erro ao salvar foto de perfil.");
     } finally {
       setIsUpdatingAvatar(false);
     }
@@ -1556,9 +1577,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             <div className="flex items-center gap-4">
               <div className="relative group cursor-pointer" onClick={() => !readOnly && fileInputRef.current?.click()}>
                 <div className="absolute inset-0 bg-teal-400 rounded-full blur opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none"></div>
-                {user.photoURL ? (
+                {(user.photoBase64 || user.photoURL) ? (
                   <img
-                    src={user.photoURL}
+                    src={user.photoBase64 || user.photoURL}
                     alt={user.name}
                     className={`relative w-20 h-20 rounded-full object-cover border-4 border-white shadow-xl transform transition-transform group-hover:scale-105 ${isUpdatingAvatar ? 'opacity-50' : ''}`}
                   />
@@ -1824,6 +1845,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               </svg>
               {t('dashboard.settingsTitle')}
             </h3>
+
+            {/* Profile Picture Selector (200x200 Canvas Base64) */}
+            <div className="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+              <ImagePicker
+                currentImage={user.photoBase64 || user.photoURL}
+                onImageSelected={handleSelectProfileBase64}
+                onImageRemoved={async () => {
+                  await updateUserProfileBase64(user.id, '');
+                  user.photoBase64 = '';
+                  user.photoURL = '';
+                  window.location.reload();
+                }}
+                label="Foto de Perfil"
+                fallbackText={user.name}
+                fallbackColor="#0d9488"
+                size="md"
+                helperText="Redimensionado para 200x200 JPEG (0.7) e salvo em photoBase64"
+              />
+            </div>
+
             <div className="space-y-4 mb-8">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.dailyWordGoal')}</label>

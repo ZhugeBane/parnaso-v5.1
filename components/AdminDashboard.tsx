@@ -150,8 +150,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onExit, onInspec
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className={`h-10 w-10 rounded-full flex items-center justify-center text-white font-bold mr-4 overflow-hidden border border-slate-200 ${user.role === 'admin' ? 'bg-slate-800' : 'bg-teal-500'}`}>
-                          {user.photoURL ? (
-                            <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" />
+                          {(user.photoBase64 || user.photoURL) ? (
+                            <img src={user.photoBase64 || user.photoURL} alt={user.name} className="w-full h-full object-cover" />
                           ) : (
                             (user.name || '?').charAt(0).toUpperCase()
                           )}

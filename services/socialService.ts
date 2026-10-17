@@ -122,13 +122,21 @@ export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
 // Legacy alias
 export const getUserGroups = getUserGuilds;
 
-export const createGuild = async (name: string, adminId: string, memberIds: string[] = [], description?: string) => {
+export const createGuild = async (
+  name: string,
+  adminId: string,
+  memberIds: string[] = [],
+  description?: string,
+  emblemBase64?: string
+) => {
   const uniqueMembers = Array.from(new Set([adminId, ...(memberIds || [])]));
   return await addDoc(collection(db, 'groups'), {
     name,
     adminId,
     adminIds: [adminId],
     description: description || '',
+    emblemBase64: emblemBase64 || '',
+    emblemUrl: emblemBase64 || '',
     members: uniqueMembers,
     createdAt: new Date().toISOString()
   });
@@ -137,16 +145,23 @@ export const createGuild = async (name: string, adminId: string, memberIds: stri
 // Legacy alias
 export const createGroup = createGuild;
 
-export const updateGuildEmblem = async (guildId: string, file: File | Blob) => {
-  const storageRef = ref(storage, `guilds/${guildId}/emblem_${Date.now()}`);
-  await uploadBytes(storageRef, file);
-  const downloadURL = await getDownloadURL(storageRef);
-
+export const updateGuildEmblemBase64 = async (guildId: string, base64: string): Promise<string> => {
   await updateDoc(doc(db, 'groups', guildId), {
-    emblemUrl: downloadURL
+    emblemBase64: base64,
+    emblemUrl: base64
   });
+  return base64;
+};
 
-  return downloadURL;
+export const updateGuildEmblem = async (guildId: string, fileOrBase64: File | Blob | string): Promise<string> => {
+  if (typeof fileOrBase64 === 'string') {
+    return updateGuildEmblemBase64(guildId, fileOrBase64);
+  }
+
+  // Use HTML5 Canvas to resize to 200x200 JPEG 0.7 Base64
+  const { resizeImageToBase64 } = await import('../utils/imageProcessor');
+  const base64 = await resizeImageToBase64(fileOrBase64, 200, 200, 0.7);
+  return updateGuildEmblemBase64(guildId, base64);
 };
 
 export const promoteMemberToAdmin = async (guildId: string, userId: string) => {
