@@ -47,6 +47,7 @@ import {
   deleteCompetition,
   promoteMemberToAdmin,
   resetGuildStats,
+  updateGuildDescription,
   createGuildChallenge,
   toggleForumThreadLike,
   updateGuildEmblemBase64,
@@ -123,6 +124,20 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [newChallengeDuration, setNewChallengeDuration] = useState(7);
   const [challengeError, setChallengeError] = useState<string | null>(null);
   const [isSubmittingChallenge, setIsSubmittingChallenge] = useState(false);
+
+  // Guild Engagement, Banner & Campfire Sprint States
+  const [isEditingGuildDesc, setIsEditingGuildDesc] = useState(false);
+  const [editedGuildDesc, setEditedGuildDesc] = useState('');
+  const [isSavingGuildDesc, setIsSavingGuildDesc] = useState(false);
+  const [showAdminGearMenu, setShowAdminGearMenu] = useState(false);
+  const [customGuildGoalTarget, setCustomGuildGoalTarget] = useState<number | null>(null);
+  const [cheeredMembers, setCheeredMembers] = useState<Record<string, boolean>>({});
+  const [memberSparks, setMemberSparks] = useState<Record<string, number>>({});
+  const [expandedChallengeId, setExpandedChallengeId] = useState<string | null>(null);
+  const [campfireDurationMin, setCampfireDurationMin] = useState<15 | 25>(25);
+  const [campfireSecondsLeft, setCampfireSecondsLeft] = useState<number>(25 * 60);
+  const [isCampfireActive, setIsCampfireActive] = useState<boolean>(false);
+  const [campfireCompletedCount, setCampfireCompletedCount] = useState<number>(0);
 
   // Guild Forum & Ágora State
   const [guildThreads, setGuildThreads] = useState<GuildForumThread[]>([]);
@@ -1180,7 +1195,107 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     return (guild.members || []).includes(currentUser.id) || isOwnerOrAdmin(guild);
   };
 
+  // Campfire Sprint Timer Effect
+  useEffect(() => {
+    if (!isCampfireActive) return;
+    const timer = setInterval(() => {
+      setCampfireSecondsLeft(prev => {
+        if (prev <= 1) {
+          setIsCampfireActive(false);
+          setCampfireCompletedCount(c => c + 1);
+          return campfireDurationMin * 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isCampfireActive, campfireDurationMin]);
+
+  const handleSelectCampfireDuration = (mins: 15 | 25) => {
+    setCampfireDurationMin(mins);
+    setIsCampfireActive(false);
+    setCampfireSecondsLeft(mins * 60);
+  };
+
+  const formatCampfireTime = (totalSec: number) => {
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
+  const getGuildRankInfo = (totalWords: number) => {
+    if (totalWords >= 100000) {
+      return {
+        level: 5,
+        title: 'Imortais do Parnaso',
+        icon: '👑',
+        badgeBg: 'bg-amber-100 text-amber-800 border-amber-300',
+        defaultGoal: Math.max(150000, Math.ceil((totalWords + 1) / 50000) * 50000)
+      };
+    }
+    if (totalWords >= 50000) {
+      return {
+        level: 4,
+        title: 'Academia de Ébano',
+        icon: '🏛️',
+        badgeBg: 'bg-purple-100 text-purple-800 border-purple-300',
+        defaultGoal: 100000
+      };
+    }
+    if (totalWords >= 25000) {
+      return {
+        level: 3,
+        title: 'Confraria das Penas',
+        icon: '📜',
+        badgeBg: 'bg-indigo-100 text-indigo-800 border-indigo-300',
+        defaultGoal: 50000
+      };
+    }
+    if (totalWords >= 10000) {
+      return {
+        level: 2,
+        title: 'Ordem dos Cronistas',
+        icon: '🪶',
+        badgeBg: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+        defaultGoal: 25000
+      };
+    }
+    return {
+      level: 1,
+      title: 'Círculo de Aprendizes',
+      icon: '🌱',
+      badgeBg: 'bg-teal-100 text-teal-800 border-teal-300',
+      defaultGoal: 25000
+    };
+  };
+
+  const handleSaveGuildDescription = async () => {
+    if (!activeGuild) return;
+    try {
+      setIsSavingGuildDesc(true);
+      const clean = await updateGuildDescription(activeGuild.id, editedGuildDesc);
+      const updated: Guild = { ...activeGuild, description: clean };
+      setGuilds(prev => prev.map(g => g.id === activeGuild.id ? updated : g));
+      setAllGuilds(prev => prev.map(g => g.id === activeGuild.id ? updated : g));
+      setSelectedChat({ type: 'group', target: updated });
+      setIsEditingGuildDesc(false);
+    } catch (err) {
+      console.error('Erro ao atualizar lema da guilda:', err);
+    } finally {
+      setIsSavingGuildDesc(false);
+    }
+  };
+
+  const handleSendMemberSpark = (memberId: string) => {
+    setCheeredMembers(prev => ({ ...prev, [memberId]: true }));
+    setMemberSparks(prev => ({ ...prev, [memberId]: (prev[memberId] || 0) + 1 }));
+    setTimeout(() => {
+      setCheeredMembers(prev => ({ ...prev, [memberId]: false }));
+    }, 2500);
+  };
+
   const handleResetStats = async (guildId: string) => {
+    setShowAdminGearMenu(false);
     if (confirm(t('social.guilds.resetConfirm'))) {
       await resetGuildStats(guildId);
       await refreshData();
@@ -2295,66 +2410,83 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         {/* VIEW: CHAT (DIRECT OR GROUP) */}
         {selectedChat && (
           <>
-            <div className="h-20 bg-white border-b border-slate-200 flex items-center px-6 justify-between flex-shrink-0">
-              <div className="flex items-center">
-                <button onClick={() => setSelectedChat(null)} className="md:hidden mr-3 text-slate-500">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <div className="h-16 bg-white/95 backdrop-blur-xs border-b border-slate-200/80 flex items-center px-4 md:px-6 justify-between flex-shrink-0 gap-3">
+              <div className="flex items-center min-w-0">
+                <button
+                  onClick={() => setSelectedChat(null)}
+                  className="mr-2.5 p-2 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+                  title="Voltar para a lista"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
                   </svg>
+                  <span className="hidden sm:inline">Voltar</span>
                 </button>
-                {selectedChat.type === 'group' && (activeGuild?.emblemBase64 || activeGuild?.emblemUrl || (selectedChat.target as Guild).emblemBase64 || (selectedChat.target as Guild).emblemUrl) ? (
-                  <div className="relative group/emblem">
-                    <img
-                      src={activeGuild?.emblemBase64 || activeGuild?.emblemUrl || (selectedChat.target as Guild).emblemBase64 || (selectedChat.target as Guild).emblemUrl}
-                      alt="Emblem"
-                      className={`w-20 h-20 rounded-full object-cover mr-3 border-4 border-white shadow-xl transform transition-transform group-hover/emblem:scale-105 ${isUpdatingEmblem ? 'opacity-50' : ''}`}
-                    />
-                    {isUpdatingEmblem && (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+
+                {selectedChat.type === 'direct' ? (
+                  <>
+                    {((selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL) ? (
+                      <img src={(selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL} alt={(selectedChat.target as User).name} className="w-10 h-10 rounded-full object-cover mr-3 border-2 border-teal-200 shadow-xs flex-shrink-0" />
+                    ) : (
+                      <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient((selectedChat.target as User).name)} text-white flex items-center justify-center font-bold text-base mr-3 shadow-xs border-2 border-white flex-shrink-0`}>
+                        {(selectedChat.target as User).name.charAt(0).toUpperCase()}
                       </div>
                     )}
-                  </div>
-                ) : selectedChat.type === 'direct' && ((selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL) ? (
-                  <img src={(selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL} alt={(selectedChat.target as User).name} className="w-12 h-12 rounded-full object-cover mr-3 border-2 border-teal-200 shadow-sm" />
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-slate-800 text-base truncate">
+                        {(selectedChat.target as User).name}
+                      </h3>
+                      {checkUserOnline(selectedChat.target as User) ? (
+                        <span className="text-[11px] text-emerald-600 flex items-center gap-1.5 font-semibold">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span>{t('social.chat.online')}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-slate-400 flex items-center gap-1.5 font-medium">
+                          <span className="w-2 h-2 rounded-full bg-slate-300"></span>
+                          <span>Offline</span>
+                        </span>
+                      )}
+                    </div>
+                  </>
                 ) : (
-                  <div className={`w-12 h-12 rounded-full ${selectedChat.type === 'direct' ? 'bg-teal-500' : 'bg-indigo-600'} text-white flex items-center justify-center font-bold text-xl mr-3 shadow-md border-2 border-white`}>
-                    {selectedChat.type === 'direct'
-                      ? (selectedChat.target as User).name.charAt(0).toUpperCase()
-                      : (activeGuild?.name || (selectedChat.target as Guild).name).charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div>
-                  <h3 className="font-bold text-slate-800 text-lg">
-                    {selectedChat.type === 'direct' ? (selectedChat.target as User).name : (activeGuild?.name || (selectedChat.target as Guild).name)}
-                  </h3>
-                  {selectedChat.type === 'direct' ? (
-                    checkUserOnline(selectedChat.target as User) ? (
-                      <span className="text-xs text-emerald-600 flex items-center gap-1.5 font-semibold">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span>{t('social.chat.online')}</span>
+                  /* Compact Context Pill for Guild Top Bar (avoids duplicating the large Estandarte below) */
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="relative flex-shrink-0">
+                      {(activeGuild?.emblemBase64 || activeGuild?.emblemUrl || (selectedChat.target as Guild).emblemBase64 || (selectedChat.target as Guild).emblemUrl) ? (
+                        <img
+                          src={activeGuild?.emblemBase64 || activeGuild?.emblemUrl || (selectedChat.target as Guild).emblemBase64 || (selectedChat.target as Guild).emblemUrl}
+                          alt="Mini Brasão"
+                          className="w-8 h-8 rounded-xl object-cover border border-indigo-200 shadow-2xs"
+                        />
+                      ) : (
+                        <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${getAvatarGradient(activeGuild?.name || (selectedChat.target as Guild).name)} text-white flex items-center justify-center font-black text-xs shadow-2xs`}>
+                          {(activeGuild?.name || (selectedChat.target as Guild).name).charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200/70 font-extrabold px-2 py-0.5 rounded-lg uppercase tracking-wider flex items-center gap-1 flex-shrink-0">
+                        <span>🛡️</span>
+                        <span className="hidden sm:inline">Guilda</span>
                       </span>
-                    ) : (
-                      <span className="text-xs text-slate-400 flex items-center gap-1.5 font-medium">
-                        <span className="w-2 h-2 rounded-full bg-slate-300"></span>
-                        <span>Offline</span>
+                      <span className="font-bold text-slate-700 text-sm truncate">
+                        {activeGuild?.name || (selectedChat.target as Guild).name}
                       </span>
-                    )
-                  ) : (
-                    <div className="flex items-center gap-3 mt-1">
-                      <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">Guilda</span>
                       {activeGuild && isOwnerOrAdmin(activeGuild) && (
                         <button
                           onClick={() => fileInputRef.current?.click()}
-                          className="text-[10px] text-slate-400 hover:text-indigo-600 underline"
+                          className="hidden md:inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 px-2 py-0.5 rounded-lg border border-slate-200/70 hover:border-indigo-200 transition-colors cursor-pointer flex-shrink-0"
+                          title={t('social.guilds.changeEmblem')}
                         >
-                          {t('social.guilds.changeEmblem')}
+                          <span>🎨</span>
+                          <span>{t('social.guilds.changeEmblem')}</span>
                         </button>
                       )}
                       <input type="file" ref={fileInputRef} className="hidden" accept="image/png, image/jpeg" onChange={handleUpdateEmblem} />
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
               {selectedChat.type === 'direct' && (
@@ -2369,11 +2501,16 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               )}
 
               {selectedChat.type === 'group' && activeGuild && isGuildMember(activeGuild) && (
-                <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
+                <div className="flex bg-slate-100/90 p-1 rounded-xl gap-1 border border-slate-200/70">
                   <button
                     onClick={() => setGuildSubTab('home')}
-                    className={`relative px-3 py-1 text-xs font-bold rounded-md transition-all flex items-center gap-1 ${guildSubTab === 'home' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}
+                    className={`relative px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                      guildSubTab === 'home'
+                        ? 'bg-white shadow-xs text-indigo-700 ring-1 ring-indigo-500/20'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                    }`}
                   >
+                    <span className="text-xs leading-none">🏰</span>
                     <span>{t('social.tabs.home')}</span>
                     {isOwnerOrAdmin(activeGuild) && (activeGuild.pendingMemberIds?.length || 0) > 0 && (
                       <span className="px-1.5 py-0.1 rounded-full bg-amber-500 text-white text-[9px] font-black">
@@ -2381,9 +2518,42 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       </span>
                     )}
                   </button>
-                  <button onClick={() => setGuildSubTab('chat')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'chat' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>{t('social.tabs.chat')}</button>
-                  <button onClick={() => { setGuildSubTab('forum'); if (activeGuild) fetchGuildThreadData(activeGuild.id); }} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'forum' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>{t('social.tabs.forum')}</button>
-                  <button onClick={() => setGuildSubTab('agora')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'agora' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>{t('social.tabs.agora')}</button>
+                  <button
+                    onClick={() => setGuildSubTab('chat')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                      guildSubTab === 'chat'
+                        ? 'bg-white shadow-xs text-indigo-700 ring-1 ring-indigo-500/20'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                    }`}
+                  >
+                    <span className="text-xs leading-none">💬</span>
+                    <span>{t('social.tabs.chat')}</span>
+                  </button>
+                  <button
+                    onClick={() => { setGuildSubTab('forum'); if (activeGuild) fetchGuildThreadData(activeGuild.id); }}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                      guildSubTab === 'forum'
+                        ? 'bg-white shadow-xs text-indigo-700 ring-1 ring-indigo-500/20'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                    }`}
+                  >
+                    <span className="text-xs leading-none">📜</span>
+                    <span>{t('social.tabs.forum')}</span>
+                  </button>
+                  <button
+                    onClick={() => setGuildSubTab('agora')}
+                    className={`relative px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                      guildSubTab === 'agora'
+                        ? 'bg-white shadow-xs text-indigo-700 ring-1 ring-indigo-500/20'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                    }`}
+                  >
+                    <span className="text-xs leading-none">🎙️</span>
+                    <span>{t('social.tabs.agora')}</span>
+                    {agoraParticipants.length > 0 && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    )}
+                  </button>
                 </div>
               )}
             </div>
@@ -2414,216 +2584,781 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               </div>
             )}
 
-            {selectedChat.type === 'group' && guildSubTab === 'home' && activeGuild && isGuildMember(activeGuild) && (
-              <div className="flex-1 overflow-y-auto bg-slate-50 p-6 md:p-10">
-                <div className="max-w-4xl mx-auto space-y-8">
+            {selectedChat.type === 'group' && guildSubTab === 'home' && activeGuild && isGuildMember(activeGuild) && (() => {
+              const totalGuildWords = activeGuild.members.reduce(
+                (acc, mId) => acc + (memberStats[mId] || 0),
+                0
+              );
+              const onlineGuildMembersCount = activeGuild.members.filter(mId =>
+                mId === currentUser.id || checkUserOnline(allUsers.find(u => u.id === mId))
+              ).length;
+              const rankInfo = getGuildRankInfo(totalGuildWords);
+              const collectiveGoalTarget = customGuildGoalTarget || rankInfo.defaultGoal;
+              const collectiveGoalPercent = Math.min(
+                100,
+                Math.round((totalGuildWords / Math.max(1, collectiveGoalTarget)) * 100)
+              );
+              const wordsRemainingForGoal = Math.max(0, collectiveGoalTarget - totalGuildWords);
+              const sortedGuildMembers = [...activeGuild.members].sort(
+                (a, b) => (memberStats[b] || 0) - (memberStats[a] || 0)
+              );
+              const pendingAppsCount = activeGuild.pendingMemberIds?.length || 0;
 
-                  {/* HERO SECTION */}
-                  <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col md:flex-row items-center gap-8 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-60"></div>
+              return (
+                <div className="flex-1 overflow-y-auto bg-slate-50 p-4 sm:p-6 md:p-8">
+                  <div className="max-w-5xl mx-auto space-y-6">
 
-                    <div className="relative">
-                      {(activeGuild.emblemBase64 || activeGuild.emblemUrl) ? (
-                        <img
-                          src={activeGuild.emblemBase64 || activeGuild.emblemUrl}
-                          alt="Emblem"
-                          className="w-32 h-32 md:w-40 md:h-40 rounded-full object-cover border-8 border-white shadow-2xl"
-                        />
-                      ) : (
-                        <div className="w-32 h-32 md:w-40 md:h-40 rounded-full bg-indigo-600 flex items-center justify-center text-white text-5xl font-black shadow-2xl border-8 border-white">
-                          {activeGuild.name.charAt(0).toUpperCase()}
+                    {/* 1 & 2. ESTANDARTE DA GUILDA (HERO CARD) + META COLETIVA */}
+                    <div className="bg-gradient-to-br from-violet-50/95 via-indigo-50/75 to-emerald-50/90 rounded-[2rem] p-6 sm:p-8 shadow-md border border-indigo-200/80 ring-1 ring-white relative overflow-hidden">
+                      {/* Ambient Watercolor Auras */}
+                      <div className="absolute -top-24 -left-24 w-72 h-72 bg-violet-400/15 rounded-full blur-3xl pointer-events-none" />
+                      <div className="absolute -top-20 right-1/4 w-64 h-64 bg-indigo-400/15 rounded-full blur-3xl pointer-events-none" />
+                      <div className="absolute -bottom-24 -right-16 w-80 h-80 bg-emerald-400/20 rounded-full blur-3xl pointer-events-none" />
+
+                      <div className="relative z-10 flex flex-col lg:flex-row items-center lg:items-start justify-between gap-6 lg:gap-8">
+                        {/* LEFT: Large Guild Emblem with Hover Change Overlay */}
+                        <div className="relative group/heroEmblem flex-shrink-0">
+                          <div className="w-28 h-28 sm:w-34 sm:h-34 rounded-full p-1 bg-gradient-to-tr from-indigo-500 via-purple-500 to-emerald-400 shadow-xl ring-4 ring-white/90">
+                            {(activeGuild.emblemBase64 || activeGuild.emblemUrl) ? (
+                              <img
+                                src={activeGuild.emblemBase64 || activeGuild.emblemUrl}
+                                alt={activeGuild.name}
+                                className={`w-full h-full rounded-full object-cover border-4 border-white transition-transform duration-300 group-hover/heroEmblem:scale-102 ${isUpdatingEmblem ? 'opacity-50' : ''}`}
+                              />
+                            ) : (
+                              <div className={`w-full h-full rounded-full bg-gradient-to-br ${getAvatarGradient(activeGuild.name)} flex items-center justify-center text-white text-4xl sm:text-5xl font-black border-4 border-white`}>
+                                {activeGuild.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                          </div>
+
+                          {isUpdatingEmblem && (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                            </div>
+                          )}
+
+                          {isOwnerOrAdmin(activeGuild) && (
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              className="absolute inset-1 rounded-full bg-slate-900/60 text-white opacity-0 group-hover/heroEmblem:opacity-100 transition-all duration-200 flex flex-col items-center justify-center gap-1 cursor-pointer backdrop-blur-[2px]"
+                              title={t('social.guilds.changeEmblem')}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                              </svg>
+                              <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 text-center leading-tight">
+                                {t('social.guilds.changeEmblem')}
+                              </span>
+                            </button>
+                          )}
+
+                          {isOwnerOrAdmin(activeGuild) && (
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              className="absolute bottom-0 right-0 w-9 h-9 rounded-full bg-white hover:bg-indigo-50 text-indigo-600 border-2 border-indigo-200 shadow-md flex items-center justify-center transition-transform hover:scale-110 cursor-pointer"
+                              title={t('social.guilds.changeEmblem')}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                            </button>
+                          )}
                         </div>
-                      )}
-                    </div>
 
-                    <div className="flex-1 text-center md:text-left relative">
-                      <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-2 leading-tight">{activeGuild.name}</h2>
-                      <p className="text-slate-500 italic mb-6">{activeGuild.description || t('social.guilds.noDescription')}</p>
+                        {/* CENTER: Guild Name, Editable Motto & Action Buttons */}
+                        <div className="flex-1 min-w-0 text-center lg:text-left space-y-3">
+                          <div className="flex flex-wrap items-center justify-center lg:justify-start gap-2">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-white/90 text-indigo-700 border border-indigo-200/80 text-[10px] font-extrabold uppercase tracking-wider shadow-2xs">
+                              <span>🛡️</span>
+                              <span>Estandarte da Guilda</span>
+                            </span>
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[10px] font-extrabold uppercase tracking-wider shadow-2xs ${rankInfo.badgeBg}`}>
+                              <span>{rankInfo.icon}</span>
+                              <span>Nv. {rankInfo.level} • {rankInfo.title}</span>
+                            </span>
+                          </div>
 
-                      {isOwnerOrAdmin(activeGuild) && (
-                        <div className="flex flex-wrap gap-2 justify-center md:justify-start">
-                          <button
-                            onClick={() => handleResetStats(activeGuild.id)}
-                            className="px-4 py-2 bg-rose-50 text-rose-600 font-bold text-xs rounded-xl hover:bg-rose-100 transition-colors uppercase tracking-wider"
-                          >
-                            {t('social.guilds.resetStats')}
-                          </button>
-                          <button
-                            onClick={() => setShowCreateChallenge(true)}
-                            className="px-4 py-2 bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl hover:bg-indigo-200 transition-colors uppercase tracking-wider"
-                          >
-                            {t('social.guilds.proposeChallenge')}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                          <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tight leading-tight">
+                            {activeGuild.name}
+                          </h2>
 
-                  {/* ADMIN-ONLY: PENDING GUILD APPLICATIONS PANEL */}
-                  {isOwnerOrAdmin(activeGuild) && (
-                    <div className={`rounded-3xl p-6 border shadow-sm transition-all ${
-                      (activeGuild.pendingMemberIds?.length || 0) > 0
-                        ? 'bg-gradient-to-r from-amber-50/90 via-white to-purple-50/70 border-amber-200'
-                        : 'bg-white border-slate-100'
-                    }`}>
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2.5">
-                          <span className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-black">
-                            🛡️
-                          </span>
-                          <div>
-                            <h3 className="font-black text-slate-800 uppercase tracking-tight text-xs sm:text-sm">
-                              Candidaturas Pendentes à Guilda (Exclusivo Adms)
-                            </h3>
-                            <p className="text-[11px] text-slate-400">
-                              Novos candidatos só podem entrar e visualizar membros, ranking e salas após aprovação de um Adm.
-                            </p>
+                          {/* Editable Motto / Description */}
+                          {isEditingGuildDesc ? (
+                            <div className="bg-white/90 p-3 rounded-2xl border border-indigo-200 shadow-xs space-y-2 max-w-xl mx-auto lg:mx-0">
+                              <textarea
+                                value={editedGuildDesc}
+                                maxLength={500}
+                                onChange={(e) => setEditedGuildDesc(e.target.value)}
+                                placeholder="Defina o lema ou descrição inspiradora da sua guilda..."
+                                className="w-full text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-indigo-400 resize-none"
+                                rows={2}
+                              />
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setIsEditingGuildDesc(false)}
+                                  className="px-3 py-1 text-[11px] font-bold text-slate-500 hover:text-slate-700 cursor-pointer"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isSavingGuildDesc}
+                                  onClick={handleSaveGuildDescription}
+                                  className="px-3.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  {isSavingGuildDesc ? 'Salvando...' : '✓ Salvar Lema'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center lg:justify-start gap-2 group/desc">
+                              <p className="text-slate-600 italic text-xs sm:text-sm leading-relaxed max-w-xl">
+                                “{activeGuild.description || t('social.guilds.noDescription')}”
+                              </p>
+                              {isOwnerOrAdmin(activeGuild) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditedGuildDesc(activeGuild.description || '');
+                                    setIsEditingGuildDesc(true);
+                                  }}
+                                  className="opacity-70 group-hover/desc:opacity-100 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/80 hover:bg-white text-indigo-600 border border-indigo-200/70 text-[10px] font-bold transition-all cursor-pointer flex-shrink-0"
+                                  title="Editar lema/descrição da guilda"
+                                >
+                                  <span>✏️</span>
+                                  <span className="hidden sm:inline">Editar lema</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Action Buttons Row */}
+                          <div className="flex flex-wrap items-center justify-center lg:justify-start gap-2.5 pt-2">
+                            <button
+                              type="button"
+                              onClick={() => setShowCreateChallenge(true)}
+                              className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 hover:from-indigo-700 hover:via-violet-700 hover:to-purple-700 text-white font-black text-xs rounded-xl shadow-md shadow-indigo-500/20 hover:scale-[1.02] transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap"
+                            >
+                              <span>⚔️</span>
+                              <span>+ {t('social.guilds.proposeChallenge')}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setGuildSubTab('agora')}
+                              className="px-4 py-2.5 bg-white/90 hover:bg-white text-emerald-700 border border-emerald-200/90 font-bold text-xs rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                            >
+                              <span>🎙️</span>
+                              <span>Ir para Ágora</span>
+                            </button>
+
+                            {/* Discreet Admin Secondary Control for Resetting Stats */}
+                            {isOwnerOrAdmin(activeGuild) && (
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAdminGearMenu(prev => !prev)}
+                                  className="px-3 py-2.5 bg-white/75 hover:bg-white text-slate-500 hover:text-slate-700 border border-slate-200/80 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                                  title="Opções administrativas da guilda"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  </svg>
+                                  <span className="hidden sm:inline text-[11px]">Admin</span>
+                                </button>
+
+                                {showAdminGearMenu && (
+                                  <div className="absolute left-0 sm:right-0 sm:left-auto mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-30 animate-fade-in">
+                                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-2.5 py-1">
+                                      Zona de Administração
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleResetStats(activeGuild.id)}
+                                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <span>⚠️</span>
+                                      <span>{t('social.guilds.resetStats')}</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-extrabold ${
-                          (activeGuild.pendingMemberIds?.length || 0) > 0
-                            ? 'bg-amber-500 text-white'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}>
-                          {activeGuild.pendingMemberIds?.length || 0} pendente{(activeGuild.pendingMemberIds?.length || 0) === 1 ? '' : 's'}
-                        </span>
+
+                        {/* RIGHT: 3 Guild Mini-KPIs */}
+                        <div className="grid grid-cols-3 lg:grid-cols-1 gap-2.5 w-full lg:w-56 flex-shrink-0">
+                          {/* KPI 1: Total da Guilda */}
+                          <div className="bg-white/85 backdrop-blur-xs border border-indigo-100/90 rounded-2xl p-3 shadow-2xs flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-base flex-shrink-0 font-bold">
+                              ✍️
+                            </div>
+                            <div className="min-w-0 text-left">
+                              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 truncate">
+                                Total da Guilda
+                              </p>
+                              <p className="text-sm sm:text-base font-black text-slate-800 truncate">
+                                {totalGuildWords.toLocaleString('pt-BR')} <span className="text-[10px] font-semibold text-indigo-600">{t('social.guilds.words')}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* KPI 2: Membros Ativos */}
+                          <div className="bg-white/85 backdrop-blur-xs border border-emerald-100/90 rounded-2xl p-3 shadow-2xs flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-base flex-shrink-0 font-bold">
+                              👥
+                            </div>
+                            <div className="min-w-0 text-left">
+                              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 truncate">
+                                Membros Ativos
+                              </p>
+                              <p className="text-sm sm:text-base font-black text-slate-800 truncate">
+                                {activeGuild.members.length} <span className="text-[10px] font-semibold text-emerald-600">({onlineGuildMembersCount} online)</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* KPI 3: Nível / Patente da Guilda */}
+                          <div className="bg-white/85 backdrop-blur-xs border border-purple-100/90 rounded-2xl p-3 shadow-2xs flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center text-base flex-shrink-0 font-bold">
+                              {rankInfo.icon}
+                            </div>
+                            <div className="min-w-0 text-left">
+                              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 truncate">
+                                Patente • Nv. {rankInfo.level}
+                              </p>
+                              <p className="text-xs sm:text-sm font-black text-purple-900 truncate" title={rankInfo.title}>
+                                {rankInfo.title}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
-                      {(activeGuild.pendingMemberIds && activeGuild.pendingMemberIds.length > 0) ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {activeGuild.pendingMemberIds.map(candidateId => {
-                            const candName = getUserName(candidateId);
-                            const candPhoto = getUserPhotoURL(candidateId);
-                            return (
-                              <div
-                                key={candidateId}
-                                className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-amber-200/80 shadow-2xs gap-3"
-                              >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  {candPhoto ? (
-                                    <img src={candPhoto} alt={candName} className="w-10 h-10 rounded-full object-cover border border-amber-200 flex-shrink-0" />
-                                  ) : (
-                                    <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(candName)} text-white flex items-center justify-center font-bold text-xs flex-shrink-0`}>
-                                      {candName.charAt(0).toUpperCase()}
+                      {/* 2. BARRA DE "META COLETIVA DA GUILDA" (COOPERAÇÃO) */}
+                      <div className="relative z-10 mt-6 pt-5 border-t border-indigo-200/60">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm">🤝</span>
+                            <span className="text-xs font-black uppercase tracking-wider text-slate-800">
+                              Meta Coletiva da Guilda
+                            </span>
+                            <span className="text-[11px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-600 text-white shadow-2xs">
+                              {collectiveGoalPercent}%
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-bold text-slate-500 mr-1">Marco:</span>
+                            {[25000, 50000, 100000].map(milestone => {
+                              const isActiveMilestone = collectiveGoalTarget === milestone;
+                              return (
+                                <button
+                                  key={milestone}
+                                  type="button"
+                                  onClick={() => setCustomGuildGoalTarget(milestone)}
+                                  className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer border ${
+                                    isActiveMilestone
+                                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                      : 'bg-white/80 text-slate-600 border-slate-200 hover:border-indigo-300'
+                                  }`}
+                                >
+                                  {(milestone / 1000)}k
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="w-full h-3.5 bg-white/90 rounded-full overflow-hidden p-0.5 border border-indigo-200/70 shadow-inner">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600 transition-all duration-700 relative"
+                            style={{ width: `${Math.max(2, collectiveGoalPercent)}%` }}
+                          />
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 mt-2 text-[11px]">
+                          <span className="font-bold text-slate-700">
+                            Progresso cooperativo: <strong className="text-indigo-700">{totalGuildWords.toLocaleString('pt-BR')}</strong> / {collectiveGoalTarget.toLocaleString('pt-BR')} {t('social.guilds.words')}
+                          </span>
+                          <span className="font-semibold text-slate-500">
+                            {wordsRemainingForGoal > 0 ? (
+                              <>🔥 Faltam <strong className="text-slate-700">{wordsRemainingForGoal.toLocaleString('pt-BR')}</strong> palavras para a guilda subir de patamar junta!</>
+                            ) : (
+                              <span className="text-emerald-700 font-bold">🎉 Marco coletivo alcançado! Selecione o próximo patamar acima.</span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 3. OTIMIZAÇÃO INTELIGENTE DE "CANDIDATURAS PENDENTES (EXCLUSIVO ADMS)" */}
+                    {isOwnerOrAdmin(activeGuild) && (
+                      pendingAppsCount === 0 ? (
+                        <div className="px-4 py-2.5 rounded-2xl bg-white border border-slate-200/80 shadow-2xs flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs">🛡️</span>
+                            <span className="text-xs font-bold text-slate-600">
+                              Candidaturas à Guilda: <strong className="text-slate-800">0 pendentes</strong>
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-semibold text-slate-400">
+                            Novas solicitações de entrada aparecerão destacadas aqui para aprovação dos Adms
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="rounded-3xl p-5 sm:p-6 border bg-gradient-to-r from-amber-50/95 via-white to-purple-50/75 border-amber-300 shadow-sm transition-all">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2.5">
+                              <span className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-black">
+                                🛡️
+                              </span>
+                              <div>
+                                <h3 className="font-black text-slate-800 uppercase tracking-tight text-xs sm:text-sm">
+                                  Candidaturas Pendentes à Guilda (Exclusivo Adms)
+                                </h3>
+                                <p className="text-[11px] text-slate-500">
+                                  Novos candidatos só podem entrar e visualizar membros, ranking e salas após aprovação de um Adm.
+                                </p>
+                              </div>
+                            </div>
+                            <span className="px-2.5 py-1 rounded-full text-xs font-extrabold bg-amber-500 text-white shadow-2xs">
+                              {pendingAppsCount} pendente{pendingAppsCount === 1 ? '' : 's'}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {activeGuild.pendingMemberIds?.map(candidateId => {
+                              const candName = getUserName(candidateId);
+                              const candPhoto = getUserPhotoURL(candidateId);
+                              return (
+                                <div
+                                  key={candidateId}
+                                  className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-amber-200/90 shadow-2xs gap-3"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    {candPhoto ? (
+                                      <img src={candPhoto} alt={candName} className="w-10 h-10 rounded-full object-cover border border-amber-200 flex-shrink-0" />
+                                    ) : (
+                                      <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(candName)} text-white flex items-center justify-center font-bold text-xs flex-shrink-0`}>
+                                        {candName.charAt(0).toUpperCase()}
+                                      </div>
+                                    )}
+                                    <div className="min-w-0">
+                                      <p className="font-bold text-sm text-slate-800 truncate">{candName}</p>
+                                      <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                                        Solicitou entrada na guilda
+                                      </span>
                                     </div>
-                                  )}
-                                  <div className="min-w-0">
-                                    <p className="font-bold text-sm text-slate-800 truncate">{candName}</p>
-                                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                                      Solicitou entrada na guilda
-                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                                    <button
+                                      onClick={() => handleApproveGuildMember(activeGuild.id, candidateId)}
+                                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer shadow-xs"
+                                      title="Aprovar entrada na guilda"
+                                    >
+                                      ✓ Aceitar
+                                    </button>
+                                    <button
+                                      onClick={() => handleRejectGuildMember(activeGuild.id, candidateId)}
+                                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                                      title="Recusar solicitação"
+                                    >
+                                      ✕ Recusar
+                                    </button>
                                   </div>
                                 </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )
+                    )}
 
-                                <div className="flex items-center gap-1.5 flex-shrink-0">
-                                  <button
-                                    onClick={() => handleApproveGuildMember(activeGuild.id, candidateId)}
-                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer shadow-xs"
-                                    title="Aprovar entrada na guilda"
-                                  >
-                                    ✓ Aceitar
-                                  </button>
-                                  <button
-                                    onClick={() => handleRejectGuildMember(activeGuild.id, candidateId)}
-                                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold text-xs rounded-xl transition-colors cursor-pointer"
-                                    title="Recusar solicitação"
-                                  >
-                                    ✕ Recusar
-                                  </button>
+                    {/* 4 & 5. PRODUÇÃO DOS MEMBROS + FOGUEIRA DA GUILDA & DESAFIOS */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                      {/* 4. LEADERBOARD: PRODUÇÃO DOS MEMBROS RICA E MOTIVADORA */}
+                      <div className="lg:col-span-2 space-y-4">
+                        <div className="flex items-center justify-between px-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">🏆</span>
+                            <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm">
+                              {t('social.guilds.memberProduction')}
+                            </h3>
+                          </div>
+                          {activeGuild.statsResetDate && (
+                            <span className="text-[10px] text-slate-400 font-bold italic">
+                              {t('social.guilds.since')} {new Date(activeGuild.statsResetDate!).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-slate-200/70 space-y-3.5">
+                          {sortedGuildMembers.map((memberId, index) => {
+                            const mName = getUserName(memberId);
+                            const mPhoto = getUserPhotoURL(memberId);
+                            const mWords = memberStats[memberId] || 0;
+                            const mPercent = totalGuildWords > 0
+                              ? Math.min(100, Math.round((mWords / totalGuildWords) * 100))
+                              : 0;
+                            const isMemberOnline = memberId === currentUser.id || checkUserOnline(allUsers.find(u => u.id === memberId));
+                            const isCheered = Boolean(cheeredMembers[memberId]);
+                            const sparkCount = memberSparks[memberId] || 0;
+
+                            const getRankBadge = (pos: number) => {
+                              if (pos === 0) {
+                                return (
+                                  <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-black shadow-2xs w-12 flex-shrink-0">
+                                    🥇 1º
+                                  </span>
+                                );
+                              }
+                              if (pos === 1) {
+                                return (
+                                  <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 border border-slate-300 text-[11px] font-black shadow-2xs w-12 flex-shrink-0">
+                                    🥈 2º
+                                  </span>
+                                );
+                              }
+                              if (pos === 2) {
+                                return (
+                                  <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg bg-orange-100 text-orange-800 border border-orange-300 text-[11px] font-black shadow-2xs w-12 flex-shrink-0">
+                                    🥉 3º
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg bg-slate-50 text-slate-400 border border-slate-200/70 text-[11px] font-extrabold w-12 flex-shrink-0">
+                                  #{pos + 1}
+                                </span>
+                              );
+                            };
+
+                            return (
+                              <div
+                                key={memberId}
+                                className={`p-3.5 rounded-2xl border transition-all group/member ${
+                                  index === 0
+                                    ? 'bg-gradient-to-r from-amber-50/40 via-white to-white border-amber-200/80 shadow-2xs'
+                                    : 'bg-slate-50/40 hover:bg-white border-slate-100 hover:border-indigo-200/80'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3.5">
+                                  {/* Position Badge */}
+                                  {getRankBadge(index)}
+
+                                  {/* Real Profile Photo or Vibrant Gradient Avatar */}
+                                  <div className="relative flex-shrink-0">
+                                    {mPhoto ? (
+                                      <img
+                                        src={mPhoto}
+                                        alt={mName}
+                                        className="w-11 h-11 rounded-full object-cover ring-2 ring-white shadow-sm border border-slate-200"
+                                      />
+                                    ) : (
+                                      <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(mName)} text-white flex items-center justify-center font-extrabold text-sm ring-2 ring-white shadow-sm`}>
+                                        {mName.charAt(0).toUpperCase()}
+                                      </div>
+                                    )}
+                                    <span
+                                      className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
+                                        isMemberOnline ? 'bg-emerald-500' : 'bg-slate-300'
+                                      }`}
+                                      title={isMemberOnline ? 'Online' : 'Offline'}
+                                    />
+                                  </div>
+
+                                  {/* Name, Words & Contribution Progress Bar */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1">
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <p className="font-bold text-slate-800 text-sm truncate">
+                                          {mName}
+                                        </p>
+                                        {memberId === activeGuild.adminId && (
+                                          <span className="text-[9px] bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded-md font-extrabold uppercase flex-shrink-0">
+                                            👑 {t('social.guilds.leader')}
+                                          </span>
+                                        )}
+                                        {memberId !== activeGuild.adminId && activeGuild.adminIds?.includes(memberId) && (
+                                          <span className="text-[9px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded-md font-extrabold uppercase flex-shrink-0">
+                                            🛡️ {t('social.guilds.admin')}
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <div className="flex items-center gap-2 flex-shrink-0">
+                                        <span className="text-xs font-black text-indigo-600">
+                                          {mWords.toLocaleString('pt-BR')} <span className="text-[10px] font-semibold text-slate-400">{t('social.guilds.words')}</span>
+                                        </span>
+                                        <span className="text-[10px] font-bold text-slate-400 bg-white px-1.5 py-0.5 rounded-md border border-slate-200/70">
+                                          {mPercent}%
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {/* Proportional Contribution Progress Bar */}
+                                    <div className="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full transition-all duration-500 ${
+                                          index === 0
+                                            ? 'bg-gradient-to-r from-amber-400 to-emerald-500'
+                                            : 'bg-gradient-to-r from-indigo-500 to-teal-400'
+                                        }`}
+                                        style={{ width: `${mWords > 0 ? Math.max(4, mPercent) : 0}%` }}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Quick Micro-Interaction: Incentivar / Enviar Faísca + Admin Promote */}
+                                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                                    {memberId !== currentUser.id && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSendMemberSpark(memberId)}
+                                        className={`px-2.5 py-1.5 rounded-xl text-[10px] font-extrabold transition-all flex items-center gap-1 cursor-pointer border ${
+                                          isCheered
+                                            ? 'bg-amber-500 text-white border-amber-500 shadow-xs scale-105'
+                                            : 'bg-amber-50/80 hover:bg-amber-100 text-amber-800 border-amber-200/80'
+                                        }`}
+                                        title="Enviar faísca de incentivo literário"
+                                      >
+                                        <span>{isCheered ? '🔥' : '👏'}</span>
+                                        <span className="hidden sm:inline">
+                                          {isCheered ? 'Incentivado!' : 'Incentivar'}
+                                        </span>
+                                        {sparkCount > 0 && (
+                                          <span className={`px-1 rounded-full text-[9px] ${isCheered ? 'bg-white/25 text-white' : 'bg-amber-200/70 text-amber-900'}`}>
+                                            +{sparkCount}
+                                          </span>
+                                        )}
+                                      </button>
+                                    )}
+
+                                    {isOwnerOrAdmin(activeGuild) && memberId !== currentUser.id && memberId !== activeGuild.adminId && !activeGuild.adminIds?.includes(memberId) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handlePromoteAdmin(activeGuild.id, memberId)}
+                                        className="opacity-0 group-hover/member:opacity-100 px-2.5 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-xl text-[10px] font-extrabold uppercase tracking-tight transition-all cursor-pointer"
+                                        title={t('social.guilds.makeAdmin')}
+                                      >
+                                        + Adm
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             );
                           })}
                         </div>
-                      ) : (
-                        <p className="text-xs text-slate-400 italic">
-                          Nenhuma solicitação de entrada pendente no momento.
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* STATS & MEMBERS */}
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                    {/* LEADERBOARD */}
-                    <div className="lg:col-span-2 space-y-4">
-                      <div className="flex items-center justify-between px-2">
-                        <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm">{t('social.guilds.memberProduction')}</h3>
-                        {activeGuild.statsResetDate && (
-                          <span className="text-[10px] text-slate-400 font-bold italic">{t('social.guilds.since')} {new Date(activeGuild.statsResetDate!).toLocaleDateString()}</span>
-                        )}
                       </div>
 
-                      <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-4">
-                        {activeGuild.members.map((memberId, index) => (
-                          <div key={memberId} className="flex items-center gap-4 group/member">
-                            <span className="text-xs font-black text-slate-300 w-4">{index + 1}</span>
-                            <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden ring-2 ring-white shadow-sm flex-shrink-0">
-                              {getUserPhotoURL(memberId) ? (
-                                <img src={getUserPhotoURL(memberId)} alt={getUserName(memberId)} className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center font-bold text-slate-500 text-xs">
-                                  {getUserName(memberId).charAt(0)}
+                      {/* 5. RIGHT COLUMN: FOGUEIRA DA GUILDA (SPRINT) + COLUNA DE DESAFIOS */}
+                      <div className="space-y-6">
+
+                        {/* WIDGET: FOGUEIRA DA GUILDA (SPRINT DE ESCRITA) */}
+                        <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-amber-950 text-white rounded-3xl p-5 shadow-lg border border-amber-500/30 relative overflow-hidden">
+                          <div className="absolute -bottom-10 -right-10 w-36 h-36 bg-amber-500/20 rounded-full blur-2xl pointer-events-none" />
+
+                          <div className="relative z-10 space-y-4">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xl ${isCampfireActive ? 'animate-bounce' : ''}`}>🔥</span>
+                                <div>
+                                  <h4 className="font-black text-xs uppercase tracking-wider text-amber-300">
+                                    Fogueira da Guilda
+                                  </h4>
+                                  <p className="text-[10px] text-slate-300">
+                                    Sprint Rápido de Escrita em Grupo
+                                  </p>
                                 </div>
+                              </div>
+
+                              {/* Duration Selector Pills (15 or 25 min) */}
+                              <div className="flex bg-white/10 p-0.5 rounded-xl border border-white/10">
+                                {([15, 25] as const).map(mins => (
+                                  <button
+                                    key={mins}
+                                    type="button"
+                                    onClick={() => handleSelectCampfireDuration(mins)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${
+                                      campfireDurationMin === mins
+                                        ? 'bg-amber-500 text-slate-950 shadow-2xs'
+                                        : 'text-slate-300 hover:text-white'
+                                    }`}
+                                  >
+                                    {mins}m
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Countdown Display */}
+                            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-center space-y-2">
+                              <div className="text-3xl font-black tracking-widest font-mono text-white">
+                                {formatCampfireTime(campfireSecondsLeft)}
+                              </div>
+                              <p className="text-[11px] text-amber-200/90 font-medium">
+                                {isCampfireActive
+                                  ? '🔥 A fogueira está acesa! Mantenha o foco nas palavras...'
+                                  : campfireCompletedCount > 0
+                                  ? `✨ ${campfireCompletedCount} sprint${campfireCompletedCount > 1 ? 's' : ''} concluído${campfireCompletedCount > 1 ? 's' : ''} nesta sessão!`
+                                  : `Concentre-se por ${campfireDurationMin} min em sintonia com a guilda`}
+                              </p>
+                            </div>
+
+                            {/* Action Controls */}
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setIsCampfireActive(prev => !prev)}
+                                className={`flex-1 py-2.5 px-4 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md ${
+                                  isCampfireActive
+                                    ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
+                                    : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950'
+                                }`}
+                              >
+                                <span>{isCampfireActive ? '⏸️' : '🔥'}</span>
+                                <span>
+                                  {isCampfireActive ? 'Pausar Fogueira' : 'Sentar à Fogueira (Iniciar Sprint)'}
+                                </span>
+                              </button>
+
+                              {(isCampfireActive || campfireSecondsLeft < campfireDurationMin * 60) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsCampfireActive(false);
+                                    setCampfireSecondsLeft(campfireDurationMin * 60);
+                                  }}
+                                  className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-bold transition-colors cursor-pointer"
+                                  title="Reiniciar cronômetro"
+                                >
+                                  🔄
+                                </button>
                               )}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-bold text-slate-700 text-sm truncate">{getUserName(memberId)}</p>
-                              <p className="text-xs text-indigo-500 font-bold italic">{memberStats[memberId]?.toLocaleString() || 0} {t('social.guilds.words')}</p>
-                            </div>
+                          </div>
+                        </div>
 
-                            {isOwnerOrAdmin(activeGuild) && memberId !== currentUser.id && memberId !== activeGuild.adminId && !activeGuild.adminIds?.includes(memberId) && (
-                              <button
-                                onClick={() => handlePromoteAdmin(activeGuild.id, memberId)}
-                                className="opacity-0 group-hover/member:opacity-100 px-3 py-1 bg-teal-50 text-teal-600 rounded-lg text-[10px] font-black uppercase tracking-tighter transition-opacity"
-                              >
-                                {t('social.guilds.makeAdmin')}
-                              </button>
-                            )}
-                            {activeGuild.adminIds?.includes(memberId) && (
-                              <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold uppercase">{t('social.guilds.admin')}</span>
-                            )}
-                            {memberId === activeGuild.adminId && (
-                              <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded font-bold uppercase">{t('social.guilds.leader')}</span>
-                            )}
+                        {/* CHALLENGES COLUMN */}
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between px-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm">⚔️</span>
+                              <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm">
+                                {t('social.guilds.challenges')}
+                              </h3>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowCreateChallenge(true)}
+                              className="text-[11px] font-extrabold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                            >
+                              + Novo
+                            </button>
                           </div>
-                        ))}
-                      </div>
-                    </div>
 
-                    {/* CHALLENGES */}
-                    <div className="space-y-4">
-                      <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm px-2 text-center md:text-left">{t('social.guilds.challenges')}</h3>
-                      <div className="space-y-3">
-                        {activeGuild.challenges?.length ? activeGuild.challenges?.map(challenge => (
-                          <div key={challenge.id} className="bg-indigo-600 text-white p-5 rounded-3xl shadow-lg relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 p-3 opacity-20 transform translate-x-1 translate-y--1 group-hover:scale-110 transition-transform">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                              </svg>
-                            </div>
-                            <h4 className="font-black text-sm mb-1 uppercase tracking-tight">{challenge.title}</h4>
-                            <p className="text-[10px] text-indigo-100 mb-3 leading-tight opacity-80">{challenge.description}</p>
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-black bg-white/20 px-2 py-1 rounded-lg">{challenge.target.toLocaleString()} {t('social.competitions.wordType').toUpperCase()}</span>
-                              <span className="text-[10px] font-bold text-indigo-200">{challenge.durationDays} {t('social.competitions.daysLabel').toLowerCase()}</span>
-                            </div>
+                          <div className="space-y-3">
+                            {activeGuild.challenges?.length ? activeGuild.challenges.map(challenge => {
+                              const targetWords = Math.max(1, Number(challenge.target) || 1000);
+                              const challengePercent = Math.min(100, Math.round((totalGuildWords / targetWords) * 100));
+                              const createdMs = challenge.createdAt ? new Date(challenge.createdAt).getTime() : Date.now();
+                              const endMs = createdMs + (Number(challenge.durationDays) || 7) * 86400000;
+                              const daysLeft = Math.max(0, Math.ceil((endMs - Date.now()) / 86400000));
+                              const isExpanded = expandedChallengeId === challenge.id;
+
+                              return (
+                                <div
+                                  key={challenge.id}
+                                  onClick={() => setExpandedChallengeId(isExpanded ? null : challenge.id)}
+                                  className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 text-white p-5 rounded-3xl shadow-md hover:shadow-xl relative overflow-hidden group cursor-pointer transition-all hover:-translate-y-0.5 border border-indigo-400/30"
+                                >
+                                  <div className="absolute top-0 right-0 p-3 opacity-15 transform translate-x-1 -translate-y-1 group-hover:scale-110 transition-transform pointer-events-none">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-14 w-14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    </svg>
+                                  </div>
+
+                                  <div className="relative z-10 space-y-3">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-base">🏆</span>
+                                        <h4 className="font-black text-sm uppercase tracking-tight leading-snug">
+                                          {challenge.title}
+                                        </h4>
+                                      </div>
+                                      <span className="text-[10px] font-extrabold bg-white/15 border border-white/20 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">
+                                        ⏳ {daysLeft > 0 ? `${daysLeft}d restantes` : `${challenge.durationDays} dias`}
+                                      </span>
+                                    </div>
+
+                                    <p className={`text-xs text-indigo-100 leading-relaxed opacity-90 ${isExpanded ? '' : 'line-clamp-2'}`}>
+                                      {challenge.description}
+                                    </p>
+
+                                    {/* Challenge Visual Progress Bar */}
+                                    <div className="space-y-1.5 pt-1">
+                                      <div className="flex items-center justify-between text-[10px] font-extrabold">
+                                        <span className="text-indigo-200 uppercase tracking-wider">
+                                          Meta: {targetWords.toLocaleString('pt-BR')} {t('social.competitions.wordType')}
+                                        </span>
+                                        <span className="text-emerald-300">
+                                          {challengePercent}%
+                                        </span>
+                                      </div>
+                                      <div className="w-full h-2 bg-slate-950/40 rounded-full overflow-hidden p-0.2">
+                                        <div
+                                          className="h-full rounded-full bg-gradient-to-r from-amber-300 via-emerald-400 to-teal-300 transition-all duration-500"
+                                          style={{ width: `${Math.max(4, challengePercent)}%` }}
+                                        />
+                                      </div>
+                                    </div>
+
+                                    {isExpanded && (
+                                      <div className="pt-2 border-t border-white/15 flex items-center justify-between text-[10px] text-indigo-100 animate-fade-in">
+                                        <span>Volume atual da guilda: <strong>{totalGuildWords.toLocaleString('pt-BR')}</strong></span>
+                                        <span className="underline font-bold">Recolher ↑</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }) : (
+                              <div className="bg-white rounded-3xl p-6 border border-dashed border-slate-200 text-center shadow-2xs space-y-2">
+                                <span className="text-2xl block">🎯</span>
+                                <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">
+                                  {t('social.guilds.noActiveChallenges')}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowCreateChallenge(true)}
+                                  className="mt-1 px-4 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                                >
+                                  + Criar Primeiro Desafio
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        )) : (
-                          <div className="bg-white rounded-3xl p-6 border border-slate-100 text-center shadow-sm">
-                            <span className="text-2xl mb-2 block">🎯</span>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{t('social.guilds.noActiveChallenges')}</p>
-                          </div>
-                        )}
+                        </div>
+
                       </div>
+
                     </div>
 
                   </div>
-
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {selectedChat.type === 'group' && guildSubTab === 'chat' && activeGuild && isGuildMember(activeGuild) && (
               <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50">

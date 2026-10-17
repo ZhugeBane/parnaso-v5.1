@@ -935,6 +935,24 @@ export const resetGuildStats = async (guildId: string) => {
   }
 };
 
+export const updateGuildDescription = async (guildId: string, description: string): Promise<string> => {
+  const cleanDescription = sanitizeText(description || '', 500);
+  try {
+    await updateDoc(doc(db, 'groups', guildId), {
+      description: cleanDescription
+    });
+  } catch {
+    // Fallback to directory if group doc is restricted
+  }
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    await updateDoc(dirRef, { description: cleanDescription });
+  } catch {
+    // Ignore
+  }
+  return cleanDescription;
+};
+
 export const createGuildChallenge = async (
   guildId: string,
   challenge: Omit<GuildChallenge, 'id' | 'createdAt' | 'status'>
