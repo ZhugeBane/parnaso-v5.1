@@ -14,7 +14,7 @@ import {
   AgoraParticipant,
   AgoraSignalMessage
 } from '../types';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import {
   collection,
   addDoc,
@@ -33,6 +33,161 @@ import { sanitizeText, sanitizeMetricNumber, toSafePublicUser } from '../utils/c
 
 // --- Friendships & Blocking ---
 
+type RawFriendshipDoc = Friendship & {
+  id: string;
+  recipientId?: string;
+  user1?: string;
+  user2?: string;
+  updatedAt?: string;
+};
+
+interface ResolvedPairRelation {
+  otherUserId: string;
+  status: 'accepted' | 'pending' | 'blocked' | 'none';
+  friendshipId: string;
+  direction?: 'received' | 'sent';
+  createdAt?: string;
+  blockedBy?: string;
+}
+
+const getDocTimestampMs = (f: Partial<RawFriendshipDoc>): number => {
+  const ts = f.updatedAt || f.createdAt;
+  if (!ts) return 0;
+  const parsed = new Date(ts).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const getPairUsers = (f: Partial<RawFriendshipDoc>): { reqId?: string; recId?: string } => {
+  const reqId = f.requesterId || f.user1;
+  const recId = f.receiverId || f.recipientId || f.user2;
+  return { reqId, recId };
+};
+
+const canCurrentUserModifyDoc = (d: RawFriendshipDoc, uid: string): boolean => {
+  return (
+    d.requesterId === uid ||
+    d.recipientId === uid ||
+    d.user1 === uid ||
+    d.user2 === uid
+  );
+};
+
+/**
+ * Resolves the effective relationship state between `userId` and every other user
+ * across all documents in `friendships`, handling cases where a legacy `'pending'` doc
+ * could not be updated/deleted in-place by the receiver due to Firestore rules and was
+ * superseded by a newer `'accepted'` or `'removed'` document.
+ */
+const resolveRelationsForUser = (
+  allDocs: RawFriendshipDoc[],
+  userId: string
+): Map<string, ResolvedPairRelation> => {
+  const byOtherUser = new Map<string, RawFriendshipDoc[]>();
+
+  for (const d of allDocs) {
+    const { reqId, recId } = getPairUsers(d);
+    if (reqId !== userId && recId !== userId) continue;
+    const otherId = reqId === userId ? recId : reqId;
+    if (!otherId || otherId === userId) continue;
+    const list = byOtherUser.get(otherId) || [];
+    list.push(d);
+    byOtherUser.set(otherId, list);
+  }
+
+  const resolved = new Map<string, ResolvedPairRelation>();
+
+  byOtherUser.forEach((docsForPair, otherId) => {
+    // 1. Block always takes highest priority
+    const blockedDoc = docsForPair.find(d => d.status === 'blocked');
+    if (blockedDoc) {
+      resolved.set(otherId, {
+        otherUserId: otherId,
+        status: 'blocked',
+        friendshipId: blockedDoc.id,
+        blockedBy: blockedDoc.blockedBy || blockedDoc.requesterId
+      });
+      return;
+    }
+
+    // 2. Find latest removal/rejection timestamp
+    const removedDocs = docsForPair.filter(
+      d => (d.status as string) === 'removed' || (d.status as string) === 'rejected'
+    );
+    const latestRemovedMs = removedDocs.length > 0
+      ? Math.max(0, ...removedDocs.map(getDocTimestampMs))
+      : 0;
+
+    // 3. Active docs are those created/updated strictly after the latest removal (or when no removal exists)
+    const activeDocs = docsForPair.filter(d => {
+      if (d.status !== 'accepted' && d.status !== 'pending') return false;
+      if (latestRemovedMs === 0) return true;
+      return getDocTimestampMs(d) > latestRemovedMs;
+    });
+
+    // Silently clean up any stale/superseded docs that the current user has permission to delete
+    for (const d of docsForPair) {
+      const isSupersededByRemoval =
+        (d.status === 'accepted' || d.status === 'pending') &&
+        latestRemovedMs > 0 &&
+        getDocTimestampMs(d) <= latestRemovedMs;
+      if (isSupersededByRemoval && canCurrentUserModifyDoc(d, userId)) {
+        deleteDoc(doc(db, 'friendships', d.id)).catch(() => {});
+      }
+    }
+
+    if (activeDocs.length === 0) {
+      resolved.set(otherId, {
+        otherUserId: otherId,
+        status: 'none',
+        friendshipId: ''
+      });
+      return;
+    }
+
+    // 4. If any active doc is 'accepted', the friendship is accepted
+    const acceptedDocs = activeDocs
+      .filter(d => d.status === 'accepted')
+      .sort((a, b) => getDocTimestampMs(b) - getDocTimestampMs(a));
+
+    if (acceptedDocs.length > 0) {
+      const primaryAccepted = acceptedDocs[0];
+      // Clean up any leftover pending docs that the current user owns
+      for (const d of activeDocs) {
+        if (d.id !== primaryAccepted.id && canCurrentUserModifyDoc(d, userId)) {
+          deleteDoc(doc(db, 'friendships', d.id)).catch(() => {});
+        }
+      }
+      resolved.set(otherId, {
+        otherUserId: otherId,
+        status: 'accepted',
+        friendshipId: primaryAccepted.id,
+        createdAt: primaryAccepted.updatedAt || primaryAccepted.createdAt
+      });
+      return;
+    }
+
+    // 5. Otherwise, the relationship is 'pending'
+    const pendingDocs = activeDocs
+      .filter(d => d.status === 'pending')
+      .sort((a, b) => getDocTimestampMs(b) - getDocTimestampMs(a));
+
+    if (pendingDocs.length > 0) {
+      const primaryPending = pendingDocs[0];
+      const { recId } = getPairUsers(primaryPending);
+      const direction = recId === userId ? 'received' : 'sent';
+      resolved.set(otherId, {
+        otherUserId: otherId,
+        status: 'pending',
+        friendshipId: primaryPending.id,
+        direction,
+        createdAt: primaryPending.createdAt
+      });
+    }
+  });
+
+  return resolved;
+};
+
 export const getFriendships = async (): Promise<Friendship[]> => {
   const snapshot = await getDocs(collection(db, 'friendships'));
   return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Friendship));
@@ -41,39 +196,19 @@ export const getFriendships = async (): Promise<Friendship[]> => {
 export const getFriendsList = async (userId: string): Promise<{ user: User, friendshipId: string }[]> => {
   const snapshot = await getDocs(collection(db, 'friendships'));
   const allUsers = (await getAllUsers()).map(u => toSafePublicUser(u, u.id));
-  const allDocs = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Friendship, 'id'>) }));
+  const allDocs: RawFriendshipDoc[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
 
-  // Identify any user where a block exists in either direction
-  const blockedUserIds = new Set<string>();
-  allDocs.forEach(f => {
-    const reqId = f.requesterId;
-    const recId = f.receiverId || (f as any).recipientId;
-    if (f.status === 'blocked') {
-      if (reqId === userId && recId) blockedUserIds.add(recId);
-      if (recId === userId && reqId) blockedUserIds.add(reqId);
-    }
+  const resolvedMap = resolveRelationsForUser(allDocs, userId);
+  const result: { user: User; friendshipId: string }[] = [];
+
+  resolvedMap.forEach(rel => {
+    if (rel.status !== 'accepted') return;
+    const friendUser = allUsers.find(u => u.id === rel.otherUserId);
+    if (!friendUser) return;
+    result.push({ user: friendUser, friendshipId: rel.friendshipId });
   });
 
-  const seenUserIds = new Set<string>();
-
-  return allDocs
-    .map(f => {
-      if (f.status !== 'accepted') return null;
-      const reqId = f.requesterId;
-      const recId = f.receiverId || (f as any).recipientId;
-      if (reqId !== userId && recId !== userId) return null;
-
-      const friendId = reqId === userId ? recId : reqId;
-      if (!friendId) return null;
-      if (blockedUserIds.has(friendId)) return null;
-      if (seenUserIds.has(friendId)) return null;
-
-      const friendUser = allUsers.find(u => u.id === friendId);
-      if (!friendUser) return null;
-      seenUserIds.add(friendId);
-      return { user: friendUser, friendshipId: f.id };
-    })
-    .filter(Boolean) as { user: User, friendshipId: string }[];
+  return result;
 };
 
 export const getPendingRequests = async (
@@ -81,45 +216,22 @@ export const getPendingRequests = async (
 ): Promise<{ user: User; friendshipId: string; type: 'received' | 'sent'; createdAt?: string }[]> => {
   const snapshot = await getDocs(collection(db, 'friendships'));
   const allUsers = (await getAllUsers()).map(u => toSafePublicUser(u, u.id));
-  const allDocs = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Friendship, 'id'>) }));
+  const allDocs: RawFriendshipDoc[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
 
-  const blockedOrAcceptedUserIds = new Set<string>();
-  allDocs.forEach(f => {
-    const reqId = f.requesterId;
-    const recId = f.receiverId || (f as any).recipientId;
-    if (f.status === 'blocked' || f.status === 'accepted') {
-      if (reqId === userId && recId) blockedOrAcceptedUserIds.add(recId);
-      if (recId === userId && reqId) blockedOrAcceptedUserIds.add(reqId);
-    }
+  const resolvedMap = resolveRelationsForUser(allDocs, userId);
+  const pendingList: { user: User; friendshipId: string; type: 'received' | 'sent'; createdAt?: string }[] = [];
+
+  resolvedMap.forEach(rel => {
+    if (rel.status !== 'pending' || !rel.direction) return;
+    const otherUser = allUsers.find(u => u.id === rel.otherUserId);
+    if (!otherUser) return;
+    pendingList.push({
+      user: otherUser,
+      friendshipId: rel.friendshipId,
+      type: rel.direction,
+      createdAt: rel.createdAt
+    });
   });
-
-  const seenOtherIds = new Set<string>();
-
-  const pendingList = allDocs
-    .map(f => {
-      if (f.status !== 'pending') return null;
-      const reqId = f.requesterId;
-      const recId = f.receiverId || (f as any).recipientId;
-      if (reqId !== userId && recId !== userId) return null;
-
-      const isReceived = recId === userId;
-      const otherId = isReceived ? reqId : recId;
-      if (!otherId) return null;
-      if (blockedOrAcceptedUserIds.has(otherId)) return null;
-      if (seenOtherIds.has(otherId)) return null;
-
-      const otherUser = allUsers.find(u => u.id === otherId);
-      if (!otherUser) return null;
-      seenOtherIds.add(otherId);
-
-      return {
-        user: otherUser,
-        friendshipId: f.id,
-        type: isReceived ? ('received' as const) : ('sent' as const),
-        createdAt: f.createdAt
-      };
-    })
-    .filter(Boolean) as { user: User; friendshipId: string; type: 'received' | 'sent'; createdAt?: string }[];
 
   return pendingList.sort((a, b) => {
     const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -135,13 +247,14 @@ export const getBlockedUsersList = async (userId: string): Promise<{ user: User,
 
   return snapshot.docs
     .map(d => {
-      const f = d.data() as Friendship;
+      const f = d.data() as RawFriendshipDoc;
       if (f.status !== 'blocked') return null;
       const blocker = f.blockedBy || f.requesterId;
       if (blocker !== userId) return null;
 
-      const blockedId = f.requesterId === userId ? f.receiverId : f.requesterId;
-      if (seenIds.has(blockedId)) return null;
+      const { reqId, recId } = getPairUsers(f);
+      const blockedId = reqId === userId ? recId : reqId;
+      if (!blockedId || seenIds.has(blockedId)) return null;
 
       const blockedUser = allUsers.find(u => u.id === blockedId);
       if (!blockedUser) return null;
@@ -153,11 +266,10 @@ export const getBlockedUsersList = async (userId: string): Promise<{ user: User,
 
 export const getAvailableUsers = async (currentUserId: string): Promise<User[]> => {
   const rawUsers = await getAllUsers();
-
   const snapshot = await getDocs(collection(db, 'friendships'));
-  const friendships = snapshot.docs
-    .map(d => d.data() as Friendship)
-    .filter(f => f.requesterId === currentUserId || f.receiverId === currentUserId);
+  const allDocs: RawFriendshipDoc[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+
+  const resolvedMap = resolveRelationsForUser(allDocs, currentUserId);
 
   return rawUsers
     .filter(u => {
@@ -165,169 +277,207 @@ export const getAvailableUsers = async (currentUserId: string): Promise<User[]> 
       if (u.role === 'admin') return false;
       if (u.isBlocked) return false;
 
-      // Exclude only if there is an active pending, accepted, or blocked relationship
-      const hasRelation = friendships.some(f =>
-        ((f.requesterId === currentUserId && f.receiverId === u.id) ||
-         (f.requesterId === u.id && f.receiverId === currentUserId)) &&
-        (f.status === 'accepted' || f.status === 'pending' || f.status === 'blocked')
-      );
-
-      return !hasRelation;
+      const rel = resolvedMap.get(u.id);
+      if (rel && (rel.status === 'accepted' || rel.status === 'pending' || rel.status === 'blocked')) {
+        return false;
+      }
+      return true;
     })
     .map(u => toSafePublicUser(u, u.id));
 };
 
 export const sendFriendRequest = async (requesterId: string, receiverId: string): Promise<string | undefined> => {
+  const actorId = auth.currentUser?.uid || requesterId;
   const snapshot = await getDocs(collection(db, 'friendships'));
-  const existing = snapshot.docs
-    .map(d => ({ id: d.id, ...(d.data() as Omit<Friendship, 'id'>) }))
-    .filter(f =>
-      (f.requesterId === requesterId && f.receiverId === receiverId) ||
-      (f.requesterId === receiverId && f.receiverId === requesterId)
-    );
+  const allDocs: RawFriendshipDoc[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
 
-  if (existing.some(f => f.status === 'blocked')) {
+  const pairDocs = allDocs.filter(f => {
+    const { reqId, recId } = getPairUsers(f);
+    return (
+      (reqId === actorId && recId === receiverId) ||
+      (reqId === receiverId && recId === actorId)
+    );
+  });
+
+  if (pairDocs.some(f => f.status === 'blocked')) {
     throw new Error('Não é possível adicionar este usuário pois há um bloqueio ativo.');
   }
 
-  const existingActive = existing.find(f => f.status === 'accepted' || f.status === 'pending');
-  if (existingActive) {
-    return existingActive.id;
+  const resolvedMap = resolveRelationsForUser(allDocs, actorId);
+  const currentRel = resolvedMap.get(receiverId);
+  if (currentRel && (currentRel.status === 'accepted' || currentRel.status === 'pending')) {
+    return currentRel.friendshipId;
   }
 
+  // Clean up any old removed/rejected tombstones owned by actorId
+  for (const oldDoc of pairDocs) {
+    if ((oldDoc.status as string) === 'removed' || (oldDoc.status as string) === 'rejected') {
+      deleteDoc(doc(db, 'friendships', oldDoc.id)).catch(() => {});
+    }
+  }
+
+  const maxExistingMs = Math.max(0, ...pairDocs.map(getDocTimestampMs));
+  const nowIso = new Date(Math.max(Date.now(), maxExistingMs + 1000)).toISOString();
+
   const docRef = await addDoc(collection(db, 'friendships'), {
-    requesterId,
+    requesterId: actorId,
     receiverId,
+    recipientId: receiverId,
+    user1: actorId,
+    user2: receiverId,
     status: 'pending',
-    createdAt: new Date().toISOString()
+    createdAt: nowIso,
+    updatedAt: nowIso
   });
   return docRef.id;
 };
 
-export const acceptFriendRequest = async (friendshipId: string, userId1?: string, userId2?: string) => {
-  try {
-    let u1 = userId1;
-    let u2 = userId2;
+export const acceptFriendRequest = async (friendshipId: string, userId1?: string, userId2?: string): Promise<string> => {
+  const actorId = auth.currentUser?.uid || userId1;
+  const snapshot = await getDocs(collection(db, 'friendships'));
+  const allDocs: RawFriendshipDoc[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
 
-    if (!u1 || !u2) {
-      try {
-        const targetDoc = await getDoc(doc(db, 'friendships', friendshipId));
-        if (targetDoc.exists()) {
-          const data = targetDoc.data() as Friendship;
-          u1 = data.requesterId;
-          u2 = data.receiverId || (data as any).recipientId;
-        }
-      } catch {
-        // Ignore read error
-      }
+  const targetDoc = allDocs.find(d => d.id === friendshipId);
+  let myUid = actorId;
+  let otherUid = userId2;
+
+  if (targetDoc) {
+    const { reqId, recId } = getPairUsers(targetDoc);
+    if (!myUid) myUid = recId || reqId;
+    if (!otherUid) {
+      otherUid = reqId === myUid ? recId : reqId;
     }
-
-    // 1. Update primary friendship doc to 'accepted'
-    try {
-      await setDoc(doc(db, 'friendships', friendshipId), { status: 'accepted' }, { merge: true });
-    } catch {
-      try {
-        await updateDoc(doc(db, 'friendships', friendshipId), { status: 'accepted' });
-      } catch {
-        // Will be handled by query cleanup below if friendshipId was temporary or stale
-      }
-    }
-
-    // 2. Also find all friendship records between u1 and u2, ensure one is 'accepted', and delete any duplicate 'pending' docs
-    if (u1 && u2) {
-      const snapshot = await getDocs(collection(db, 'friendships'));
-      const matchingDocs = snapshot.docs.filter(d => {
-        const f = d.data() as Friendship;
-        if (f.status === 'blocked') return false;
-        const reqId = f.requesterId;
-        const recId = f.receiverId || (f as any).recipientId;
-        return (
-          (reqId === u1 && recId === u2) ||
-          (reqId === u2 && recId === u1)
-        );
-      });
-
-      let acceptedDocId: string | null = null;
-      // Prefer the requested friendshipId if it exists in matchingDocs
-      const exactDoc = matchingDocs.find(d => d.id === friendshipId);
-      if (exactDoc) {
-        acceptedDocId = exactDoc.id;
-        await setDoc(doc(db, 'friendships', exactDoc.id), { status: 'accepted' }, { merge: true });
-      } else if (matchingDocs.length > 0) {
-        acceptedDocId = matchingDocs[0].id;
-        await setDoc(doc(db, 'friendships', matchingDocs[0].id), { status: 'accepted' }, { merge: true });
-      } else {
-        // If no doc existed (e.g. optimistic ID), create the accepted friendship doc
-        const created = await addDoc(collection(db, 'friendships'), {
-          requesterId: u2,
-          receiverId: u1,
-          status: 'accepted',
-          createdAt: new Date().toISOString()
-        });
-        acceptedDocId = created.id;
-      }
-
-      // Delete any remaining duplicate pending/accepted records between u1 and u2
-      for (const dup of matchingDocs) {
-        if (dup.id !== acceptedDocId) {
-          try {
-            await deleteDoc(doc(db, 'friendships', dup.id));
-          } catch {
-            try {
-              await setDoc(doc(db, 'friendships', dup.id), { status: 'accepted' }, { merge: true });
-            } catch {
-              // Ignore
-            }
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error('Erro ao aceitar solicitação de amizade:', err);
-    throw err;
   }
+
+  const pairDocs = (myUid && otherUid)
+    ? allDocs.filter(d => {
+        const { reqId, recId } = getPairUsers(d);
+        return (
+          (reqId === myUid && recId === otherUid) ||
+          (reqId === otherUid && recId === myUid)
+        );
+      })
+    : (targetDoc ? [targetDoc] : []);
+
+  const maxExistingMs = Math.max(0, ...pairDocs.map(getDocTimestampMs));
+  const nowIso = new Date(Math.max(Date.now(), maxExistingMs + 1000)).toISOString();
+
+  let acceptedDocId: string | null = null;
+  const candidateDocs = [
+    ...(targetDoc ? [targetDoc] : []),
+    ...pairDocs.filter(d => d.id !== friendshipId && d.status !== 'blocked')
+  ];
+
+  // 1. Try to update an existing friendship doc in-place if Firestore rules allow it
+  for (const cand of candidateDocs) {
+    const { reqId, recId } = getPairUsers(cand);
+    const effectiveReq = reqId || otherUid || myUid;
+    const effectiveRec = recId || myUid || otherUid;
+    try {
+      await updateDoc(doc(db, 'friendships', cand.id), {
+        status: 'accepted',
+        requesterId: effectiveReq,
+        receiverId: effectiveRec,
+        recipientId: effectiveRec,
+        user1: effectiveReq,
+        user2: effectiveRec,
+        updatedAt: nowIso
+      });
+      acceptedDocId = cand.id;
+      break;
+    } catch {
+      // Legacy doc created without recipientId/user2 cannot be updated by receiver under strict rules
+    }
+  }
+
+  // 2. Fallback: create a new 'accepted' friendship doc where requesterId == request.auth.uid (always permitted by Firestore create rules)
+  if (!acceptedDocId && myUid && otherUid) {
+    const created = await addDoc(collection(db, 'friendships'), {
+      requesterId: myUid,
+      receiverId: otherUid,
+      recipientId: otherUid,
+      user1: myUid,
+      user2: otherUid,
+      status: 'accepted',
+      createdAt: nowIso,
+      updatedAt: nowIso
+    });
+    acceptedDocId = created.id;
+  }
+
+  // 3. Clean up any duplicate or removed docs that the current user has permission to delete
+  for (const dup of pairDocs) {
+    if (dup.id !== acceptedDocId && dup.status !== 'blocked') {
+      try {
+        await deleteDoc(doc(db, 'friendships', dup.id));
+      } catch {
+        // Ignore if legacy doc owned by the other user; the newer 'accepted' doc supersedes it
+      }
+    }
+  }
+
+  return acceptedDocId || friendshipId;
 };
 
 /**
- * Removes a friendship completely between the two users (deleting all non-blocked records between them)
+ * Removes a friendship or declines/cancels a pending request between the two users
  * so they can find and add each other again in Search.
  */
 export const removeFriendship = async (friendshipId: string, userId1?: string, userId2?: string) => {
   try {
-    let u1 = userId1;
-    let u2 = userId2;
+    const actorId = auth.currentUser?.uid || userId1;
+    const snapshot = await getDocs(collection(db, 'friendships'));
+    const allDocs: RawFriendshipDoc[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
 
-    if (!u1 || !u2) {
-      const targetDoc = await getDoc(doc(db, 'friendships', friendshipId));
-      if (targetDoc.exists()) {
-        const data = targetDoc.data() as Friendship;
-        u1 = data.requesterId;
-        u2 = data.receiverId || (data as any).recipientId;
+    const targetDoc = allDocs.find(d => d.id === friendshipId);
+    let myUid = actorId;
+    let otherUid = userId2;
+
+    if (targetDoc) {
+      const { reqId, recId } = getPairUsers(targetDoc);
+      if (!myUid) myUid = recId || reqId;
+      if (!otherUid) {
+        otherUid = reqId === myUid ? recId : reqId;
       }
     }
 
-    try {
-      await deleteDoc(doc(db, 'friendships', friendshipId));
-    } catch {
-      // Ignore if already deleted
-    }
+    const pairDocs = (myUid && otherUid)
+      ? allDocs.filter(d => {
+          if (d.status === 'blocked') return false;
+          const { reqId, recId } = getPairUsers(d);
+          return (
+            (reqId === myUid && recId === otherUid) ||
+            (reqId === otherUid && recId === myUid)
+          );
+        })
+      : (targetDoc ? [targetDoc] : []);
 
-    // Also clean up any duplicate pending/accepted records between u1 and u2
-    if (u1 && u2) {
-      const snapshot = await getDocs(collection(db, 'friendships'));
-      const duplicates = snapshot.docs.filter(d => {
-        const f = d.data() as Friendship;
-        if (f.status === 'blocked') return false;
-        const reqId = f.requesterId;
-        const recId = f.receiverId || (f as any).recipientId;
-        return (
-          (reqId === u1 && recId === u2) ||
-          (reqId === u2 && recId === u1)
-        );
-      });
-      for (const dup of duplicates) {
+    const maxExistingMs = Math.max(0, ...pairDocs.map(getDocTimestampMs));
+    const nowIso = new Date(Math.max(Date.now(), maxExistingMs + 1000)).toISOString();
+
+    let anyActiveDeleteFailed = false;
+    for (const dup of pairDocs) {
+      try {
         await deleteDoc(doc(db, 'friendships', dup.id));
+      } catch {
+        if (dup.status === 'pending' || dup.status === 'accepted') {
+          anyActiveDeleteFailed = true;
+        }
       }
+    }
+
+    // If a legacy doc owned by the other user could not be deleted directly, write a 'removed' record owned by myUid
+    if (anyActiveDeleteFailed && myUid && otherUid) {
+      await addDoc(collection(db, 'friendships'), {
+        requesterId: myUid,
+        receiverId: otherUid,
+        recipientId: otherUid,
+        user1: myUid,
+        user2: otherUid,
+        status: 'removed',
+        createdAt: nowIso,
+        updatedAt: nowIso
+      });
     }
   } catch (err) {
     console.error('Erro ao remover amizade:', err);
@@ -338,36 +488,47 @@ export const removeFriendship = async (friendshipId: string, userId1?: string, u
  * Blocks a user socially: removes any friendship/request between them and creates a blocked record.
  */
 export const blockUserSocial = async (blockerId: string, targetUserId: string) => {
+  const actorId = auth.currentUser?.uid || blockerId;
   const snapshot = await getDocs(collection(db, 'friendships'));
   const existing = snapshot.docs.filter(d => {
-    const f = d.data() as Friendship;
+    const f = d.data() as RawFriendshipDoc;
+    const { reqId, recId } = getPairUsers(f);
     return (
-      (f.requesterId === blockerId && f.receiverId === targetUserId) ||
-      (f.requesterId === targetUserId && f.receiverId === blockerId)
+      (reqId === actorId && recId === targetUserId) ||
+      (reqId === targetUserId && recId === actorId)
     );
   });
 
-  // Delete all non-blocked records between the two users
+  // Delete all non-blocked records between the two users that actorId can delete
   for (const docSnap of existing) {
-    const f = docSnap.data() as Friendship;
+    const f = docSnap.data() as RawFriendshipDoc;
     if (f.status !== 'blocked') {
-      await deleteDoc(doc(db, 'friendships', docSnap.id));
+      try {
+        await deleteDoc(doc(db, 'friendships', docSnap.id));
+      } catch {
+        // Ignore if legacy doc owned by targetUserId
+      }
     }
   }
 
   // Check if blocker already has a block doc
   const alreadyBlockedByMe = existing.some(d => {
-    const f = d.data() as Friendship;
-    return f.status === 'blocked' && (f.blockedBy === blockerId || f.requesterId === blockerId);
+    const f = d.data() as RawFriendshipDoc;
+    return f.status === 'blocked' && (f.blockedBy === actorId || f.requesterId === actorId);
   });
 
   if (!alreadyBlockedByMe) {
+    const nowIso = new Date().toISOString();
     await addDoc(collection(db, 'friendships'), {
-      requesterId: blockerId,
+      requesterId: actorId,
       receiverId: targetUserId,
-      blockedBy: blockerId,
+      recipientId: targetUserId,
+      user1: actorId,
+      user2: targetUserId,
+      blockedBy: actorId,
       status: 'blocked',
-      createdAt: new Date().toISOString()
+      createdAt: nowIso,
+      updatedAt: nowIso
     });
   }
 };
@@ -376,17 +537,23 @@ export const blockUserSocial = async (blockerId: string, targetUserId: string) =
  * Unblocks a user that was previously blocked by blockerId, allowing them to be searched and added again.
  */
 export const unblockUserSocial = async (blockerId: string, targetUserId: string) => {
+  const actorId = auth.currentUser?.uid || blockerId;
   const snapshot = await getDocs(collection(db, 'friendships'));
   const toDelete = snapshot.docs.filter(d => {
-    const f = d.data() as Friendship;
+    const f = d.data() as RawFriendshipDoc;
     if (f.status !== 'blocked') return false;
-    const isMyBlock = (f.blockedBy === blockerId || f.requesterId === blockerId);
-    const involvesTarget = (f.receiverId === targetUserId || f.requesterId === targetUserId);
+    const { reqId, recId } = getPairUsers(f);
+    const isMyBlock = (f.blockedBy === actorId || reqId === actorId);
+    const involvesTarget = (recId === targetUserId || reqId === targetUserId);
     return isMyBlock && involvesTarget;
   });
 
   for (const docSnap of toDelete) {
-    await deleteDoc(doc(db, 'friendships', docSnap.id));
+    try {
+      await deleteDoc(doc(db, 'friendships', docSnap.id));
+    } catch {
+      // Ignore
+    }
   }
 };
 
@@ -394,11 +561,12 @@ export const unblockUserSocial = async (blockerId: string, targetUserId: string)
 
 const syncGuildDirectoryEntry = async (guild: Guild) => {
   try {
+    const actorId = auth.currentUser?.uid || guild.adminId;
     const dirRef = doc(db, 'forum_threads', `guild_dir_${guild.id}`);
     await setDoc(dirRef, {
       _docType: 'guild_directory',
-      authorId: guild.adminId,
-      creatorId: guild.adminId,
+      authorId: actorId,
+      creatorId: actorId,
       guildId: guild.id,
       name: guild.name,
       description: guild.description || '',

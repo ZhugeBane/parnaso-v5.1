@@ -700,7 +700,15 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     }
 
     try {
-      await acceptFriendRequest(id, currentUser.id, otherUser?.id);
+      const realAcceptedId = await acceptFriendRequest(id, currentUser.id, otherUser?.id);
+      if (otherUser && realAcceptedId) {
+        recentlyAcceptedUsersRef.current.set(otherUser.id, {
+          user: otherUser,
+          friendshipId: realAcceptedId,
+          timestamp: Date.now()
+        });
+        setFriends(prev => prev.map(f => f.user.id === otherUser.id ? { ...f, friendshipId: realAcceptedId } : f));
+      }
     } catch (err) {
       console.error("Erro ao aceitar solicitação:", err);
     } finally {
