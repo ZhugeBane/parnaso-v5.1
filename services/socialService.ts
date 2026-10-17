@@ -1,9 +1,19 @@
-// TEMPORARY FIX: Simplified social service to fix TypeScript build errors
-// Complex Firestore queries with or() and and() were causing compilation issues
-// This version fetches all data and filters in memory
+// Social Service - Friends, Blocking, Guilds, Forum, Challenges, and Agora Voice Room
 
-import { User, Friendship, Message, Guild, GuildForumThread, GuildForumReply, Competition, ForumThread, ForumReply, GuildChallenge } from '../types';
-import { db, storage } from '../lib/firebase';
+import {
+  User,
+  Friendship,
+  Message,
+  Guild,
+  GuildForumThread,
+  GuildForumReply,
+  Competition,
+  ForumThread,
+  ForumReply,
+  GuildChallenge,
+  AgoraParticipant
+} from '../types';
+import { db } from '../lib/firebase';
 import {
   collection,
   addDoc,
@@ -14,12 +24,12 @@ import {
   updateDoc,
   deleteDoc,
   orderBy,
-  getDoc
+  getDoc,
+  setDoc
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getAllUsers } from './authService';
 
-// --- Friendships ---
+// --- Friendships & Blocking ---
 
 export const getFriendships = async (): Promise<Friendship[]> => {
   const snapshot = await getDocs(collection(db, 'friendships'));
@@ -27,57 +37,102 @@ export const getFriendships = async (): Promise<Friendship[]> => {
 };
 
 export const getFriendsList = async (userId: string): Promise<{ user: User, friendshipId: string }[]> => {
-  // Fetch all friendships and filter in memory to avoid complex query syntax issues
   const snapshot = await getDocs(collection(db, 'friendships'));
   const allUsers = await getAllUsers();
+  const allDocs = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Friendship, 'id'>) }));
+
+  // Identify any user where a block exists in either direction
+  const blockedUserIds = new Set<string>();
+  allDocs.forEach(f => {
+    if (f.status === 'blocked') {
+      if (f.requesterId === userId) blockedUserIds.add(f.receiverId);
+      if (f.receiverId === userId) blockedUserIds.add(f.requesterId);
+    }
+  });
+
   const seenUserIds = new Set<string>();
 
-  return snapshot.docs
-    .map(doc => {
-      const f = doc.data() as Friendship;
-      // Only include accepted friendships where user is involved
+  return allDocs
+    .map(f => {
       if (f.status !== 'accepted') return null;
       if (f.requesterId !== userId && f.receiverId !== userId) return null;
 
       const friendId = f.requesterId === userId ? f.receiverId : f.requesterId;
+      if (blockedUserIds.has(friendId)) return null;
       if (seenUserIds.has(friendId)) return null;
+
       const friendUser = allUsers.find(u => u.id === friendId);
       if (!friendUser) return null;
       seenUserIds.add(friendId);
-      return { user: friendUser, friendshipId: doc.id };
+      return { user: friendUser, friendshipId: f.id };
     })
     .filter(Boolean) as { user: User, friendshipId: string }[];
 };
 
 export const getPendingRequests = async (userId: string): Promise<{ user: User, friendshipId: string, type: 'received' | 'sent' }[]> => {
-  // Fetch all pending friendships and filter in memory
   const snapshot = await getDocs(collection(db, 'friendships'));
   const allUsers = await getAllUsers();
+  const allDocs = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Friendship, 'id'>) }));
 
-  return snapshot.docs
-    .map(doc => {
-      const f = doc.data() as Friendship;
-      // Only include pending requests where user is involved
+  const blockedUserIds = new Set<string>();
+  allDocs.forEach(f => {
+    if (f.status === 'blocked') {
+      if (f.requesterId === userId) blockedUserIds.add(f.receiverId);
+      if (f.receiverId === userId) blockedUserIds.add(f.requesterId);
+    }
+  });
+
+  const seenOtherIds = new Set<string>();
+
+  return allDocs
+    .map(f => {
       if (f.status !== 'pending') return null;
       if (f.requesterId !== userId && f.receiverId !== userId) return null;
 
       const isReceived = f.receiverId === userId;
       const otherId = isReceived ? f.requesterId : f.receiverId;
-      const otherUser = allUsers.find(u => u.id === otherId);
+      if (blockedUserIds.has(otherId)) return null;
+      if (seenOtherIds.has(otherId)) return null;
 
-      return otherUser ? {
+      const otherUser = allUsers.find(u => u.id === otherId);
+      if (!otherUser) return null;
+      seenOtherIds.add(otherId);
+
+      return {
         user: otherUser,
-        friendshipId: doc.id,
+        friendshipId: f.id,
         type: isReceived ? 'received' as const : 'sent' as const
-      } : null;
+      };
     })
     .filter(Boolean) as { user: User, friendshipId: string, type: 'received' | 'sent' }[];
+};
+
+export const getBlockedUsersList = async (userId: string): Promise<{ user: User, friendshipId: string }[]> => {
+  const snapshot = await getDocs(collection(db, 'friendships'));
+  const allUsers = await getAllUsers();
+  const seenIds = new Set<string>();
+
+  return snapshot.docs
+    .map(d => {
+      const f = d.data() as Friendship;
+      if (f.status !== 'blocked') return null;
+      const blocker = f.blockedBy || f.requesterId;
+      if (blocker !== userId) return null;
+
+      const blockedId = f.requesterId === userId ? f.receiverId : f.requesterId;
+      if (seenIds.has(blockedId)) return null;
+
+      const blockedUser = allUsers.find(u => u.id === blockedId);
+      if (!blockedUser) return null;
+      seenIds.add(blockedId);
+      return { user: blockedUser, friendshipId: d.id };
+    })
+    .filter(Boolean) as { user: User, friendshipId: string }[];
 };
 
 export const getAvailableUsers = async (currentUserId: string): Promise<User[]> => {
   const allUsers = await getAllUsers();
 
-  // Get my friendships - fetch all and filter in memory
   const snapshot = await getDocs(collection(db, 'friendships'));
   const friendships = snapshot.docs
     .map(d => d.data() as Friendship)
@@ -88,9 +143,11 @@ export const getAvailableUsers = async (currentUserId: string): Promise<User[]> 
     if (u.role === 'admin') return false;
     if (u.isBlocked) return false;
 
+    // Exclude only if there is an active pending, accepted, or blocked relationship
     const hasRelation = friendships.some(f =>
-      (f.requesterId === currentUserId && f.receiverId === u.id) ||
-      (f.requesterId === u.id && f.receiverId === currentUserId)
+      ((f.requesterId === currentUserId && f.receiverId === u.id) ||
+       (f.requesterId === u.id && f.receiverId === currentUserId)) &&
+      (f.status === 'accepted' || f.status === 'pending' || f.status === 'blocked')
     );
 
     return !hasRelation;
@@ -98,6 +155,22 @@ export const getAvailableUsers = async (currentUserId: string): Promise<User[]> 
 };
 
 export const sendFriendRequest = async (requesterId: string, receiverId: string) => {
+  const snapshot = await getDocs(collection(db, 'friendships'));
+  const existing = snapshot.docs
+    .map(d => ({ id: d.id, ...(d.data() as Omit<Friendship, 'id'>) }))
+    .filter(f =>
+      (f.requesterId === requesterId && f.receiverId === receiverId) ||
+      (f.requesterId === receiverId && f.receiverId === requesterId)
+    );
+
+  if (existing.some(f => f.status === 'blocked')) {
+    throw new Error('Não é possível adicionar este usuário pois há um bloqueio ativo.');
+  }
+
+  if (existing.some(f => f.status === 'accepted' || f.status === 'pending')) {
+    return;
+  }
+
   await addDoc(collection(db, 'friendships'), {
     requesterId,
     receiverId,
@@ -110,17 +183,279 @@ export const acceptFriendRequest = async (friendshipId: string) => {
   await updateDoc(doc(db, 'friendships', friendshipId), { status: 'accepted' });
 };
 
-export const removeFriendship = async (friendshipId: string) => {
-  await deleteDoc(doc(db, 'friendships', friendshipId));
+/**
+ * Removes a friendship completely between the two users (deleting all non-blocked records between them)
+ * so they can find and add each other again in Search.
+ */
+export const removeFriendship = async (friendshipId: string, userId1?: string, userId2?: string) => {
+  try {
+    let u1 = userId1;
+    let u2 = userId2;
+
+    if (!u1 || !u2) {
+      const targetDoc = await getDoc(doc(db, 'friendships', friendshipId));
+      if (targetDoc.exists()) {
+        const data = targetDoc.data() as Friendship;
+        u1 = data.requesterId;
+        u2 = data.receiverId;
+      }
+    }
+
+    await deleteDoc(doc(db, 'friendships', friendshipId));
+
+    // Also clean up any duplicate pending/accepted records between u1 and u2
+    if (u1 && u2) {
+      const snapshot = await getDocs(collection(db, 'friendships'));
+      const duplicates = snapshot.docs.filter(d => {
+        const f = d.data() as Friendship;
+        if (f.status === 'blocked') return false;
+        return (
+          (f.requesterId === u1 && f.receiverId === u2) ||
+          (f.requesterId === u2 && f.receiverId === u1)
+        );
+      });
+      for (const dup of duplicates) {
+        await deleteDoc(doc(db, 'friendships', dup.id));
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao remover amizade:', err);
+  }
+};
+
+/**
+ * Blocks a user socially: removes any friendship/request between them and creates a blocked record.
+ */
+export const blockUserSocial = async (blockerId: string, targetUserId: string) => {
+  const snapshot = await getDocs(collection(db, 'friendships'));
+  const existing = snapshot.docs.filter(d => {
+    const f = d.data() as Friendship;
+    return (
+      (f.requesterId === blockerId && f.receiverId === targetUserId) ||
+      (f.requesterId === targetUserId && f.receiverId === blockerId)
+    );
+  });
+
+  // Delete all non-blocked records between the two users
+  for (const docSnap of existing) {
+    const f = docSnap.data() as Friendship;
+    if (f.status !== 'blocked') {
+      await deleteDoc(doc(db, 'friendships', docSnap.id));
+    }
+  }
+
+  // Check if blocker already has a block doc
+  const alreadyBlockedByMe = existing.some(d => {
+    const f = d.data() as Friendship;
+    return f.status === 'blocked' && (f.blockedBy === blockerId || f.requesterId === blockerId);
+  });
+
+  if (!alreadyBlockedByMe) {
+    await addDoc(collection(db, 'friendships'), {
+      requesterId: blockerId,
+      receiverId: targetUserId,
+      blockedBy: blockerId,
+      status: 'blocked',
+      createdAt: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Unblocks a user that was previously blocked by blockerId, allowing them to be searched and added again.
+ */
+export const unblockUserSocial = async (blockerId: string, targetUserId: string) => {
+  const snapshot = await getDocs(collection(db, 'friendships'));
+  const toDelete = snapshot.docs.filter(d => {
+    const f = d.data() as Friendship;
+    if (f.status !== 'blocked') return false;
+    const isMyBlock = (f.blockedBy === blockerId || f.requesterId === blockerId);
+    const involvesTarget = (f.receiverId === targetUserId || f.requesterId === targetUserId);
+    return isMyBlock && involvesTarget;
+  });
+
+  for (const docSnap of toDelete) {
+    await deleteDoc(doc(db, 'friendships', docSnap.id));
+  }
 };
 
 // --- GUILDS (Previously Groups) ---
 
+const syncGuildDirectoryEntry = async (guild: Guild) => {
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guild.id}`);
+    await setDoc(dirRef, {
+      _docType: 'guild_directory',
+      guildId: guild.id,
+      name: guild.name,
+      description: guild.description || '',
+      emblemBase64: guild.emblemBase64 || guild.emblemUrl || '',
+      emblemUrl: guild.emblemBase64 || guild.emblemUrl || '',
+      adminId: guild.adminId,
+      adminIds: guild.adminIds || [guild.adminId],
+      members: guild.members || [],
+      challenges: guild.challenges || [],
+      statsResetDate: guild.statsResetDate || null,
+      createdAt: guild.createdAt || new Date().toISOString()
+    }, { merge: true });
+  } catch {
+    // Non-critical directory sync
+  }
+};
+
 export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
-  // We use the same 'groups' collection for legacy compatibility
-  const q = query(collection(db, 'groups'), where('members', 'array-contains', userId));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Guild));
+  const guildMap = new Map<string, Guild>();
+
+  try {
+    const q = query(collection(db, 'groups'), where('members', 'array-contains', userId));
+    const snapshot = await getDocs(q);
+    snapshot.docs.forEach(d => {
+      const g = { id: d.id, ...d.data() } as Guild;
+      guildMap.set(g.id, g);
+      syncGuildDirectoryEntry(g);
+    });
+  } catch (err) {
+    console.warn('Erro ao buscar grupos do usuário:', err);
+  }
+
+  // Also check guild directory for guilds where user joined via directory
+  try {
+    const fSnap = await getDocs(collection(db, 'forum_threads'));
+    fSnap.docs.forEach(d => {
+      const data = d.data() as any;
+      if (data._docType === 'guild_directory' && Array.isArray(data.members) && data.members.includes(userId)) {
+        const gId = data.guildId || d.id.replace(/^guild_dir_/, '');
+        const existing = guildMap.get(gId);
+        if (!existing) {
+          guildMap.set(gId, {
+            id: gId,
+            name: data.name,
+            description: data.description || '',
+            emblemBase64: data.emblemBase64 || '',
+            emblemUrl: data.emblemUrl || '',
+            adminId: data.adminId,
+            adminIds: data.adminIds || [data.adminId],
+            members: data.members,
+            challenges: data.challenges || [],
+            statsResetDate: data.statsResetDate || undefined,
+            createdAt: data.createdAt
+          });
+        } else {
+          // Merge members/challenges if directory has newer additions
+          const mergedMembers = Array.from(new Set([...(existing.members || []), ...(data.members || [])]));
+          const existingChallenges = existing.challenges || [];
+          const dirChallenges = data.challenges || [];
+          const challengeMap = new Map<string, GuildChallenge>();
+          [...existingChallenges, ...dirChallenges].forEach((c: GuildChallenge) => {
+            if (c?.id) challengeMap.set(c.id, c);
+          });
+          guildMap.set(gId, {
+            ...existing,
+            members: mergedMembers,
+            challenges: Array.from(challengeMap.values())
+          });
+        }
+      }
+    });
+  } catch {
+    // Ignore directory fallback errors
+  }
+
+  return Array.from(guildMap.values());
+};
+
+/**
+ * Fetches all guilds in the community so users can search and join guilds.
+ */
+export const getAllGuilds = async (currentUserId?: string): Promise<Guild[]> => {
+  const guildMap = new Map<string, Guild>();
+
+  if (currentUserId) {
+    const myGuilds = await getUserGuilds(currentUserId);
+    myGuilds.forEach(g => guildMap.set(g.id, g));
+  }
+
+  // 1. Try reading all documents from 'groups' collection
+  try {
+    const snap = await getDocs(collection(db, 'groups'));
+    snap.docs.forEach(d => {
+      const g = { id: d.id, ...d.data() } as Guild;
+      guildMap.set(g.id, g);
+      syncGuildDirectoryEntry(g);
+    });
+  } catch {
+    // If Firestore security rules restrict reading non-member groups directly, fall back to directory
+  }
+
+  // 2. Merge with public guild directory entries
+  try {
+    const fSnap = await getDocs(collection(db, 'forum_threads'));
+    fSnap.docs.forEach(d => {
+      const data = d.data() as any;
+      if (data._docType === 'guild_directory') {
+        const gId = data.guildId || d.id.replace(/^guild_dir_/, '');
+        const existing = guildMap.get(gId);
+        if (!existing) {
+          guildMap.set(gId, {
+            id: gId,
+            name: data.name,
+            description: data.description || '',
+            emblemBase64: data.emblemBase64 || '',
+            emblemUrl: data.emblemUrl || '',
+            adminId: data.adminId,
+            adminIds: data.adminIds || [data.adminId],
+            members: data.members || [],
+            challenges: data.challenges || [],
+            statsResetDate: data.statsResetDate || undefined,
+            createdAt: data.createdAt
+          });
+        } else {
+          const mergedMembers = Array.from(new Set([...(existing.members || []), ...(data.members || [])]));
+          guildMap.set(gId, { ...existing, members: mergedMembers });
+        }
+      }
+    });
+  } catch {
+    // Ignore
+  }
+
+  return Array.from(guildMap.values());
+};
+
+/**
+ * Allows a user to join an existing guild.
+ */
+export const joinGuild = async (guildId: string, userId: string): Promise<void> => {
+  let updatedGuild: Guild | null = null;
+
+  // 1. Try updating the group document directly
+  try {
+    const guildRef = doc(db, 'groups', guildId);
+    const snap = await getDoc(guildRef);
+    if (snap.exists()) {
+      const data = snap.data() as Guild;
+      const members = Array.from(new Set([...(data.members || []), userId]));
+      await updateDoc(guildRef, { members });
+      updatedGuild = { ...data, id: guildId, members };
+    }
+  } catch {
+    // Fallback to directory update if group doc update is restricted by older rules
+  }
+
+  // 2. Also update the directory entry
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    const dirSnap = await getDoc(dirRef);
+    if (dirSnap.exists()) {
+      const dirData = dirSnap.data() as any;
+      const members = Array.from(new Set([...(dirData.members || []), userId]));
+      await updateDoc(dirRef, { members });
+    } else if (updatedGuild) {
+      await syncGuildDirectoryEntry(updatedGuild);
+    }
+  } catch {
+    // Ignore
+  }
 };
 
 // Legacy alias
@@ -134,7 +469,8 @@ export const createGuild = async (
   emblemBase64?: string
 ) => {
   const uniqueMembers = Array.from(new Set([adminId, ...(memberIds || [])]));
-  return await addDoc(collection(db, 'groups'), {
+  const createdAt = new Date().toISOString();
+  const guildData = {
     name,
     adminId,
     adminIds: [adminId],
@@ -142,8 +478,12 @@ export const createGuild = async (
     emblemBase64: emblemBase64 || '',
     emblemUrl: emblemBase64 || '',
     members: uniqueMembers,
-    createdAt: new Date().toISOString()
-  });
+    challenges: [],
+    createdAt
+  };
+  const docRef = await addDoc(collection(db, 'groups'), guildData);
+  await syncGuildDirectoryEntry({ id: docRef.id, ...guildData });
+  return docRef;
 };
 
 // Legacy alias
@@ -154,6 +494,12 @@ export const updateGuildEmblemBase64 = async (guildId: string, base64: string): 
     emblemBase64: base64,
     emblemUrl: base64
   });
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    await updateDoc(dirRef, { emblemBase64: base64, emblemUrl: base64 });
+  } catch {
+    // Ignore
+  }
   return base64;
 };
 
@@ -162,7 +508,6 @@ export const updateGuildEmblem = async (guildId: string, fileOrBase64: File | Bl
     return updateGuildEmblemBase64(guildId, fileOrBase64);
   }
 
-  // Use HTML5 Canvas to resize to 200x200 JPEG 0.7 Base64
   const { resizeImageToBase64 } = await import('../utils/imageProcessor');
   const base64 = await resizeImageToBase64(fileOrBase64, 200, 200, 0.7);
   return updateGuildEmblemBase64(guildId, base64);
@@ -175,34 +520,129 @@ export const promoteMemberToAdmin = async (guildId: string, userId: string) => {
     const data = snap.data() as Guild;
     const adminIds = data.adminIds || (data.adminId ? [data.adminId] : []);
     if (!adminIds.includes(userId)) {
+      const updatedAdmins = [...adminIds, userId];
       await updateDoc(guildRef, {
-        adminIds: [...adminIds, userId]
+        adminIds: updatedAdmins
       });
+      await syncGuildDirectoryEntry({ ...data, id: guildId, adminIds: updatedAdmins });
     }
   }
 };
 
 export const resetGuildStats = async (guildId: string) => {
+  const resetDate = new Date().toISOString();
   await updateDoc(doc(db, 'groups', guildId), {
-    statsResetDate: new Date().toISOString()
+    statsResetDate: resetDate
   });
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    await updateDoc(dirRef, { statsResetDate: resetDate });
+  } catch {
+    // Ignore
+  }
 };
 
-export const createGuildChallenge = async (guildId: string, challenge: Omit<GuildChallenge, 'id' | 'createdAt' | 'status'>) => {
-  const guildRef = doc(db, 'groups', guildId);
-  const snap = await getDoc(guildRef);
-  if (snap.exists()) {
-    const data = snap.data() as Guild;
-    const challenges = data.challenges || [];
-    const newChallenge: GuildChallenge = {
-      ...challenge,
-      id: Math.random().toString(36).substr(2, 9),
-      createdAt: new Date().toISOString(),
-      status: 'active'
-    };
-    await updateDoc(guildRef, {
-      challenges: [...challenges, newChallenge]
-    });
+export const createGuildChallenge = async (
+  guildId: string,
+  challenge: Omit<GuildChallenge, 'id' | 'createdAt' | 'status'>
+): Promise<GuildChallenge> => {
+  const newChallenge: GuildChallenge = {
+    title: challenge.title.trim(),
+    description: (challenge.description || '').trim() || 'Alcance a meta estipulada pela guilda!',
+    type: challenge.type || 'word_count',
+    target: Math.max(1, Number(challenge.target) || 1000),
+    durationDays: Math.max(1, Number(challenge.durationDays) || 7),
+    id: Math.random().toString(36).substring(2, 11),
+    createdAt: new Date().toISOString(),
+    status: 'active'
+  };
+
+  try {
+    const guildRef = doc(db, 'groups', guildId);
+    const snap = await getDoc(guildRef);
+    if (snap.exists()) {
+      const data = snap.data() as Guild;
+      const challenges = [...(data.challenges || []), newChallenge];
+      await updateDoc(guildRef, { challenges });
+      await syncGuildDirectoryEntry({ ...data, id: guildId, challenges });
+      return newChallenge;
+    }
+  } catch (err) {
+    console.warn('Fallback guild challenge to directory:', err);
+  }
+
+  // Fallback to directory entry if direct update on groups fails
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    const dirSnap = await getDoc(dirRef);
+    if (dirSnap.exists()) {
+      const dirData = dirSnap.data() as any;
+      const challenges = [...(dirData.challenges || []), newChallenge];
+      await updateDoc(dirRef, { challenges });
+    }
+  } catch (err) {
+    console.error('Erro ao criar desafio na guilda:', err);
+    throw err;
+  }
+
+  return newChallenge;
+};
+
+// --- GUILD AGORA (VOICE ROOM PRESENCE & SIGNALING) ---
+
+export const pingGuildAgoraPresence = async (
+  guildId: string,
+  user: User,
+  isMuted: boolean = false
+): Promise<void> => {
+  try {
+    const presenceRef = doc(db, 'guild_threads', `agora_${guildId}_${user.id}`);
+    await setDoc(presenceRef, {
+      _docType: 'agora_presence',
+      guildId,
+      userId: user.id,
+      name: user.name,
+      photoURL: user.photoBase64 || user.photoURL || '',
+      isMuted,
+      joinedAt: new Date().toISOString(),
+      lastPing: new Date().toISOString()
+    }, { merge: true });
+  } catch (err) {
+    console.warn('Erro ao atualizar presença na Ágora:', err);
+  }
+};
+
+export const leaveGuildAgora = async (guildId: string, userId: string): Promise<void> => {
+  try {
+    await deleteDoc(doc(db, 'guild_threads', `agora_${guildId}_${userId}`));
+  } catch {
+    // Ignore
+  }
+};
+
+export const getGuildAgoraParticipants = async (guildId: string): Promise<AgoraParticipant[]> => {
+  try {
+    const q = query(collection(db, 'guild_threads'), where('guildId', '==', guildId));
+    const snapshot = await getDocs(q);
+    const now = Date.now();
+
+    return snapshot.docs
+      .map(d => d.data() as any)
+      .filter(data => {
+        if (data._docType !== 'agora_presence') return false;
+        const lastPingMs = new Date(data.lastPing || data.joinedAt || 0).getTime();
+        // Active if pinged within the last 30 seconds
+        return !isNaN(lastPingMs) && (now - lastPingMs) < 30000;
+      })
+      .map(data => ({
+        userId: data.userId,
+        name: data.name,
+        joinedAt: data.joinedAt,
+        lastPing: data.lastPing,
+        isMuted: Boolean(data.isMuted)
+      }));
+  } catch {
+    return [];
   }
 };
 
@@ -216,11 +656,15 @@ export const getGuildThreads = async (guildId: string): Promise<GuildForumThread
       orderBy('createdAt', 'desc')
     );
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GuildForumThread));
+    return snapshot.docs
+      .filter(d => !(d.data() as any)._docType)
+      .map(d => ({ id: d.id, ...d.data() } as GuildForumThread));
   } catch {
     const q = query(collection(db, 'guild_threads'), where('guildId', '==', guildId));
     const snapshot = await getDocs(q);
-    const threads = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as GuildForumThread));
+    const threads = snapshot.docs
+      .filter(d => !(d.data() as any)._docType)
+      .map(d => ({ id: d.id, ...d.data() } as GuildForumThread));
     return threads.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 };
@@ -262,7 +706,6 @@ export const deleteGuildForumReply = async (replyId: string) => {
 // --- Messages ---
 
 export const getConversation = async (userId1: string, userId2: string): Promise<Message[]> => {
-  // Fetch all messages and filter in memory to avoid complex query syntax
   const snapshot = await getDocs(collection(db, 'messages'));
   const msgs = snapshot.docs
     .map(d => ({ id: d.id, ...d.data() } as Message))
@@ -300,8 +743,8 @@ export const sendGroupMessage = async (senderId: string, groupId: string, conten
   });
 };
 
-export const markAsRead = async (senderId: string, receiverId: string) => {
-  // Batch update difficult without knowing IDs. Skipping for MVP optimization.
+export const markAsRead = async (_senderId: string, _receiverId: string) => {
+  // No-op for MVP optimization
 };
 
 // --- FORUM ---
@@ -310,17 +753,24 @@ export const getForumThreads = async (): Promise<ForumThread[]> => {
   const q = query(collection(db, 'forum_threads'), orderBy('createdAt', 'desc'));
   try {
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ForumThread));
+    return snapshot.docs
+      .filter(d => !(d.data() as any)._docType)
+      .map(d => ({ id: d.id, ...d.data() } as ForumThread));
   } catch {
     const snapshot = await getDocs(collection(db, 'forum_threads'));
-    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ForumThread));
+    return snapshot.docs
+      .filter(d => !(d.data() as any)._docType)
+      .map(d => ({ id: d.id, ...d.data() } as ForumThread))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 };
 
 export const getForumReplies = async (threadId: string): Promise<ForumReply[]> => {
   const q = query(collection(db, 'forum_replies'), where('threadId', '==', threadId));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ForumReply));
+  return snapshot.docs
+    .map(d => ({ id: d.id, ...d.data() } as ForumReply))
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 };
 
 export const createForumThread = async (authorId: string, title: string, content: string, category: string) => {
@@ -361,42 +811,123 @@ export const toggleForumThreadLike = async (threadId: string, userId: string): P
 // --- COMPETITIONS ---
 
 export const getCompetitions = async (): Promise<Competition[]> => {
-  const snapshot = await getDocs(collection(db, 'competitions'));
-  return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Competition));
+  const compMap = new Map<string, Competition>();
+
+  // 1. Primary 'competitions' collection
+  try {
+    const snapshot = await getDocs(collection(db, 'competitions'));
+    snapshot.docs.forEach(d => {
+      compMap.set(d.id, { id: d.id, ...d.data() } as Competition);
+    });
+  } catch (err) {
+    console.warn('Fallback reading competitions:', err);
+  }
+
+  // 2. Fallback from 'forum_threads' where _docType === 'competition'
+  try {
+    const fSnap = await getDocs(collection(db, 'forum_threads'));
+    fSnap.docs.forEach(d => {
+      const data = d.data() as any;
+      if (data._docType === 'competition' && !compMap.has(d.id)) {
+        compMap.set(d.id, {
+          id: d.id,
+          creatorId: data.creatorId,
+          title: data.title,
+          description: data.description,
+          type: data.type || 'word_count',
+          target: Number(data.target) || 1000,
+          startDate: data.startDate,
+          endDate: data.endDate,
+          participants: Array.isArray(data.participants) ? data.participants : [data.creatorId],
+          status: data.status || 'active'
+        });
+      }
+    });
+  } catch {
+    // Ignore
+  }
+
+  return Array.from(compMap.values()).sort(
+    (a, b) => new Date(b.startDate || 0).getTime() - new Date(a.startDate || 0).getTime()
+  );
 };
 
-export const createCompetition = async (creatorId: string, title: string, description: string, type: string, target: number, durationDays: number) => {
+export const createCompetition = async (
+  creatorId: string,
+  title: string,
+  description: string,
+  type: 'word_count' | 'days_streak',
+  target: number,
+  durationDays: number
+): Promise<Competition> => {
+  const validTarget = Math.max(1, Number(target) || 1000);
+  const validDuration = Math.max(1, Number(durationDays) || 7);
+
   const startDate = new Date();
   const endDate = new Date();
-  endDate.setDate(endDate.getDate() + durationDays);
+  endDate.setDate(endDate.getDate() + validDuration);
 
-  await addDoc(collection(db, 'competitions'), {
+  const payload = {
     creatorId,
-    title,
-    description,
-    type,
-    target,
+    title: title.trim(),
+    description: (description || '').trim() || 'Complete a meta dentro do prazo do desafio!',
+    type: type || 'word_count',
+    target: validTarget,
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
     participants: [creatorId],
-    status: 'active'
-  });
-};
+    status: 'active' as const
+  };
 
-export const joinCompetition = async (competitionId: string, userId: string) => {
-  const ref = doc(db, 'competitions', competitionId);
-  const snap = await getDoc(ref);
-  if (snap.exists()) {
-    const data = snap.data() as Competition;
-    if (!data.participants.includes(userId)) {
-      await updateDoc(ref, {
-        participants: [...data.participants, userId]
-      });
-    }
+  try {
+    const docRef = await addDoc(collection(db, 'competitions'), payload);
+    return { id: docRef.id, ...payload };
+  } catch (err) {
+    console.warn('Saving competition via forum_threads fallback:', err);
+    const fallbackRef = await addDoc(collection(db, 'forum_threads'), {
+      ...payload,
+      _docType: 'competition',
+      createdAt: startDate.toISOString()
+    });
+    return { id: fallbackRef.id, ...payload };
   }
 };
 
-// --- DELETE OPERATIONS (Admin) ---
+export const joinCompetition = async (competitionId: string, userId: string) => {
+  try {
+    const ref = doc(db, 'competitions', competitionId);
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const data = snap.data() as Competition;
+      if (!data.participants.includes(userId)) {
+        await updateDoc(ref, {
+          participants: [...data.participants, userId]
+        });
+      }
+      return;
+    }
+  } catch {
+    // Try fallback collection
+  }
+
+  try {
+    const fRef = doc(db, 'forum_threads', competitionId);
+    const fSnap = await getDoc(fRef);
+    if (fSnap.exists()) {
+      const data = fSnap.data() as any;
+      const participants = Array.isArray(data.participants) ? data.participants : [];
+      if (!participants.includes(userId)) {
+        await updateDoc(fRef, {
+          participants: [...participants, userId]
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao entrar no desafio:', err);
+  }
+};
+
+// --- DELETE OPERATIONS ---
 
 export const deleteForumThread = async (threadId: string) => {
   await deleteDoc(doc(db, 'forum_threads', threadId));
@@ -407,5 +938,14 @@ export const deleteForumReply = async (replyId: string) => {
 };
 
 export const deleteCompetition = async (competitionId: string) => {
-  await deleteDoc(doc(db, 'competitions', competitionId));
+  try {
+    await deleteDoc(doc(db, 'competitions', competitionId));
+  } catch {
+    // Ignore
+  }
+  try {
+    await deleteDoc(doc(db, 'forum_threads', competitionId));
+  } catch {
+    // Ignore
+  }
 };

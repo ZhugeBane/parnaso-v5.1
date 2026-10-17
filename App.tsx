@@ -11,7 +11,7 @@ import { SocialHub } from './components/SocialHub'; // CONNECTED SOCIAL HUB
 import { HelpPage } from './components/HelpPage';
 import { WritingSession, UserSettings, INITIAL_SETTINGS, Project, User } from './types';
 import { getSessions, saveSession, getSettings, saveSettings, getProjects, saveProject, deleteProject, clearAllData } from './services/sessionService';
-import { getCurrentUser, logout } from './services/authService';
+import { getCurrentUser, logout, updateUserPresence } from './services/authService';
 import { LanguageProvider } from './i18n/LanguageContext';
 
 
@@ -32,6 +32,37 @@ function App() {
   useEffect(() => {
     checkAuth();
   }, []);
+
+  // 1.5 Real-time Presence Heartbeat
+  useEffect(() => {
+    if (!user?.id) return;
+    updateUserPresence(user.id, true);
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        updateUserPresence(user.id, true);
+      }
+    }, 45000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        updateUserPresence(user.id, true);
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      updateUserPresence(user.id, false);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [user?.id]);
 
   const checkAuth = async () => {
     try {

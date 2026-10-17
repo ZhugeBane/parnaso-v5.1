@@ -66,16 +66,12 @@ service cloud.firestore {
     }
     
     match /groups/{groupId} {
-      // Allow read if user is a member OR is an admin
-      allow read: if isSignedIn() && (request.auth.uid in resource.data.members || isAdmin());
+      // Allow read for signed-in users to search and explore guilds
+      allow read: if isSignedIn();
       // Allow create if user is the admin (creator)
       allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
-      // Allow update if user is the group admin, co-admin OR app admin
-      allow update: if isSignedIn() && (
-        resource.data.adminId == request.auth.uid || 
-        (resource.data.adminIds != null && request.auth.uid in resource.data.adminIds) || 
-        isAdmin()
-      );
+      // Allow update for signed-in users (joining guild, Agora room presence, challenges, and admin actions)
+      allow update: if isSignedIn();
       // Allow delete if user is group admin OR app admin
       allow delete: if isSignedIn() && (resource.data.adminId == request.auth.uid || isAdmin());
     }

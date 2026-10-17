@@ -183,14 +183,26 @@ export interface User {
   status?: 'pending' | 'approved' | 'rejected';
   photoURL?: string; // User profile picture (URL or Base64)
   photoBase64?: string; // 200x200 JPEG Base64
+  lastSeen?: string; // ISO timestamp of last activity
+  isOnline?: boolean; // Real-time online flag
 }
 
 export interface Friendship {
   id: string;
   requesterId: string;
   receiverId: string;
-  status: 'pending' | 'accepted';
+  status: 'pending' | 'accepted' | 'blocked';
+  blockedBy?: string;
   createdAt: string;
+}
+
+export interface AgoraParticipant {
+  userId: string;
+  name: string;
+  photoURL?: string;
+  joinedAt: string;
+  lastPing?: string;
+  isMuted?: boolean;
 }
 
 export interface Guild {
@@ -204,6 +216,7 @@ export interface Guild {
   members: string[];
   statsResetDate?: string; // Date to filter member word counts
   challenges?: GuildChallenge[];
+  agoraParticipants?: AgoraParticipant[];
   createdAt: string;
 }
 

@@ -2,7 +2,7 @@
 
 
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Message, Guild, GuildForumThread, GuildForumReply, Competition, WritingSession, ForumThread, ForumReply } from '../types';
+import { User, Message, Guild, GuildForumThread, GuildForumReply, Competition, WritingSession, ForumThread, ForumReply, AgoraParticipant } from '../types';
 import {
   getFriendsList,
   getPendingRequests,
@@ -10,10 +10,15 @@ import {
   sendFriendRequest,
   acceptFriendRequest,
   removeFriendship,
+  blockUserSocial,
+  unblockUserSocial,
+  getBlockedUsersList,
   getConversation,
   sendMessage,
   markAsRead,
   getUserGuilds,
+  getAllGuilds,
+  joinGuild,
   createGuild,
   getUserGroups,
   createGroup,
@@ -40,13 +45,16 @@ import {
   resetGuildStats,
   createGuildChallenge,
   toggleForumThreadLike,
-  updateGuildEmblemBase64
+  updateGuildEmblemBase64,
+  pingGuildAgoraPresence,
+  leaveGuildAgora,
+  getGuildAgoraParticipants
 } from '../services/socialService';
 import { compressImage, resizeImageToBase64 } from '../utils/imageProcessor';
 import { ImagePicker } from './ui/ImagePicker';
 import { useLanguage } from '../i18n/LanguageContext';
 import { getSessions } from '../services/sessionService';
-import { getAllUsers } from '../services/authService';
+import { getAllUsers, isUserCurrentlyOnline, updateUserPresence } from '../services/authService';
 
 interface SocialHubProps {
   currentUser: User;
@@ -58,14 +66,17 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [activeTab, setActiveTab] = useState<'friends' | 'guilds' | 'forum' | 'competitions' | 'find'>('friends');
   const [allUsers, setAllUsers] = useState<User[]>([]);
 
-  // Friends Data
+  // Friends & Blocking Data
   const [friends, setFriends] = useState<{ user: User, friendshipId: string }[]>([]);
+  const [blockedUsers, setBlockedUsers] = useState<{ user: User, friendshipId: string }[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Guild Data
   const [guilds, setGuilds] = useState<Guild[]>([]);
+  const [allGuilds, setAllGuilds] = useState<Guild[]>([]);
+  const [guildSearchTerm, setGuildSearchTerm] = useState('');
   const [memberStats, setMemberStats] = useState<Record<string, number>>({}); // UserID -> Total Words
   const [showCreateGuild, setShowCreateGuild] = useState(false);
   const [newGuildName, setNewGuildName] = useState('');
@@ -78,8 +89,10 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [newChallengeDesc, setNewChallengeDesc] = useState('');
   const [newChallengeTarget, setNewChallengeTarget] = useState(1000);
   const [newChallengeDuration, setNewChallengeDuration] = useState(7);
+  const [challengeError, setChallengeError] = useState<string | null>(null);
+  const [isSubmittingChallenge, setIsSubmittingChallenge] = useState(false);
 
-  // Guild Forum State
+  // Guild Forum & Ágora State
   const [guildThreads, setGuildThreads] = useState<GuildForumThread[]>([]);
   const [selectedGuildThread, setSelectedGuildThread] = useState<GuildForumThread | null>(null);
   const [guildReplies, setGuildReplies] = useState<GuildForumReply[]>([]);
@@ -87,9 +100,16 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [isUpdatingEmblem, setIsUpdatingEmblem] = useState(false);
   const [forumError, setForumError] = useState<string | null>(null);
   const [audioPermission, setAudioPermission] = useState<'pending' | 'granted' | 'denied'>('pending');
+  const [isMuted, setIsMuted] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [agoraParticipants, setAgoraParticipants] = useState<AgoraParticipant[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioAnimFrameRef = useRef<number | null>(null);
+  const activeAgoraGuildIdRef = useRef<string | null>(null);
 
   // Forum Data
   const [threads, setThreads] = useState<ForumThread[]>([]);
@@ -110,6 +130,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [newCompType, setNewCompType] = useState<'word_count' | 'days_streak'>('word_count');
   const [newCompTarget, setNewCompTarget] = useState(1000);
   const [newCompDuration, setNewCompDuration] = useState(7);
+  const [compError, setCompError] = useState<string | null>(null);
+  const [isSubmittingComp, setIsSubmittingComp] = useState(false);
 
   // Chat State (Direct & Group)
   const [selectedChat, setSelectedChat] = useState<{ type: 'direct' | 'group', target: User | Guild } | null>(null);
@@ -117,75 +139,150 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Active guild dynamically synced from guilds array
+  // Active guild dynamically synced from guilds or allGuilds array
   const activeGuild: Guild | null = selectedChat?.type === 'group'
-    ? (guilds.find(g => g.id === selectedChat.target.id) || (selectedChat.target as Guild))
+    ? (guilds.find(g => g.id === selectedChat.target.id) || allGuilds.find(g => g.id === selectedChat.target.id) || (selectedChat.target as Guild))
     : null;
+
+  const stopAudioInternal = () => {
+    if (audioAnimFrameRef.current) {
+      cancelAnimationFrame(audioAnimFrameRef.current);
+      audioAnimFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+      analyserRef.current = null;
+    }
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach(track => track.stop());
+      audioStreamRef.current = null;
+    }
+    if (activeAgoraGuildIdRef.current) {
+      leaveGuildAgora(activeAgoraGuildIdRef.current, currentUser.id).catch(() => {});
+      activeAgoraGuildIdRef.current = null;
+    }
+    setAudioLevel(0);
+    setIsMuted(false);
+  };
 
   // Cleanup audio tracks on unmount
   useEffect(() => {
     return () => {
-      if (audioStreamRef.current) {
-        audioStreamRef.current.getTracks().forEach(track => track.stop());
-        audioStreamRef.current = null;
-      }
+      stopAudioInternal();
     };
   }, []);
 
   useEffect(() => {
     const init = async () => {
+      await updateUserPresence(currentUser.id, true);
       await refreshData();
-      const users = await getAllUsers();
-      setAllUsers(users);
     };
     init();
 
-    // Simulate real-time by refreshing every 3 seconds
+    // Simulate real-time by refreshing every 4 seconds
     const interval = setInterval(() => {
       refreshData();
       refreshChatIfActive();
-    }, 3000);
+    }, 4000);
     return () => clearInterval(interval);
   }, [selectedChat, selectedThread]);
 
-  const refreshData = async () => {
-    setFriends(await getFriendsList(currentUser.id));
-    setRequests(await getPendingRequests(currentUser.id));
-    setAvailableUsers(await getAvailableUsers(currentUser.id));
-    setGuilds(await getUserGuilds(currentUser.id));
-    setThreads(await getForumThreads());
+  // Keep Ágora participants & presence synced when viewing or connected to Ágora
+  useEffect(() => {
+    if (!activeGuild || guildSubTab !== 'agora') return;
+    let isMounted = true;
 
-    const comps = await getCompetitions();
-    setCompetitions(comps);
-
-    // Calculate guild member stats
-    const allGuilds = await getUserGuilds(currentUser.id);
-    const uniqueMemberIds = Array.from(new Set(allGuilds.flatMap(g => g.members)));
-    const newMemberStats: Record<string, number> = {};
-
-    for (const memberId of uniqueMemberIds) {
-      const userSessions = await getSessions(memberId);
-      // Filter sessions by guild reset date if applicable
-      const guildWithMember = allGuilds.find(g => g.members.includes(memberId));
-      const resetTime = guildWithMember?.statsResetDate ? new Date(guildWithMember.statsResetDate).getTime() : 0;
-
-      const total = userSessions
-        .filter(s => new Date(s.date).getTime() >= resetTime)
-        .reduce((acc, s) => acc + s.wordCount, 0);
-      newMemberStats[memberId] = total;
-    }
-    setMemberStats(newMemberStats);
-
-    // Calculate stats asynchronously for competitions
-    const newStats: Record<string, Record<string, { current: number, percent: number }>> = {};
-    for (const comp of comps) {
-      newStats[comp.id] = {};
-      for (const pid of comp.participants) {
-        const sessions = await getSessions(pid);
-        newStats[comp.id][pid] = calculateProgress(comp, sessions);
+    const syncAgora = async () => {
+      if (audioPermission === 'granted') {
+        activeAgoraGuildIdRef.current = activeGuild.id;
+        await pingGuildAgoraPresence(activeGuild.id, currentUser, isMuted);
       }
+      const participants = await getGuildAgoraParticipants(activeGuild.id);
+      if (isMounted) {
+        setAgoraParticipants(participants);
+      }
+    };
+
+    syncAgora();
+    const agoraInterval = setInterval(syncAgora, 6000);
+    return () => {
+      isMounted = false;
+      clearInterval(agoraInterval);
+    };
+  }, [activeGuild?.id, guildSubTab, audioPermission, isMuted]);
+
+  const refreshData = async () => {
+    try {
+      const [
+        usersRes,
+        friendsRes,
+        blockedRes,
+        requestsRes,
+        availableRes,
+        userGuildsRes,
+        communityGuildsRes,
+        threadsRes,
+        compsRes
+      ] = await Promise.all([
+        getAllUsers().catch(() => allUsers),
+        getFriendsList(currentUser.id).catch(() => friends),
+        getBlockedUsersList(currentUser.id).catch(() => blockedUsers),
+        getPendingRequests(currentUser.id).catch(() => requests),
+        getAvailableUsers(currentUser.id).catch(() => availableUsers),
+        getUserGuilds(currentUser.id).catch(() => guilds),
+        getAllGuilds(currentUser.id).catch(() => allGuilds),
+        getForumThreads().catch(() => threads),
+        getCompetitions().catch(() => competitions)
+      ]);
+
+      setAllUsers(usersRes);
+      setFriends(friendsRes);
+      setBlockedUsers(blockedRes);
+      setRequests(requestsRes);
+      setAvailableUsers(availableRes);
+      setGuilds(userGuildsRes);
+      setAllGuilds(communityGuildsRes);
+      setThreads(threadsRes);
+      setCompetitions(compsRes);
+
+      // Calculate guild member stats
+      const uniqueMemberIds = Array.from(new Set(userGuildsRes.flatMap(g => g.members)));
+      const newMemberStats: Record<string, number> = {};
+
+      for (const memberId of uniqueMemberIds) {
+        try {
+          const userSessions = await getSessions(memberId);
+          const guildWithMember = userGuildsRes.find(g => g.members.includes(memberId));
+          const resetTime = guildWithMember?.statsResetDate ? new Date(guildWithMember.statsResetDate).getTime() : 0;
+
+          const total = userSessions
+            .filter(s => new Date(s.date).getTime() >= resetTime)
+            .reduce((acc, s) => acc + s.wordCount, 0);
+          newMemberStats[memberId] = total;
+        } catch (err) {
+          newMemberStats[memberId] = memberStats[memberId] || 0;
+        }
+      }
+      setMemberStats(newMemberStats);
+
+      // Calculate stats asynchronously for competitions
+      const newStats: Record<string, Record<string, { current: number, percent: number }>> = {};
+      for (const comp of compsRes) {
+        newStats[comp.id] = {};
+        for (const pid of comp.participants) {
+          try {
+            const sessions = await getSessions(pid);
+            newStats[comp.id][pid] = calculateProgress(comp, sessions);
+          } catch (err) {
+            newStats[comp.id][pid] = { current: 0, percent: 0 };
+          }
+        }
+      }
+      setCompStats(newStats);
+    } catch (e) {
+      console.error("Erro ao atualizar dados da comunidade:", e);
     }
-    setCompStats(newStats);
   };
 
   const calculateProgress = (comp: Competition, sessions: WritingSession[]) => {
@@ -206,7 +303,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
       current = days.size;
     }
 
-    const percent = Math.min(100, Math.round((current / comp.target) * 100));
+    const targetNum = Math.max(1, Number(comp.target) || 1);
+    const percent = Math.min(100, Math.round((current / targetNum) * 100));
     return { current, percent };
   };
 
@@ -232,9 +330,6 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         return prev;
       });
     }
-    // Refresh others for background updates
-    setRequests(await getPendingRequests(currentUser.id));
-    setThreads(await getForumThreads());
   };
 
   // --- Effect: Select Chat ---
@@ -275,7 +370,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     scrollToBottom();
   }, [messages]);
 
-  // --- Handlers: Friends ---
+  // --- Handlers: Friends & Blocking ---
   const handleSendRequest = async (userId: string) => {
     try {
       await sendFriendRequest(currentUser.id, userId);
@@ -291,23 +386,38 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     await refreshData();
   };
 
-  const handleReject = async (id: string) => {
-    await removeFriendship(id);
+  const handleReject = async (id: string, targetUserId?: string) => {
+    await removeFriendship(id, currentUser.id, targetUserId);
     await refreshData();
   };
 
-  const handleRemoveFriend = async (e: React.MouseEvent, friendshipId: string) => {
+  const handleRemoveFriend = async (e: React.MouseEvent, friendshipId: string, friendUserId?: string) => {
     e.stopPropagation();
     if (confirm(t('social.friends.confirmRemoveFriend'))) {
-      await removeFriendship(friendshipId);
-      if (selectedChat?.type === 'direct') {
-        const friendObj = friends.find(f => f.friendshipId === friendshipId);
-        if (friendObj && friendObj.user.id === selectedChat.target.id) {
-          setSelectedChat(null);
-        }
+      const friendObj = friends.find(f => f.friendshipId === friendshipId);
+      const targetId = friendUserId || friendObj?.user.id;
+      await removeFriendship(friendshipId, currentUser.id, targetId);
+      if (selectedChat?.type === 'direct' && targetId && selectedChat.target.id === targetId) {
+        setSelectedChat(null);
       }
       await refreshData();
     }
+  };
+
+  const handleBlockUser = async (e: React.MouseEvent, targetUser: User) => {
+    e.stopPropagation();
+    if (confirm(`Deseja bloquear ${targetUser.name}? Enquanto estiver bloqueado(a), esta pessoa não poderá enviar solicitações de amizade nem aparecerá nas buscas.`)) {
+      await blockUserSocial(currentUser.id, targetUser.id);
+      if (selectedChat?.type === 'direct' && selectedChat.target.id === targetUser.id) {
+        setSelectedChat(null);
+      }
+      await refreshData();
+    }
+  };
+
+  const handleUnblockUser = async (targetUserId: string) => {
+    await unblockUserSocial(currentUser.id, targetUserId);
+    await refreshData();
   };
 
   // --- Handlers: Chat ---
@@ -337,6 +447,27 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     setNewGuildEmblemBase64('');
     setSelectedGuildMembers([]);
     await refreshData();
+  };
+
+  const handleJoinGuild = async (e: React.MouseEvent, guild: Guild) => {
+    e.stopPropagation();
+    try {
+      await joinGuild(guild.id, currentUser.id);
+      const updatedGuild: Guild = {
+        ...guild,
+        members: Array.from(new Set([...(guild.members || []), currentUser.id]))
+      };
+      setGuilds(prev => [updatedGuild, ...prev.filter(g => g.id !== guild.id)]);
+      setAllGuilds(prev => prev.map(g => g.id === guild.id ? updatedGuild : g));
+      setSelectedChat({ type: 'group', target: updatedGuild });
+      setSelectedThread(null);
+      setGuildSubTab('home');
+      fetchGuildThreadData(guild.id);
+      await refreshData();
+    } catch (err) {
+      console.error("Erro ao entrar na guilda:", err);
+      alert("Não foi possível entrar na guilda no momento.");
+    }
   };
 
   const handleUpdateEmblem = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -436,10 +567,61 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
   const handleJoinAudio = async () => {
     try {
+      stopAudioInternal();
       setAudioPermission('pending');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
       audioStreamRef.current = stream;
+      setIsMuted(false);
       setAudioPermission('granted');
+
+      // Setup Web Audio API analyser for real-time voice level meter
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          const source = ctx.createMediaStreamSource(stream);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.75;
+          source.connect(analyser);
+          audioContextRef.current = ctx;
+          analyserRef.current = analyser;
+
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const updateLevel = () => {
+            if (!analyserRef.current || !audioStreamRef.current) return;
+            const track = audioStreamRef.current.getAudioTracks()[0];
+            if (!track || !track.enabled) {
+              setAudioLevel(0);
+            } else {
+              analyserRef.current.getByteFrequencyData(dataArray);
+              let sum = 0;
+              for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+              }
+              const avg = sum / dataArray.length;
+              setAudioLevel(Math.min(100, Math.round((avg / 90) * 100)));
+            }
+            audioAnimFrameRef.current = requestAnimationFrame(updateLevel);
+          };
+          audioAnimFrameRef.current = requestAnimationFrame(updateLevel);
+        }
+      } catch (audioCtxErr) {
+        console.warn("Visualizador de áudio indisponível:", audioCtxErr);
+      }
+
+      if (activeGuild) {
+        activeAgoraGuildIdRef.current = activeGuild.id;
+        await pingGuildAgoraPresence(activeGuild.id, currentUser, false);
+        const participants = await getGuildAgoraParticipants(activeGuild.id);
+        setAgoraParticipants(participants);
+      }
     } catch (err) {
       console.error("Erro ao acessar microfone:", err);
       setAudioPermission('denied');
@@ -447,12 +629,31 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     }
   };
 
-  const handleStopAudio = () => {
-    if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach(track => track.stop());
-      audioStreamRef.current = null;
+  const handleToggleMute = async () => {
+    if (!audioStreamRef.current) return;
+    const tracks = audioStreamRef.current.getAudioTracks();
+    const nextMuted = !isMuted;
+    tracks.forEach(track => {
+      track.enabled = !nextMuted;
+    });
+    setIsMuted(nextMuted);
+    if (nextMuted) setAudioLevel(0);
+    if (activeGuild) {
+      await pingGuildAgoraPresence(activeGuild.id, currentUser, nextMuted);
+      const participants = await getGuildAgoraParticipants(activeGuild.id);
+      setAgoraParticipants(participants);
     }
+  };
+
+  const handleStopAudio = async () => {
+    const guildId = activeAgoraGuildIdRef.current || activeGuild?.id;
+    stopAudioInternal();
     setAudioPermission('pending');
+    if (guildId) {
+      await leaveGuildAgora(guildId, currentUser.id);
+      const participants = await getGuildAgoraParticipants(guildId);
+      setAgoraParticipants(participants);
+    }
   };
 
   const handleReplyThread = async () => {
@@ -464,12 +665,52 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
   // --- Handlers: Competitions ---
   const handleCreateCompetition = async () => {
-    if (!newCompTitle || !newCompDesc) return;
-    await createCompetition(currentUser.id, newCompTitle, newCompDesc, newCompType, newCompTarget, newCompDuration);
-    setShowCreateComp(false);
-    setNewCompTitle('');
-    setNewCompDesc('');
-    await refreshData();
+    if (!newCompTitle.trim()) {
+      setCompError("Informe um título para lançar o desafio literário.");
+      return;
+    }
+    try {
+      setIsSubmittingComp(true);
+      setCompError(null);
+      const cleanTitle = newCompTitle.trim();
+      const cleanDesc = newCompDesc.trim() || "Desafio literário da comunidade ParnasoTec.";
+      const cleanTarget = Math.max(1, Number(newCompTarget) || 1000);
+      const cleanDuration = Math.max(1, Number(newCompDuration) || 7);
+
+      const created = await createCompetition(
+        currentUser.id,
+        cleanTitle,
+        cleanDesc,
+        newCompType,
+        cleanTarget,
+        cleanDuration
+      );
+
+      // Optimistically prepend to state so user sees it immediately
+      setCompetitions(prev => [created, ...prev.filter(c => c.id !== created.id)]);
+      try {
+        const mySessions = await getSessions(currentUser.id);
+        setCompStats(prev => ({
+          ...prev,
+          [created.id]: {
+            [currentUser.id]: calculateProgress(created, mySessions)
+          }
+        }));
+      } catch (e) {}
+
+      setShowCreateComp(false);
+      setNewCompTitle('');
+      setNewCompDesc('');
+      setActiveTab('competitions');
+      setSelectedChat(null);
+      setSelectedThread(null);
+      await refreshData();
+    } catch (err: any) {
+      console.error("Erro ao lançar desafio:", err);
+      setCompError("Não foi possível lançar o desafio. Tente novamente.");
+    } finally {
+      setIsSubmittingComp(false);
+    }
   };
 
   const isOwnerOrAdmin = (guild: Guild) => {
@@ -490,19 +731,41 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   };
 
   const handleCreateChallenge = async () => {
-    if (!newChallengeTitle.trim() || !selectedChat || selectedChat.type !== 'group' || !activeGuild) return;
-    const guild = activeGuild;
-    await createGuildChallenge(guild.id, {
-      title: newChallengeTitle,
-      description: newChallengeDesc,
-      type: 'word_count', // Simplified for now
-      target: newChallengeTarget,
-      durationDays: newChallengeDuration
-    });
-    setNewChallengeTitle('');
-    setNewChallengeDesc('');
-    setShowCreateChallenge(false);
-    await refreshData();
+    if (!newChallengeTitle.trim()) {
+      setChallengeError("Informe um nome para a missão da guilda.");
+      return;
+    }
+    if (!selectedChat || selectedChat.type !== 'group' || !activeGuild) return;
+    try {
+      setIsSubmittingChallenge(true);
+      setChallengeError(null);
+      const guild = activeGuild;
+      const createdChallenge = await createGuildChallenge(guild.id, {
+        title: newChallengeTitle.trim(),
+        description: newChallengeDesc.trim() || "Missão literária dos membros da guilda.",
+        type: 'word_count',
+        target: Math.max(1, Number(newChallengeTarget) || 1000),
+        durationDays: Math.max(1, Number(newChallengeDuration) || 7)
+      });
+
+      const updatedGuild: Guild = {
+        ...guild,
+        challenges: [...(guild.challenges || []), createdChallenge]
+      };
+      setGuilds(prev => prev.map(g => g.id === guild.id ? updatedGuild : g));
+      setAllGuilds(prev => prev.map(g => g.id === guild.id ? updatedGuild : g));
+      setSelectedChat({ type: 'group', target: updatedGuild });
+
+      setNewChallengeTitle('');
+      setNewChallengeDesc('');
+      setShowCreateChallenge(false);
+      await refreshData();
+    } catch (err) {
+      console.error("Erro ao propor desafio na guilda:", err);
+      setChallengeError("Não foi possível criar o desafio da guilda.");
+    } finally {
+      setIsSubmittingChallenge(false);
+    }
   };
 
   const handleDeleteGuildThread = async (threadId: string) => {
@@ -525,6 +788,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
   const handleJoinCompetition = async (compId: string) => {
     await joinCompetition(compId, currentUser.id);
+    setCompetitions(prev =>
+      prev.map(c => c.id === compId ? { ...c, participants: Array.from(new Set([...c.participants, currentUser.id])) } : c)
+    );
     await refreshData();
   };
 
@@ -549,12 +815,14 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const handleDeleteCompetition = async (compId: string) => {
     if (confirm(t('social.competitions.confirmDelete'))) {
       await deleteCompetition(compId);
+      setCompetitions(prev => prev.filter(c => c.id !== compId));
       await refreshData();
     }
   };
 
   // Helper to get User Name
   const getUserName = (userId: string) => {
+    if (userId === currentUser.id) return currentUser.name;
     return allUsers.find(u => u.id === userId)?.name || 'Usuário';
   };
 
@@ -564,8 +832,17 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   };
 
   const getUserPhotoURL = (userId: string) => {
+    if (userId === currentUser.id) return getUserAvatar(currentUser);
     const u = allUsers.find(u => u.id === userId);
     return getUserAvatar(u);
+  };
+
+  // Real online presence check (within last 2 minutes and not explicitly logged out)
+  const checkUserOnline = (u?: User | null): boolean => {
+    if (!u) return false;
+    if (u.id === currentUser.id) return true;
+    const latest = allUsers.find(item => item.id === u.id) || u;
+    return isUserCurrentlyOnline(latest);
   };
 
   const getAvatarGradient = (seed: string) => {
@@ -604,11 +881,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     const map = new Map<string, { user: User; friendshipId: string }>();
     friends.forEach(item => {
       if (item?.user?.id && !map.has(item.user.id)) {
-        map.set(item.user.id, item);
+        const freshUser = allUsers.find(u => u.id === item.user.id) || item.user;
+        map.set(item.user.id, { user: freshUser, friendshipId: item.friendshipId });
       }
     });
     return Array.from(map.values());
-  }, [friends]);
+  }, [friends, allUsers]);
 
   const trimmedSearch = searchTerm.trim();
   const hasValidSearch = trimmedSearch.length >= 2;
@@ -618,6 +896,21 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         u.name.toLowerCase().includes(trimmedSearch.toLowerCase())
       )
     : [];
+
+  const trimmedGuildSearch = guildSearchTerm.trim().toLowerCase();
+  const filteredMyGuilds = guilds.filter(g =>
+    !trimmedGuildSearch ||
+    g.name.toLowerCase().includes(trimmedGuildSearch) ||
+    (g.description || '').toLowerCase().includes(trimmedGuildSearch)
+  );
+  const discoverableGuilds = allGuilds.filter(
+    g => !guilds.some(myG => myG.id === g.id) && !(g.members || []).includes(currentUser.id)
+  );
+  const filteredDiscoverableGuilds = discoverableGuilds.filter(g =>
+    !trimmedGuildSearch ||
+    g.name.toLowerCase().includes(trimmedGuildSearch) ||
+    (g.description || '').toLowerCase().includes(trimmedGuildSearch)
+  );
 
   return (
     <div className="h-screen bg-slate-50 flex flex-col md:flex-row overflow-hidden animate-fade-in">
@@ -749,6 +1042,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               {uniqueFriends.map(({ user, friendshipId }) => {
                 const avatar = getUserAvatar(user);
                 const isSelected = selectedChat?.type === 'direct' && selectedChat.target.id === user.id;
+                const isOnline = checkUserOnline(user);
                 return (
                   <div
                     key={user.id}
@@ -774,11 +1068,25 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             {user.name.charAt(0).toUpperCase()}
                           </div>
                         )}
-                        <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full"></span>
+                        <span
+                          className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full ${
+                            isOnline ? 'bg-emerald-500' : 'bg-slate-300'
+                          }`}
+                          title={isOnline ? 'Online' : 'Offline'}
+                        ></span>
                       </div>
                       <div className="text-left flex-1 min-w-0">
-                        <div className={`font-bold text-sm truncate ${isSelected ? 'text-emerald-900' : 'text-slate-800'}`}>
-                          {user.name}
+                        <div className="flex items-center gap-1.5">
+                          <span className={`font-bold text-sm truncate ${isSelected ? 'text-emerald-900' : 'text-slate-800'}`}>
+                            {user.name}
+                          </span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
+                            isOnline
+                              ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/70'
+                              : 'bg-slate-100 text-slate-400'
+                          }`}>
+                            {isOnline ? 'Online' : 'Offline'}
+                          </span>
                         </div>
                         <div className="text-[11px] text-slate-400 truncate flex items-center gap-1">
                           <span>💬</span>
@@ -786,15 +1094,26 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         </div>
                       </div>
                     </button>
-                    <button
-                      onClick={(e) => handleRemoveFriend(e, friendshipId)}
-                      className="opacity-0 group-hover/friend:opacity-100 p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-all rounded-xl cursor-pointer"
-                      title={t('social.friends.removeFriend')}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover/friend:opacity-100 transition-all">
+                      <button
+                        onClick={(e) => handleRemoveFriend(e, friendshipId, user.id)}
+                        className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all rounded-xl cursor-pointer"
+                        title="Desfazer amizade (poderá adicionar novamente)"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={(e) => handleBlockUser(e, user)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all rounded-xl cursor-pointer"
+                        title="Bloquear usuário"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -808,12 +1127,37 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <p className="text-[11px] text-slate-400">Use a aba Buscar para encontrar e adicionar outros escritores.</p>
                 </div>
               )}
+
+              {/* Blocked Users Section */}
+              {blockedUsers.length > 0 && (
+                <div className="mt-5 pt-4 border-t border-slate-100 space-y-2">
+                  <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-rose-500 px-1 flex items-center justify-between">
+                    <span>🚫 Usuários Bloqueados ({blockedUsers.length})</span>
+                  </h4>
+                  {blockedUsers.map(({ user }) => (
+                    <div key={user.id} className="flex items-center justify-between p-2.5 bg-rose-50/40 border border-rose-100 rounded-xl">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                          {user.name.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-xs font-semibold text-slate-600 truncate">{user.name}</span>
+                      </div>
+                      <button
+                        onClick={() => handleUnblockUser(user.id)}
+                        className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border border-slate-200 hover:border-emerald-200 rounded-lg text-[10px] font-bold transition-colors cursor-pointer"
+                      >
+                        Desbloquear
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           {/* TAB: GUILDS */}
           {activeTab === 'guilds' && (
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               <button
                 onClick={() => setShowCreateGuild(true)}
                 className="w-full px-3.5 py-2.5 text-xs font-bold text-purple-700 bg-purple-50/60 hover:bg-purple-50 rounded-xl border border-dashed border-purple-300 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
@@ -822,55 +1166,140 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 <span>{t('social.guilds.foundNewGuild')}</span>
               </button>
 
-              {guilds.map(guild => {
-                const isSelected = selectedChat?.target.id === guild.id;
-                return (
+              {/* Guild Search Input */}
+              <div className="relative">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Procurar guilda pelo nome ou lema..."
+                  value={guildSearchTerm}
+                  onChange={(e) => setGuildSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-8 py-2 bg-slate-100/90 focus:bg-white border border-slate-200/80 focus:border-purple-500 rounded-xl text-xs outline-none focus:ring-2 focus:ring-purple-500/20 transition-all text-slate-800 placeholder:text-slate-400"
+                />
+                {guildSearchTerm && (
                   <button
-                    key={guild.id}
-                    onClick={() => {
-                      setSelectedChat({ type: 'group', target: guild });
-                      setSelectedThread(null);
-                      setGuildSubTab('home');
-                      fetchGuildThreadData(guild.id);
-                    }}
-                    className={`w-full flex items-center p-3 rounded-2xl transition-all cursor-pointer border ${
-                      isSelected
-                        ? 'bg-purple-50/90 border-purple-200 shadow-xs'
-                        : 'bg-white hover:bg-slate-50 border-slate-100 hover:border-slate-200'
-                    }`}
+                    type="button"
+                    onClick={() => setGuildSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs p-1 cursor-pointer"
                   >
-                    {(guild.emblemBase64 || guild.emblemUrl) ? (
-                      <img
-                        src={guild.emblemBase64 || guild.emblemUrl}
-                        alt="Emblem"
-                        className="w-11 h-11 rounded-full object-cover mr-3 border-2 border-purple-200 shadow-xs flex-shrink-0"
-                      />
-                    ) : (
-                      <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(guild.name)} flex items-center justify-center text-white font-extrabold text-sm mr-3 border-2 border-white shadow-sm flex-shrink-0`}>
-                        {guild.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div className="text-left flex-1 min-w-0">
-                      <div className={`font-bold text-sm truncate ${isSelected ? 'text-purple-950' : 'text-slate-800'}`}>
-                        {guild.name}
-                      </div>
-                      <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5 mt-0.5">
-                        <span className="inline-flex items-center px-1.5 py-0.2 rounded-md bg-purple-50 text-purple-700 font-semibold text-[10px]">
-                          {guild.members.length} {t('social.guilds.members')}
-                        </span>
-                      </div>
-                    </div>
+                    ✕
                   </button>
-                );
-              })}
+                )}
+              </div>
 
-              {guilds.length === 0 && (
-                <div className="text-center py-10 px-4 bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
-                  <div className="w-12 h-12 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center mx-auto mb-2.5 text-xl">
-                    🛡️
+              {/* My Guilds */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                    Minhas Guildas ({filteredMyGuilds.length})
+                  </span>
+                </div>
+
+                {filteredMyGuilds.map(guild => {
+                  const isSelected = selectedChat?.target.id === guild.id;
+                  return (
+                    <button
+                      key={guild.id}
+                      onClick={() => {
+                        setSelectedChat({ type: 'group', target: guild });
+                        setSelectedThread(null);
+                        setGuildSubTab('home');
+                        fetchGuildThreadData(guild.id);
+                      }}
+                      className={`w-full flex items-center p-3 rounded-2xl transition-all cursor-pointer border ${
+                        isSelected
+                          ? 'bg-purple-50/90 border-purple-200 shadow-xs'
+                          : 'bg-white hover:bg-slate-50 border-slate-100 hover:border-slate-200'
+                      }`}
+                    >
+                      {(guild.emblemBase64 || guild.emblemUrl) ? (
+                        <img
+                          src={guild.emblemBase64 || guild.emblemUrl}
+                          alt="Emblem"
+                          className="w-11 h-11 rounded-full object-cover mr-3 border-2 border-purple-200 shadow-xs flex-shrink-0"
+                        />
+                      ) : (
+                        <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(guild.name)} flex items-center justify-center text-white font-extrabold text-sm mr-3 border-2 border-white shadow-sm flex-shrink-0`}>
+                          {guild.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="text-left flex-1 min-w-0">
+                        <div className={`font-bold text-sm truncate ${isSelected ? 'text-purple-950' : 'text-slate-800'}`}>
+                          {guild.name}
+                        </div>
+                        {guild.description && (
+                          <p className="text-[11px] text-slate-400 truncate">{guild.description}</p>
+                        )}
+                        <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5 mt-0.5">
+                          <span className="inline-flex items-center px-1.5 py-0.2 rounded-md bg-purple-50 text-purple-700 font-semibold text-[10px]">
+                            {guild.members.length} {t('social.guilds.members')}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+
+                {filteredMyGuilds.length === 0 && !trimmedGuildSearch && (
+                  <div className="text-center py-6 px-4 bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
+                    <p className="text-xs font-bold text-slate-600 mb-0.5">Você ainda não participa de uma guilda</p>
+                    <p className="text-[11px] text-slate-400">Funde uma nova ou explore as guildas da comunidade abaixo!</p>
                   </div>
-                  <p className="text-xs font-bold text-slate-600 mb-1">Nenhuma guilda ainda</p>
-                  <p className="text-[11px] text-slate-400">Funde uma nova guilda literária e convide seus amigos!</p>
+                )}
+              </div>
+
+              {/* Explore / Search Community Guilds */}
+              {(filteredDiscoverableGuilds.length > 0 || trimmedGuildSearch) && (
+                <div className="pt-2 border-t border-slate-100 space-y-2">
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-600">
+                      🧭 Explorar Guildas ({filteredDiscoverableGuilds.length})
+                    </span>
+                  </div>
+
+                  {filteredDiscoverableGuilds.map(guild => (
+                    <div
+                      key={guild.id}
+                      className="w-full flex items-center justify-between p-3 rounded-2xl bg-white hover:bg-purple-50/30 border border-slate-100 hover:border-purple-200 transition-all shadow-2xs gap-2"
+                    >
+                      <div className="flex items-center min-w-0 flex-1">
+                        {(guild.emblemBase64 || guild.emblemUrl) ? (
+                          <img
+                            src={guild.emblemBase64 || guild.emblemUrl}
+                            alt="Emblem"
+                            className="w-10 h-10 rounded-full object-cover mr-3 border border-purple-200 flex-shrink-0"
+                          />
+                        ) : (
+                          <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(guild.name)} flex items-center justify-center text-white font-extrabold text-xs mr-3 flex-shrink-0`}>
+                            {guild.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-xs text-slate-800 truncate">{guild.name}</p>
+                          <p className="text-[10px] text-slate-400 truncate">
+                            {guild.description || 'Guilda literária da comunidade'}
+                          </p>
+                          <span className="inline-block text-[9px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.2 rounded mt-0.5">
+                            {(guild.members || []).length} {t('social.guilds.members')}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => handleJoinGuild(e, guild)}
+                        className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-[11px] font-bold transition-colors flex-shrink-0 cursor-pointer shadow-xs"
+                      >
+                        Entrar
+                      </button>
+                    </div>
+                  ))}
+
+                  {trimmedGuildSearch && filteredDiscoverableGuilds.length === 0 && filteredMyGuilds.length === 0 && (
+                    <div className="text-center py-6 px-3 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      <p className="text-xs font-semibold text-slate-500">Nenhuma guilda encontrada para "{guildSearchTerm}".</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -951,7 +1380,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
           {activeTab === 'competitions' && (
             <div className="space-y-3">
               <button
-                onClick={() => setShowCreateComp(true)}
+                onClick={() => { setCompError(null); setShowCreateComp(true); }}
                 className="w-full px-3.5 py-2.5 text-xs font-bold text-amber-700 bg-amber-50/70 hover:bg-amber-50 rounded-xl border border-dashed border-amber-300 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
               >
                 <span>🏆</span>
@@ -970,7 +1399,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         {comp.type === 'word_count' ? t('social.competitions.wordType') : t('social.competitions.streakType')}
                       </span>
                     </div>
-                    {currentUser.role === 'admin' && (
+                    {(currentUser.role === 'admin' || comp.creatorId === currentUser.id) && (
                       <button
                         onClick={() => handleDeleteCompetition(comp.id)}
                         className="absolute top-3 right-16 p-1 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
@@ -1023,6 +1452,14 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   </div>
                 );
               })}
+
+              {competitions.length === 0 && (
+                <div className="text-center py-8 px-4 bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
+                  <span className="text-2xl block mb-2">🏆</span>
+                  <p className="text-xs font-bold text-slate-600 mb-1">Nenhum desafio ativo</p>
+                  <p className="text-[11px] text-slate-400">Crie o primeiro desafio literário para engajar a comunidade!</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -1061,12 +1498,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             <button onClick={() => handleAccept(friendshipId)} className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer">
                               {t('social.friends.accept')}
                             </button>
-                            <button onClick={() => handleReject(friendshipId)} className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold rounded-lg text-[11px] transition-colors cursor-pointer">
+                            <button onClick={() => handleReject(friendshipId, user.id)} className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold rounded-lg text-[11px] transition-colors cursor-pointer">
                               ✕
                             </button>
                           </div>
                         ) : (
-                          <button onClick={() => handleReject(friendshipId)} className="text-[11px] font-bold text-rose-500 hover:underline px-2 py-1 cursor-pointer">
+                          <button onClick={() => handleReject(friendshipId, user.id)} className="text-[11px] font-bold text-rose-500 hover:underline px-2 py-1 cursor-pointer">
                             {t('social.friends.cancel')}
                           </button>
                         )}
@@ -1116,31 +1553,48 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 <div className="space-y-2 pt-1">
                   {filteredAvailable.map(user => {
                     const uAvatar = getUserAvatar(user);
+                    const isOnline = checkUserOnline(user);
                     return (
                       <div key={user.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 hover:border-emerald-200 rounded-2xl shadow-2xs transition-all">
                         <div className="flex items-center min-w-0 mr-2">
-                          {uAvatar ? (
-                            <img src={uAvatar} alt={user.name} className="w-10 h-10 rounded-full object-cover mr-3 border border-slate-200 flex-shrink-0" />
-                          ) : (
-                            <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-sm font-extrabold mr-3 shadow-2xs flex-shrink-0`}>
-                              {user.name.charAt(0).toUpperCase()}
-                            </div>
-                          )}
+                          <div className="relative mr-3 flex-shrink-0">
+                            {uAvatar ? (
+                              <img src={uAvatar} alt={user.name} className="w-10 h-10 rounded-full object-cover border border-slate-200" />
+                            ) : (
+                              <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-sm font-extrabold shadow-2xs`}>
+                                {user.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${isOnline ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                          </div>
                           <div className="min-w-0">
                             <span className="text-sm font-bold text-slate-800 block truncate">{user.name}</span>
-                            <span className="text-[10px] text-slate-400">Escritor da Comunidade</span>
+                            <span className="text-[10px] text-slate-400">
+                              {isOnline ? '🟢 Online agora' : 'Escritor da Comunidade'}
+                            </span>
                           </div>
                         </div>
-                        <button
-                          onClick={() => handleSendRequest(user.id)}
-                          className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-500 text-emerald-700 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 flex-shrink-0 cursor-pointer border border-emerald-200/80"
-                          title={t('social.friends.add')}
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                          </svg>
-                          <span>Adicionar</span>
-                        </button>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={() => handleSendRequest(user.id)}
+                            className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-500 text-emerald-700 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer border border-emerald-200/80"
+                            title={t('social.friends.add')}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                            </svg>
+                            <span>Adicionar</span>
+                          </button>
+                          <button
+                            onClick={(e) => handleBlockUser(e, user)}
+                            className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                            title="Bloquear este usuário"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -1149,6 +1603,26 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       <p className="text-slate-500 font-semibold text-xs">{t('social.friends.noWritersFound')}</p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Blocked Users Management in Find Tab */}
+              {blockedUsers.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
+                  <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-rose-500 px-1">
+                    🚫 Usuários Bloqueados ({blockedUsers.length})
+                  </h4>
+                  {blockedUsers.map(({ user }) => (
+                    <div key={user.id} className="flex items-center justify-between p-2.5 bg-rose-50/40 border border-rose-100 rounded-xl">
+                      <span className="text-xs font-semibold text-slate-600 truncate">{user.name}</span>
+                      <button
+                        onClick={() => handleUnblockUser(user.id)}
+                        className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border border-slate-200 rounded-lg text-[10px] font-bold transition-colors cursor-pointer"
+                      >
+                        Desbloquear
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -1197,7 +1671,17 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     {selectedChat.type === 'direct' ? (selectedChat.target as User).name : (activeGuild?.name || (selectedChat.target as Guild).name)}
                   </h3>
                   {selectedChat.type === 'direct' ? (
-                    <span className="text-xs text-green-500 flex items-center gap-1 font-medium">{t('social.chat.online')}</span>
+                    checkUserOnline(selectedChat.target as User) ? (
+                      <span className="text-xs text-emerald-600 flex items-center gap-1.5 font-semibold">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>{t('social.chat.online')}</span>
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400 flex items-center gap-1.5 font-medium">
+                        <span className="w-2 h-2 rounded-full bg-slate-300"></span>
+                        <span>Offline</span>
+                      </span>
+                    )
                   ) : (
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">Guilda</span>
@@ -1214,6 +1698,17 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   )}
                 </div>
               </div>
+
+              {selectedChat.type === 'direct' && (
+                <button
+                  onClick={(e) => handleBlockUser(e, selectedChat.target as User)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Bloquear este usuário"
+                >
+                  <span>🚫</span>
+                  <span className="hidden sm:inline">Bloquear</span>
+                </button>
+              )}
 
               {selectedChat.type === 'group' && (
                 <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
@@ -1673,39 +2168,164 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             )}
 
             {selectedChat.type === 'group' && guildSubTab === 'agora' && (
-              <div className="flex-1 bg-slate-50 flex flex-col items-center justify-center p-10 text-center">
-                <div className="w-32 h-32 bg-indigo-100 rounded-full flex items-center justify-center mb-6 shadow-inner animate-pulse">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </div>
-                <h3 className="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">{t('social.guilds.guildAgora')}</h3>
-                <p className="text-slate-500 max-w-md mx-auto mb-8 leading-relaxed">
-                  {t('social.guilds.agoraDescription')}
-                </p>
-                <div className="flex flex-col gap-4">
-                  <button
-                    onClick={handleJoinAudio}
-                    className={`px-8 py-3 ${audioPermission === 'granted' ? 'bg-emerald-600' : 'bg-indigo-600'} text-white font-black rounded-2xl shadow-xl shadow-indigo-100 hover:scale-105 transition-transform flex items-center gap-3`}
-                  >
-                    {audioPermission === 'granted' ? (
-                      <>
-                        <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
-                        {t('social.guilds.connected')}
-                      </>
-                    ) : t('social.guilds.joinRoom')}
-                  </button>
-
-                  {audioPermission === 'granted' && (
-                    <button
-                      onClick={handleStopAudio}
-                      className="px-8 py-3 bg-rose-100 text-rose-600 font-bold rounded-2xl hover:bg-rose-200 transition-colors uppercase text-xs tracking-widest"
+              <div className="flex-1 overflow-y-auto bg-slate-50 flex flex-col items-center justify-center p-6 md:p-10 text-center">
+                <div className="max-w-2xl w-full bg-white rounded-3xl p-8 border border-slate-200/80 shadow-sm space-y-6">
+                  {/* Animated Microphone Avatar / Level Ring */}
+                  <div className="relative mx-auto w-28 h-28 flex items-center justify-center">
+                    {audioPermission === 'granted' && !isMuted && (
+                      <div
+                        className="absolute inset-0 rounded-full bg-emerald-400/25 transition-transform duration-75"
+                        style={{ transform: `scale(${1 + (audioLevel / 100) * 0.45})` }}
+                      />
+                    )}
+                    <div
+                      className={`relative z-10 w-24 h-24 rounded-full flex items-center justify-center shadow-inner transition-colors ${
+                        audioPermission === 'granted'
+                          ? isMuted
+                            ? 'bg-amber-100 text-amber-600'
+                            : 'bg-emerald-100 text-emerald-600'
+                          : 'bg-indigo-100 text-indigo-600'
+                      }`}
                     >
-                      {t('social.guilds.stopAudio')}
-                    </button>
+                      {audioPermission === 'granted' && isMuted ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-extrabold uppercase tracking-wider mb-2">
+                      <span>🎙️</span>
+                      <span>Sala de Voz da Guilda</span>
+                    </div>
+                    <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight">{t('social.guilds.guildAgora')}</h3>
+                    <p className="text-slate-500 text-xs sm:text-sm max-w-md mx-auto mt-1 leading-relaxed">
+                      {t('social.guilds.agoraDescription')}
+                    </p>
+                  </div>
+
+                  {/* Live Microphone Level Bar when Connected */}
+                  {audioPermission === 'granted' && (
+                    <div className="max-w-xs mx-auto bg-slate-50 p-3 rounded-2xl border border-slate-200/70 space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span className={isMuted ? 'text-amber-600' : 'text-emerald-700'}>
+                          {isMuted ? '🔇 Microfone Mutado' : '🟢 Microfone Ativo'}
+                        </span>
+                        <span className="text-slate-400">{audioLevel}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-75 ${
+                            isMuted ? 'bg-amber-400' : 'bg-gradient-to-r from-emerald-400 to-teal-500'
+                          }`}
+                          style={{ width: `${isMuted ? 0 : Math.max(4, audioLevel)}%` }}
+                        />
+                      </div>
+                    </div>
                   )}
+
+                  {/* Connected Participants in Ágora */}
+                  <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/60">
+                    <h4 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-3">
+                      Membros na Sala ({agoraParticipants.length})
+                    </h4>
+                    {agoraParticipants.length > 0 ? (
+                      <div className="flex flex-wrap items-center justify-center gap-3">
+                        {agoraParticipants.map(part => {
+                          const isMe = part.userId === currentUser.id;
+                          const speakingNow = isMe ? (!isMuted && audioLevel > 12) : !part.isMuted;
+                          return (
+                            <div
+                              key={part.userId}
+                              className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-white border transition-all ${
+                                speakingNow
+                                  ? 'border-emerald-400 ring-2 ring-emerald-500/20 shadow-xs'
+                                  : 'border-slate-200/80'
+                              }`}
+                            >
+                              <div className="relative">
+                                {(part.photoURL || getUserPhotoURL(part.userId)) ? (
+                                  <img src={part.photoURL || getUserPhotoURL(part.userId)} alt={part.name} className="w-8 h-8 rounded-full object-cover" />
+                                ) : (
+                                  <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarGradient(part.name)} text-white flex items-center justify-center text-xs font-bold`}>
+                                    {part.name.charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                                <span
+                                  className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${
+                                    part.isMuted ? 'bg-amber-500' : 'bg-emerald-500'
+                                  }`}
+                                />
+                              </div>
+                              <div className="text-left">
+                                <p className="text-xs font-bold text-slate-800 leading-tight">
+                                  {part.name} {isMe && <span className="text-[10px] text-indigo-600">(Você)</span>}
+                                </p>
+                                <p className="text-[10px] text-slate-400 font-semibold">
+                                  {part.isMuted ? '🔇 Mutado' : '🎙️ Conectado'}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic py-2">
+                        Nenhum membro conectado no momento. Clique abaixo para entrar na sala de voz!
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Audio Controls */}
+                  <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                    {audioPermission !== 'granted' ? (
+                      <button
+                        onClick={handleJoinAudio}
+                        className="px-8 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-lg shadow-indigo-500/20 hover:scale-105 transition-all flex items-center gap-2.5 cursor-pointer"
+                      >
+                        <span>🎙️</span>
+                        <span>{t('social.guilds.joinRoom')}</span>
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={handleToggleMute}
+                          className={`px-6 py-3 font-extrabold text-xs rounded-2xl transition-all flex items-center gap-2 cursor-pointer border ${
+                            isMuted
+                              ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                          }`}
+                        >
+                          <span>{isMuted ? '🔇 Desmutar Microfone' : '🎙️ Mutar Microfone'}</span>
+                        </button>
+
+                        <button
+                          onClick={handleStopAudio}
+                          className="px-6 py-3 bg-rose-100 text-rose-600 font-bold rounded-2xl hover:bg-rose-200 transition-colors uppercase text-xs tracking-wider cursor-pointer"
+                        >
+                          {t('social.guilds.stopAudio')}
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {audioPermission === 'denied' && (
+                    <p className="text-xs text-rose-600 bg-rose-50 px-4 py-2 rounded-xl border border-rose-200 font-semibold">
+                      Permissão de microfone negada no navegador. Verifique as configurações de áudio do seu navegador para participar da Ágora.
+                    </p>
+                  )}
+
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                    {t('social.guilds.restrictedAccess')}
+                  </p>
                 </div>
-                <p className="mt-6 text-[10px] text-slate-400 font-bold uppercase tracking-widest">{t('social.guilds.restrictedAccess')}</p>
               </div>
             )}
 
@@ -1968,7 +2588,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
         {/* Empty State: Dynamic Community Hub */}
         {(!selectedChat && !selectedThread) && (
-          <div className="flex-1 overflow-y-auto bg-slate-50/70 p-6 sm:p-10 flex flex-col justify-center">
+          <div className="flex-1 overflow-y-auto bg-slate-50/70 p-6 sm:p-10">
             <div className="max-w-4xl mx-auto w-full space-y-8 animate-fade-in">
 
               {/* Hero Welcome Banner */}
@@ -2011,6 +2631,95 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   </div>
                 </div>
               </div>
+
+              {/* Active Literary Challenges Showcase (Always visible when challenges exist or when on Competitions tab) */}
+              {(activeTab === 'competitions' || competitions.length > 0) && (
+                <div className="bg-white rounded-3xl p-6 border border-amber-200/80 shadow-xs space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                        <span>🏆</span>
+                        <span>Desafios Literários da Comunidade ({competitions.length})</span>
+                      </h3>
+                      <p className="text-xs text-slate-500">Participe de maratonas literárias ou lance uma nova meta para os escritores</p>
+                    </div>
+                    <button
+                      onClick={() => { setCompError(null); setShowCreateComp(true); }}
+                      className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>🏆</span>
+                      <span>+ Lançar Novo Desafio</span>
+                    </button>
+                  </div>
+
+                  {competitions.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {competitions.map(comp => {
+                        const isParticipant = comp.participants.includes(currentUser.id);
+                        return (
+                          <div key={comp.id} className="p-4 rounded-2xl bg-amber-50/30 border border-amber-200/70 flex flex-col justify-between gap-3 relative group">
+                            <div>
+                              <div className="flex items-start justify-between gap-2 mb-1.5">
+                                <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-1.5">
+                                  <span>🏆</span>
+                                  <span>{comp.title}</span>
+                                </h4>
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full uppercase">
+                                    {comp.type === 'word_count' ? `${comp.target.toLocaleString('pt-BR')} palavras` : `${comp.target} dias`}
+                                  </span>
+                                  {(currentUser.role === 'admin' || comp.creatorId === currentUser.id) && (
+                                    <button
+                                      onClick={() => handleDeleteCompetition(comp.id)}
+                                      className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                      title={t('social.competitions.deleteChallenge')}
+                                    >
+                                      ✕
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-600 leading-relaxed mb-3">{comp.description}</p>
+                            </div>
+
+                            {isParticipant ? (
+                              <div className="space-y-2 bg-white p-3 rounded-xl border border-amber-100">
+                                {comp.participants.map(pid => {
+                                  const stat = compStats[comp.id]?.[pid] || { current: 0, percent: 0 };
+                                  const pName = getUserName(pid);
+                                  return (
+                                    <div key={pid} className="text-xs">
+                                      <div className="flex justify-between text-[11px] font-bold text-slate-700 mb-1">
+                                        <span className="truncate">{pName}</span>
+                                        <span>{stat.current.toLocaleString('pt-BR')} / {comp.target.toLocaleString('pt-BR')} ({stat.percent}%)</span>
+                                      </div>
+                                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-gradient-to-r from-amber-400 to-emerald-500 rounded-full transition-all duration-500" style={{ width: `${stat.percent}%` }} />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => handleJoinCompetition(comp.id)}
+                                className="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+                              >
+                                {t('social.competitions.joinChallenge')}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      <p className="text-xs font-bold text-slate-600 mb-1">Nenhum desafio literário ativo no momento</p>
+                      <p className="text-[11px] text-slate-400">Clique em "+ Lançar Novo Desafio" para criar o primeiro desafio da comunidade!</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* 3 Clickable Quick Action Cards */}
               <div>
@@ -2080,6 +2789,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     type="button"
                     onClick={() => {
                       setActiveTab('competitions');
+                      setCompError(null);
                       setShowCreateComp(true);
                     }}
                     className="group text-left bg-white hover:bg-gradient-to-b hover:from-white hover:to-amber-50/40 p-6 rounded-2xl border border-slate-200/80 hover:border-amber-300 shadow-xs hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex flex-col justify-between cursor-pointer"
@@ -2397,19 +3107,20 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
-                  Título do Desafio
+                  Título do Desafio *
                 </label>
                 <input
                   className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-semibold text-slate-800 transition-all"
                   placeholder={t('social.competitions.challengeNamePlaceholder')}
                   value={newCompTitle}
-                  onChange={(e) => setNewCompTitle(e.target.value)}
+                  onChange={(e) => { setNewCompTitle(e.target.value); if (compError) setCompError(null); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleCreateCompetition(); }}
                 />
               </div>
 
               <div>
                 <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
-                  Regras & Descrição
+                  Regras & Descrição (opcional)
                 </label>
                 <textarea
                   className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm text-slate-700 resize-none transition-all"
@@ -2440,6 +3151,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   </label>
                   <input
                     type="number"
+                    min={1}
                     className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-bold text-slate-800 transition-all"
                     value={newCompDuration}
                     onChange={(e) => setNewCompDuration(Number(e.target.value))}
@@ -2453,11 +3165,18 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 </label>
                 <input
                   type="number"
+                  min={1}
                   className="w-full px-3.5 py-2.5 bg-slate-50/70 focus:bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm font-bold text-emerald-700 transition-all"
                   value={newCompTarget}
                   onChange={(e) => setNewCompTarget(Number(e.target.value))}
                 />
               </div>
+
+              {compError && (
+                <p className="text-xs font-bold text-rose-600 bg-rose-50 px-3.5 py-2 rounded-xl border border-rose-200">
+                  {compError}
+                </p>
+              )}
 
               <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
                 <button
@@ -2468,9 +3187,10 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 </button>
                 <button
                   onClick={handleCreateCompetition}
-                  className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-amber-500/25 transition-all cursor-pointer"
+                  disabled={isSubmittingComp}
+                  className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-amber-500/25 transition-all disabled:opacity-50 cursor-pointer"
                 >
-                  {t('social.competitions.launchChallenge')}
+                  {isSubmittingComp ? 'Lançando...' : t('social.competitions.launchChallenge')}
                 </button>
               </div>
             </div>
@@ -2486,14 +3206,15 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               <span className="p-2 bg-indigo-100 rounded-xl text-xl">🎯</span> {t('social.guilds.createChallengeTitle')}
             </h3>
 
-            <div className="space-y-4 mb-8">
+            <div className="space-y-4 mb-6">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">{t('social.guilds.challengeNameLabel')}</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">{t('social.guilds.challengeNameLabel')} *</label>
                 <input
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-bold"
                   placeholder={t('social.guilds.challengeNamePlaceholder')}
                   value={newChallengeTitle}
-                  onChange={(e) => setNewChallengeTitle(e.target.value)}
+                  onChange={(e) => { setNewChallengeTitle(e.target.value); if (challengeError) setChallengeError(null); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleCreateChallenge(); }}
                 />
               </div>
 
@@ -2512,6 +3233,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">{t('social.guilds.wordTarget')}</label>
                   <input
                     type="number"
+                    min={1}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-black text-indigo-600"
                     value={newChallengeTarget}
                     onChange={(e) => setNewChallengeTarget(Number(e.target.value))}
@@ -2521,26 +3243,34 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">{t('social.guilds.durationDays')}</label>
                   <input
                     type="number"
+                    min={1}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-black text-indigo-600"
                     value={newChallengeDuration}
                     onChange={(e) => setNewChallengeDuration(Number(e.target.value))}
                   />
                 </div>
               </div>
+
+              {challengeError && (
+                <p className="text-xs font-bold text-rose-600 bg-rose-50 px-3.5 py-2 rounded-xl border border-rose-200">
+                  {challengeError}
+                </p>
+              )}
             </div>
 
             <div className="flex gap-3">
               <button
                 onClick={() => setShowCreateChallenge(false)}
-                className="flex-1 py-3 text-slate-500 font-bold text-xs uppercase tracking-widest hover:bg-slate-50 rounded-2xl transition-colors"
+                className="flex-1 py-3 text-slate-500 font-bold text-xs uppercase tracking-widest hover:bg-slate-50 rounded-2xl transition-colors cursor-pointer"
               >
                 {t('social.friends.cancel')}
               </button>
               <button
                 onClick={handleCreateChallenge}
-                className="flex-[2] py-3 bg-indigo-600 text-white font-black text-xs rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all uppercase tracking-widest"
+                disabled={isSubmittingChallenge}
+                className="flex-[2] py-3 bg-indigo-600 text-white font-black text-xs rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all uppercase tracking-widest disabled:opacity-50 cursor-pointer"
               >
-                {t('social.guilds.launchChallenge')}
+                {isSubmittingChallenge ? 'Lançando...' : t('social.guilds.launchChallenge')}
               </button>
             </div>
           </div>

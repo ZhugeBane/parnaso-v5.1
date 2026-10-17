@@ -20,8 +20,33 @@ const mapUser = (docData: any, uid: string, email: string): User => ({
   isBlocked: docData.isBlocked || false,
   status: docData.status, // Important to carry this over
   photoBase64: docData.photoBase64,
-  photoURL: docData.photoBase64 || docData.photoURL
+  photoURL: docData.photoBase64 || docData.photoURL,
+  lastSeen: docData.lastSeen,
+  isOnline: docData.isOnline
 });
+
+export const updateUserPresence = async (userId: string, isOnline: boolean = true): Promise<void> => {
+  if (!userId) return;
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      lastSeen: new Date().toISOString(),
+      isOnline
+    });
+  } catch {
+    // Ignore transient network errors for presence pings
+  }
+};
+
+export const isUserCurrentlyOnline = (user?: User | null): boolean => {
+  if (!user) return false;
+  if (user.isOnline === false) return false;
+  if (!user.lastSeen) return false;
+  const lastSeenMs = new Date(user.lastSeen).getTime();
+  if (isNaN(lastSeenMs)) return false;
+  // Considered online if active within the last 2 minutes (120 seconds)
+  return (Date.now() - lastSeenMs) < 2 * 60 * 1000;
+};
 
 export const register = async (name: string, email: string, password: string): Promise<User> => {
   try {
@@ -91,7 +116,8 @@ export const login = async (email: string, password: string): Promise<User> => {
         await signOut(auth);
         throw new Error("Conta bloqueada pelo administrador.");
       }
-      return mapUser(data, user.uid, user.email!);
+      await updateUserPresence(user.uid, true);
+      return mapUser({ ...data, lastSeen: new Date().toISOString(), isOnline: true }, user.uid, user.email!);
     } else {
       // Fallback if doc doesn't exist (legacy users or direct auth creation)
       return {
@@ -99,7 +125,9 @@ export const login = async (email: string, password: string): Promise<User> => {
         name: user.displayName || 'Usuário',
         email: user.email!,
         role: 'user',
-        isBlocked: false
+        isBlocked: false,
+        lastSeen: new Date().toISOString(),
+        isOnline: true
       };
     }
   } catch (error: any) {
@@ -111,6 +139,9 @@ export const login = async (email: string, password: string): Promise<User> => {
 };
 
 export const logout = async () => {
+  if (auth.currentUser) {
+    await updateUserPresence(auth.currentUser.uid, false);
+  }
   await signOut(auth);
 };
 
@@ -146,7 +177,8 @@ export const getCurrentUser = async (): Promise<User | null> => {
               return;
             }
 
-            resolve(mapUser(userDoc.data(), user.uid, user.email!));
+            await updateUserPresence(user.uid, true);
+            resolve(mapUser({ ...data, lastSeen: new Date().toISOString(), isOnline: true }, user.uid, user.email!));
           } else {
             resolve({
               id: user.uid,
@@ -154,7 +186,9 @@ export const getCurrentUser = async (): Promise<User | null> => {
               email: user.email!,
               role: 'user',
               isBlocked: false,
-              status: 'approved' // Default legacy behavior
+              status: 'approved', // Default legacy behavior
+              lastSeen: new Date().toISOString(),
+              isOnline: true
             });
           }
         } catch (e) {
@@ -183,7 +217,9 @@ export const getAllUsers = async (): Promise<User[]> => {
         isBlocked: data.isBlocked || false,
         status: data.status || 'approved', // Default para usuários antigos
         photoBase64: data.photoBase64,
-        photoURL: data.photoBase64 || data.photoURL
+        photoURL: data.photoBase64 || data.photoURL,
+        lastSeen: data.lastSeen,
+        isOnline: data.isOnline
       };
     });
   } catch (e) {
