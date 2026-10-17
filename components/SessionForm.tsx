@@ -255,7 +255,6 @@ export const SessionForm: React.FC<SessionFormProps> = ({
 
   const [formData, setFormData] = useState<Partial<WritingSession>>({
     date: new Date().toISOString(),
-    projectId: '',
     stressLevel: 3,
     difficultyLevel: 1,
     autoCorrectionFrequency: 1,
@@ -273,7 +272,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({
     timeStrategyDescription: '',
     rewardDescription: '',
     content: '',
-    ...initialValues
+    ...initialValues,
+    projectId: initialValues?.projectId || ''
   });
 
   const handleChange = (key: keyof WritingSession, value: any) => {
@@ -301,7 +301,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({
     );
 
     const newSession: WritingSession = {
-      id: Date.now().toString(),
+      id: initialValues?.id || formData.id || Date.now().toString(),
       projectId: formData.projectId === '' ? undefined : formData.projectId,
       date: formData.date || new Date().toISOString(),
       startTime: formData.startTime!,
@@ -403,7 +403,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({
         <div>
           <h2 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight flex items-center gap-2">
             <span>✍️</span>
-            <span>{t('sessionForm.details')}</span>
+            <span>{initialValues?.id ? '✏️ Editar Sessão de Escrita' : t('sessionForm.details')}</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Documente sua prática de escrita para alimentar suas métricas de automonitoramento.
@@ -846,7 +846,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({
             disabled={showSuccess || Boolean(pendingSession)}
             className="px-8 py-3.5 rounded-2xl text-sm font-black text-white bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 disabled:opacity-50 disabled:pointer-events-none shadow-xl shadow-teal-500/25 transition-all transform hover:scale-[1.02] active:scale-95 cursor-pointer flex items-center gap-2"
           >
-            <span>{showSuccess ? 'Salvando...' : 'Salvar Sessão'}</span>
+            <span>{showSuccess ? 'Salvando...' : initialValues?.id ? 'Salvar Alterações' : 'Salvar Sessão'}</span>
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>

@@ -84,6 +84,7 @@ export const saveSession = async (session: WritingSession, userId: string): Prom
 
     const validatedData = {
       ...data,
+      projectId: data.projectId ? data.projectId : null,
       wordCount: safeWordCount,
       stressLevel: safeStressLevel,
       difficultyLevel: safeDifficultyLevel,
@@ -109,9 +110,27 @@ export const saveSession = async (session: WritingSession, userId: string): Prom
       userId
     };
 
-    const docRef = await addDoc(collection(db, 'writing_sessions'), docData);
+    // Verificar se é atualização de sessão já existente no Firestore ou criação de nova sessão
+    let isExisting = false;
+    if (id && !/^\d{10,14}$/.test(id) && !id.startsWith('temp_') && !id.startsWith('local_')) {
+      try {
+        const checkDoc = await getDoc(doc(db, 'writing_sessions', id));
+        if (checkDoc.exists()) {
+          isExisting = true;
+        }
+      } catch (e) {
+        isExisting = id.length >= 15;
+      }
+    }
 
-    console.log('[saveSession] ✅ Sessão salva e criptografada com sucesso! ID:', docRef.id);
+    if (isExisting && id) {
+      const docRef = doc(db, 'writing_sessions', id);
+      await setDoc(docRef, { ...docData, updatedAt: new Date().toISOString() }, { merge: true });
+      console.log('[saveSession] ✅ Sessão existente atualizada e criptografada com sucesso! ID:', id);
+    } else {
+      const docRef = await addDoc(collection(db, 'writing_sessions'), docData);
+      console.log('[saveSession] ✅ Nova sessão salva e criptografada com sucesso! ID:', docRef.id);
+    }
   } catch (error: any) {
     console.error("[saveSession] ❌ ERRO ao salvar sessão:", error);
     throw error; // Re-lançar erro para não engolir

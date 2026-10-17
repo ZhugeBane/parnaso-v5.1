@@ -8,6 +8,7 @@ interface SessionDetailsModalProps {
     session: WritingSession;
     projects?: Project[];
     onClose: () => void;
+    onEdit?: (session: WritingSession) => void;
     isPrivateView?: boolean; // If true, hides sensitive content (for admin view)
 }
 
@@ -34,6 +35,7 @@ export const SessionDetailsModal: React.FC<SessionDetailsModalProps> = ({
     session,
     projects = [],
     onClose,
+    onEdit,
     isPrivateView = false
 }) => {
     const { t } = useLanguage();
@@ -192,15 +194,28 @@ export const SessionDetailsModal: React.FC<SessionDetailsModalProps> = ({
                         </div>
                     </div>
 
-                    <button
-                        onClick={onClose}
-                        className="p-2 hover:bg-slate-200/80 rounded-xl transition-colors text-slate-400 hover:text-slate-700"
-                        title={t('common.close')}
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {!isPrivateView && onEdit && (
+                            <button
+                                type="button"
+                                onClick={() => onEdit({ ...session, content: displayContent })}
+                                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 font-bold text-xs rounded-xl transition-all cursor-pointer shadow-2xs"
+                                title="Editar informações desta sessão"
+                            >
+                                <span>✏️</span>
+                                <span>Editar Sessão</span>
+                            </button>
+                        )}
+                        <button
+                            onClick={onClose}
+                            className="p-2 hover:bg-slate-200/80 rounded-xl transition-colors text-slate-400 hover:text-slate-700 cursor-pointer"
+                            title={t('common.close')}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
 
                 {/* Scrollable Body */}
@@ -476,7 +491,17 @@ export const SessionDetailsModal: React.FC<SessionDetailsModalProps> = ({
                 </div>
 
                 {/* Footer */}
-                <div className="p-4 border-t border-slate-100 bg-slate-50/80 flex justify-end flex-shrink-0">
+                <div className="p-4 border-t border-slate-100 bg-slate-50/80 flex items-center justify-end gap-2.5 flex-shrink-0">
+                    {!isPrivateView && onEdit && (
+                        <button
+                            type="button"
+                            onClick={() => onEdit({ ...session, content: displayContent })}
+                            className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-teal-500/20 cursor-pointer"
+                        >
+                            <span>✏️</span>
+                            <span>Editar Informações da Sessão</span>
+                        </button>
+                    )}
                     <button
                         onClick={onClose}
                         className="px-6 py-2.5 bg-slate-800 text-white font-bold text-xs rounded-xl hover:bg-slate-900 transition-colors shadow-md shadow-slate-200 cursor-pointer"

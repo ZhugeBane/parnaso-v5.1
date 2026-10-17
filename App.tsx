@@ -137,8 +137,15 @@ function App() {
     try {
       console.log('[App] Salvando sessão...', session);
 
-      // Optimistic Update
-      setSessions(prev => [session, ...prev]);
+      // Optimistic Update (replace if editing existing session, prepend if new)
+      setSessions(prev => {
+        const exists = prev.some(s => s.id === session.id);
+        if (exists) {
+          return prev.map(s => (s.id === session.id ? session : s));
+        }
+        return [session, ...prev];
+      });
+      setPrefilledData({});
       setView('dashboard');
 
       // Actual Save to Firestore

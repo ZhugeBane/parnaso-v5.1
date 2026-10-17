@@ -257,6 +257,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     }
   };
 
+  const [showAllSessionsList, setShowAllSessionsList] = useState(false);
+
   // Modules selector state ("Quais ver")
   const defaultModules = useMemo(() => ({
     goals: true,
@@ -1747,85 +1749,119 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     </Card>
   );
 
-  const renderSessionList = () => (
-    <Card title={t('dashboard.lastRecords')}>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm whitespace-nowrap">
-          <thead className="uppercase tracking-wider border-b border-slate-200 bg-slate-50 text-slate-500">
-            <tr>
-              <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.date')}</th>
-              <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.project')}</th>
-              <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.totalWords')}</th>
-              <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.rating')}</th>
-              <th scope="col" className="px-4 py-3 font-medium text-right">Ação</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {sortedSessions.slice().reverse().slice(0, 5).map((session) => {
-              const proj = getProjectForSession(session, projects);
-              const isPrivateProj = proj && (proj.showInAutomonitoring === false || customDiscreetIds.includes(proj.id));
-              const autoIdx = proj ? projectsInAutomonitoring.findIndex(p => p.id === proj.id) : -1;
-              return (
-                <tr
-                  key={session.id}
-                  className="hover:bg-slate-50 transition-colors cursor-pointer group"
-                  onClick={() => setSelectedSession(session)}
-                >
-                  <td className="px-4 py-3 text-slate-600">
-                    <div className="font-medium text-slate-800 group-hover:text-teal-700 transition-colors">{new Date(session.date).toLocaleDateString()}</div>
-                    <div className="text-xs text-slate-400">{session.startTime} - {session.endTime}</div>
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 truncate max-w-[160px]">
-                    {proj ? (
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: proj.color }}></div>
-                        {isPrivacyMode ? (
-                          <span className="text-slate-600 font-medium">
-                            {isPrivateProj || autoIdx === -1
-                              ? 'Obra Privada 🔒'
-                              : `${t('dashboard.workNumber')} #${autoIdx + 1}`}
-                          </span>
-                        ) : (
-                          <span
-                            style={isPrivateProj && isProjectDiscreet(proj) ? { filter: 'blur(6px)' } : undefined}
-                            className="transition-all duration-300 group-hover:!filter-none"
-                          >
-                            {proj.name}
-                          </span>
-                        )}
-                      </div>
-                    ) : <span className="text-slate-400 italic">{t('dashboard.general_project')}</span>}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-800">{session.wordCount.toLocaleString('pt-BR')}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${session.sessionRating >= 4 ? 'bg-emerald-100 text-emerald-700' :
-                      session.sessionRating >= 3 ? 'bg-amber-100 text-amber-700' :
-                        'bg-rose-100 text-rose-700'
-                      }`}>
-                      {session.sessionRating}/5
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400 group-hover:text-teal-600 transition-colors">
-                      <span>Ver detalhes</span>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 transform group-hover:translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </span>
-                  </td>
-                </tr>
-              )
-            })}
-            {sortedSessions.length === 0 && (
+  const renderSessionList = () => {
+    const reversedSessions = sortedSessions.slice().reverse();
+    const visibleTableSessions = showAllSessionsList ? reversedSessions : reversedSessions.slice(0, 5);
+
+    return (
+      <Card
+        title={t('dashboard.lastRecords')}
+        headerAction={
+          reversedSessions.length > 5 ? (
+            <button
+              type="button"
+              onClick={() => setShowAllSessionsList(prev => !prev)}
+              className="text-xs font-bold text-teal-600 hover:text-teal-700 bg-teal-50/80 hover:bg-teal-100/70 px-3 py-1 rounded-xl border border-teal-200/70 transition-colors cursor-pointer"
+            >
+              {showAllSessionsList ? 'Mostrar últimas 5' : `Ver todas (${reversedSessions.length})`}
+            </button>
+          ) : undefined
+        }
+      >
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm whitespace-nowrap">
+            <thead className="uppercase tracking-wider border-b border-slate-200 bg-slate-50 text-slate-500">
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">{t('dashboard.noRecords')}</td>
+                <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.date')}</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.project')}</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.totalWords')}</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.rating')}</th>
+                <th scope="col" className="px-4 py-3 font-medium text-right">Ação</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {visibleTableSessions.map((session) => {
+                const proj = getProjectForSession(session, projects);
+                const isPrivateProj = proj && (proj.showInAutomonitoring === false || customDiscreetIds.includes(proj.id));
+                const autoIdx = proj ? projectsInAutomonitoring.findIndex(p => p.id === proj.id) : -1;
+                return (
+                  <tr
+                    key={session.id}
+                    className="hover:bg-slate-50 transition-colors cursor-pointer group"
+                    onClick={() => setSelectedSession(session)}
+                  >
+                    <td className="px-4 py-3 text-slate-600">
+                      <div className="font-medium text-slate-800 group-hover:text-teal-700 transition-colors">{new Date(session.date).toLocaleDateString()}</div>
+                      <div className="text-xs text-slate-400">{session.startTime} - {session.endTime}</div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 truncate max-w-[160px]">
+                      {proj ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: proj.color }}></div>
+                          {isPrivacyMode ? (
+                            <span className="text-slate-600 font-medium">
+                              {isPrivateProj || autoIdx === -1
+                                ? 'Obra Privada 🔒'
+                                : `${t('dashboard.workNumber')} #${autoIdx + 1}`}
+                            </span>
+                          ) : (
+                            <span
+                              style={isPrivateProj && isProjectDiscreet(proj) ? { filter: 'blur(6px)' } : undefined}
+                              className="transition-all duration-300 group-hover:!filter-none"
+                            >
+                              {proj.name}
+                            </span>
+                          )}
+                        </div>
+                      ) : <span className="text-slate-400 italic">{t('dashboard.general_project')}</span>}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-800">{session.wordCount.toLocaleString('pt-BR')}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${session.sessionRating >= 4 ? 'bg-emerald-100 text-emerald-700' :
+                        session.sessionRating >= 3 ? 'bg-amber-100 text-amber-700' :
+                          'bg-rose-100 text-rose-700'
+                        }`}>
+                        {session.sessionRating}/5
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="inline-flex items-center justify-end gap-2">
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onNewSession(session);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 hover:bg-teal-50 text-slate-600 hover:text-teal-700 border border-slate-200/80 hover:border-teal-200 transition-all cursor-pointer"
+                            title="Editar informações desta sessão"
+                          >
+                            <span>✏️</span>
+                            <span>Editar</span>
+                          </button>
+                        )}
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400 group-hover:text-teal-600 transition-colors">
+                          <span>Ver detalhes</span>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 transform group-hover:translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+              {sortedSessions.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400">{t('dashboard.noRecords')}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    );
+  };
 
   const renderWritingInsights = () => (
     <div className="mb-8">
@@ -3522,6 +3558,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           session={selectedSession}
           projects={projects}
           onClose={() => setSelectedSession(null)}
+          onEdit={
+            !readOnly
+              ? (sessionToEdit) => {
+                  setSelectedSession(null);
+                  onNewSession(sessionToEdit);
+                }
+              : undefined
+          }
           isPrivateView={readOnly}
         />
       )}
