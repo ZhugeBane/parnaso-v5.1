@@ -24,6 +24,14 @@ export interface TraitItem {
   value: string;
 }
 
+export interface CharacterRelationshipItem {
+  id: string;
+  targetCharacterId?: string;
+  targetCharacterName: string;
+  relationType: string; // Aliado, Rival, Interesse Amoroso, Mentor, Familiar, Inimigo, etc.
+  description?: string;
+}
+
 export interface Character {
   id: string;
   projectId: string;
@@ -35,9 +43,31 @@ export interface Character {
   occupation?: string;
   avatarUrl?: string;
   avatarBase64?: string; // 200x200 JPEG Base64
-  color?: string; // Hex color code for badges/theme
+  color?: string; // Hex color code for badges/theme/aura
   
-  // Traits (general descriptions)
+  // Voice & Signature
+  signatureQuote?: string; // Frase assinatura que resume a voz do personagem
+
+  // Dramatic Core (Bento: Essência & Motor Dramático)
+  consciousDesire?: string; // Desejo Consciente (Meta)
+  unconsciousNeed?: string; // Necessidade Inconsciente (Ferida)
+  theMask?: string; // A Máscara (Como age externamente)
+  greatestFear?: string; // Maior Medo
+
+  // Temperament Polarity Sliders (0 a 100, default 50)
+  polarityReasonEmotion?: number; // 0 = Razão <-> 100 = Emoção
+  polarityCautionImpulse?: number; // 0 = Cautela <-> 100 = Impulso
+  polarityAltruismSelfishness?: number; // 0 = Altruísmo <-> 100 = Egoísmo
+
+  // Character Arc Phases (Início, Meio, Clímax)
+  arcBeginning?: string; // Como começa
+  arcMiddle?: string; // Como entra em crise
+  arcClimax?: string; // Como termina a história
+
+  // Structured Relationships
+  relationships?: CharacterRelationshipItem[];
+
+  // Traits (general descriptions for backward compatibility)
   physicalTraits?: string; // Appearance, height, eyes, hair, scars, clothing style
   psychologicalTraits?: string; // Personality, temper, strengths, virtues, flaws, fears
   motivation?: string; // Core desire, objective in the plot
