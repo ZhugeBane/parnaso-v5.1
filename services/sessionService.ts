@@ -113,7 +113,7 @@ export const getProjects = async (userId: string): Promise<Project[]> => {
   }
 };
 
-export const saveProject = async (project: Project, userId: string): Promise<void> => {
+export const saveProject = async (project: Project, userId: string): Promise<Project> => {
   console.log('[saveProject] Iniciando salvamento:', { project, userId });
 
   try {
@@ -156,11 +156,13 @@ export const saveProject = async (project: Project, userId: string): Promise<voi
       const docRef = doc(db, 'projects', project.id);
       await setDoc(docRef, docData, { merge: true });
       console.log('[saveProject] ✅ Projeto atualizado com sucesso!');
+      return { ...project, ...cleanData, id: project.id };
     } else {
       // Create new
       console.log('[saveProject] Criando novo projeto...');
       const docRef = await addDoc(collection(db, 'projects'), docData);
       console.log('[saveProject] ✅ Projeto criado com sucesso! ID:', docRef.id);
+      return { ...project, ...cleanData, id: docRef.id };
     }
   } catch (error: any) {
     console.error('[saveProject] ❌ ERRO ao salvar projeto:', error);

@@ -8,7 +8,7 @@ interface SessionFormProps {
   onCancel: () => void;
   initialValues?: Partial<WritingSession>;
   projects: Project[];
-  onAddProject?: (project: Project) => void;
+  onAddProject?: (project: Project) => Promise<Project | undefined> | void;
 }
 
 const DEFAULT_PROJECT_COLORS = [
@@ -180,21 +180,30 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     setShowSuccess(true);
   };
 
-  const handleCreateProject = () => {
-    if (!newProjectName || !onAddProject) return;
+  const handleCreateProject = async () => {
+    if (!newProjectName.trim() || !onAddProject) return;
 
     const project: Project = {
       id: Date.now().toString(),
-      name: newProjectName,
-      description: newProjectDesc,
+      name: newProjectName.trim(),
+      description: newProjectDesc.trim(),
       targetWordCount: newProjectGoal ? Number(newProjectGoal) : undefined,
       color: newProjectColor,
       status: 'active',
       createdAt: new Date().toISOString()
     };
 
-    onAddProject(project);
-    handleChange('projectId', project.id);
+    try {
+      const saved = await onAddProject(project);
+      if (saved && saved.id) {
+        handleChange('projectId', saved.id);
+      } else {
+        handleChange('projectId', project.id);
+      }
+    } catch (e) {
+      console.error('Erro ao adicionar projeto:', e);
+      handleChange('projectId', project.id);
+    }
     
     // Reset form
     setShowNewProjectForm(false);

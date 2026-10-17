@@ -132,21 +132,23 @@ function App() {
     }
   };
 
-  const handleSaveProject = async (project: Project) => {
-    if (!user) return;
+  const handleSaveProject = async (project: Project): Promise<Project | undefined> => {
+    if (!user) return undefined;
 
     try {
       console.log('[App] Salvando projeto...', project);
-      await saveProject(project, user.id);
-      console.log('[App] ✅ Projeto salvo com sucesso!');
+      const saved = await saveProject(project, user.id);
+      console.log('[App] ✅ Projeto salvo com sucesso!', saved);
 
       // Reload projects
       const freshProjects = await getProjects(user.id);
       setProjects(freshProjects);
       console.log('[App] Projetos recarregados:', freshProjects.length);
+      return saved;
     } catch (error: any) {
       console.error('[App] ❌ ERRO ao salvar projeto:', error);
       alert('Erro ao salvar projeto: ' + (error.message || 'Erro desconhecido. Verifique sua conexão e tente novamente.'));
+      throw error;
     }
   };
 

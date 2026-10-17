@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Character, CustomCharacterField, User } from '../types';
+import { Character, CustomCharacterField, TraitItem, User } from '../types';
 import {
   getCharacters,
   saveCharacter,
@@ -37,6 +37,182 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 const DEFAULT_THEME_COLORS = ['#14b8a6', '#0ea5e9', '#6366f1', '#a855f7', '#ec4899', '#f43f5e', '#f59e0b', '#10b981'];
+
+const IDENTITY_PRESET_TAGS = [
+  'Espécie / Raça',
+  'Local de Origem',
+  'Alinhamento',
+  'Status (Vivo/Morto)',
+  'Pronomes / Gênero',
+  'Línguas Faladas'
+];
+
+const PHYSICAL_PRESET_TAGS = [
+  'Cabelo',
+  'Olhos',
+  'Altura & Porte',
+  'Cicatrizes / Marcas',
+  'Tatuagens',
+  'Voz & Sotaque',
+  'Estilo de Roupa',
+  'Maneirismos'
+];
+
+const PSYCHOLOGICAL_PRESET_TAGS = [
+  'Virtude',
+  'Defeito / Falha',
+  'Medo / Fobia',
+  'Hábito',
+  'Temperamento',
+  'Peculiaridade',
+  'Filosofia de Vida'
+];
+
+const STORY_PRESET_TAGS = [
+  'Trauma Marcante',
+  'Marco / Conquista',
+  'Aliado Principal',
+  'Rival / Inimigo',
+  'Família',
+  'Mentor',
+  'Segredo',
+  'Objeto de Valor'
+];
+
+interface SectionTraitEditorProps {
+  title: string;
+  subtitle: string;
+  buttonLabel: string;
+  presetTags: string[];
+  items?: TraitItem[];
+  onAdd: (defaultLabel?: string) => void;
+  onRemove: (id: string) => void;
+  onUpdate: (id: string, field: 'label' | 'value', text: string) => void;
+  icon?: string;
+}
+
+const SectionTraitEditor: React.FC<SectionTraitEditorProps> = ({
+  title,
+  subtitle,
+  buttonLabel,
+  presetTags,
+  items = [],
+  onAdd,
+  onRemove,
+  onUpdate,
+  icon = '✨'
+}) => {
+  return (
+    <div className="space-y-3 pt-3 border-t border-slate-200/90">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+            <span>{icon}</span>
+            <span>{title}</span>
+          </h5>
+          <p className="text-[11px] text-slate-500">
+            {subtitle}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onAdd('')}
+          className="self-start sm:self-auto px-3.5 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+          </svg>
+          <span>{buttonLabel}</span>
+        </button>
+      </div>
+
+      {/* Preset Tags Pills */}
+      {presetTags.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">Sugestões rápidas:</span>
+          {presetTags.map(tag => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => onAdd(tag)}
+              className="text-[11px] px-2.5 py-0.5 bg-slate-100 hover:bg-teal-50 hover:text-teal-700 hover:border-teal-200 border border-transparent rounded-lg text-slate-600 font-medium transition-all cursor-pointer"
+            >
+              + {tag}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Dynamic Item Cards */}
+      {items.length > 0 && (
+        <div className="space-y-2 mt-2">
+          {items.map((item, index) => (
+            <div
+              key={item.id || index}
+              className="bg-slate-50 hover:bg-slate-50/90 p-3 rounded-xl border border-slate-200 space-y-2 group transition-all"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <input
+                  type="text"
+                  placeholder="Nome do campo / Rótulo (ex: Olhos, Cicatriz...)"
+                  value={item.label || ''}
+                  onChange={(e) => onUpdate(item.id, 'label', e.target.value)}
+                  className="px-2.5 py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-teal-700 outline-none focus:ring-2 focus:ring-teal-400 min-w-[140px] max-w-[240px]"
+                />
+                <button
+                  type="button"
+                  onClick={() => onRemove(item.id)}
+                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                  title="Remover informação"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <textarea
+                rows={2}
+                placeholder="Descreva a informação detalhadamente..."
+                value={item.value || ''}
+                onChange={(e) => onUpdate(item.id, 'value', e.target.value)}
+                className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 outline-none focus:ring-2 focus:ring-teal-400 leading-relaxed"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface SectionTraitViewerProps {
+  title?: string;
+  items?: TraitItem[];
+}
+
+const SectionTraitViewer: React.FC<SectionTraitViewerProps> = ({ title = 'Informações Adicionais', items = [] }) => {
+  if (!items || items.length === 0) return null;
+
+  return (
+    <div className="space-y-3 pt-3 border-t border-slate-200/80">
+      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">{title}</span>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {items.map((item, index) => (
+          <div key={item.id || index} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-1">
+            {item.label && (
+              <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-teal-50 text-teal-700 border border-teal-200">
+                {item.label}
+              </span>
+            )}
+            <p className="text-xs text-slate-800 leading-relaxed font-medium whitespace-pre-wrap">
+              {item.value}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, user, readOnly = false }) => {
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -92,6 +268,10 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
       motivation: '',
       background: '',
       relations: '',
+      identityItems: [],
+      physicalItems: [],
+      psychologicalItems: [],
+      storyItems: [],
       customFields: []
     };
     setEditForm(newChar);
@@ -102,7 +282,14 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
 
   // Open modal to edit existing character
   const handleOpenEdit = (char: Character) => {
-    setEditForm({ ...char, customFields: char.customFields ? [...char.customFields] : [] });
+    setEditForm({
+      ...char,
+      identityItems: char.identityItems ? [...char.identityItems] : [],
+      physicalItems: char.physicalItems ? [...char.physicalItems] : [],
+      psychologicalItems: char.psychologicalItems ? [...char.psychologicalItems] : [],
+      storyItems: char.storyItems ? [...char.storyItems] : [],
+      customFields: char.customFields ? [...char.customFields] : []
+    });
     setIsEditing(true);
     setViewingCharacter(char);
     setActiveDossierTab('identity');
@@ -139,6 +326,10 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
       motivation: editForm.motivation?.trim() || undefined,
       background: editForm.background?.trim() || undefined,
       relations: editForm.relations?.trim() || undefined,
+      identityItems: (editForm.identityItems || []).filter(item => item.value?.trim() || item.label?.trim()),
+      physicalItems: (editForm.physicalItems || []).filter(item => item.value?.trim() || item.label?.trim()),
+      psychologicalItems: (editForm.psychologicalItems || []).filter(item => item.value?.trim() || item.label?.trim()),
+      storyItems: (editForm.storyItems || []).filter(item => item.value?.trim() || item.label?.trim()),
       customFields: editForm.customFields || [],
       createdAt: editForm.createdAt || new Date().toISOString()
     };
@@ -177,6 +368,35 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
     } catch (e) {
       console.error('Erro ao excluir personagem:', e);
     }
+  };
+
+  // Dynamic Trait Item Handlers
+  type TraitSectionKey = 'identityItems' | 'physicalItems' | 'psychologicalItems' | 'storyItems';
+
+  const handleAddTraitItem = (section: TraitSectionKey, defaultLabel: string = '') => {
+    const newItem: TraitItem = {
+      id: 'trait_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      label: defaultLabel,
+      value: ''
+    };
+    setEditForm(prev => ({
+      ...prev,
+      [section]: [...(prev[section] || []), newItem]
+    }));
+  };
+
+  const handleRemoveTraitItem = (section: TraitSectionKey, itemId: string) => {
+    setEditForm(prev => ({
+      ...prev,
+      [section]: (prev[section] || []).filter(item => item.id !== itemId)
+    }));
+  };
+
+  const handleUpdateTraitItem = (section: TraitSectionKey, itemId: string, field: 'label' | 'value', text: string) => {
+    setEditForm(prev => ({
+      ...prev,
+      [section]: (prev[section] || []).map(item => item.id === itemId ? { ...item, [field]: text } : item)
+    }));
   };
 
   // Add custom text box
@@ -504,7 +724,7 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
                 <form id="characterForm" onSubmit={handleSaveCharacter} className="space-y-6">
                   {/* TAB 1: IDENTIDADE */}
                   {activeDossierTab === 'identity' && (
-                    <div className="space-y-4 animate-fade-in">
+                    <div className="space-y-5 animate-fade-in">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
@@ -608,37 +828,63 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
                           className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 outline-none focus:ring-2 focus:ring-teal-400"
                         />
                       </div>
+
+                      {/* Dynamic Identity Traits */}
+                      <SectionTraitEditor
+                        title="Informações Extras de Identidade"
+                        subtitle="Adicione informações adicionais com botões dedicados (espécie, raça, local de origem, alinhamento, etc.)"
+                        buttonLabel="+ Adicionar Informação"
+                        presetTags={IDENTITY_PRESET_TAGS}
+                        items={editForm.identityItems}
+                        onAdd={(tag) => handleAddTraitItem('identityItems', tag)}
+                        onRemove={(id) => handleRemoveTraitItem('identityItems', id)}
+                        onUpdate={(id, field, val) => handleUpdateTraitItem('identityItems', id, field, val)}
+                        icon="🪪"
+                      />
                     </div>
                   )}
 
                   {/* TAB 2: TRAÇOS FÍSICOS */}
                   {activeDossierTab === 'physical' && (
-                    <div className="space-y-4 animate-fade-in">
+                    <div className="space-y-5 animate-fade-in">
                       <div>
                         <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                          Aparência Física & Traços Corporais
+                          Aparência Física Geral & Resumo Corporal
                         </label>
                         <textarea
-                          rows={6}
-                          placeholder="Descreva detalhes como: altura, porte físico, formato do rosto, cor dos olhos, cabelo, cicatrizes, marcas distintas, tatuagens, estilo de vestimenta e maneirismos..."
+                          rows={4}
+                          placeholder="Visão panorâmica: altura, porte físico, formato do rosto, estilo de vestimenta e maneirismos gerais..."
                           value={editForm.physicalTraits || ''}
                           onChange={(e) => setEditForm(prev => ({ ...prev, physicalTraits: e.target.value }))}
                           className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 leading-relaxed outline-none focus:ring-2 focus:ring-teal-400"
                         />
                       </div>
+
+                      {/* Dynamic Physical Traits */}
+                      <SectionTraitEditor
+                        title="Características Físicas Individuais"
+                        subtitle="Adicione características físicas específicas com botões dedicados (cabelo, olhos, cicatrizes, tatuagens, voz, etc.)"
+                        buttonLabel="+ Adicionar Característica"
+                        presetTags={PHYSICAL_PRESET_TAGS}
+                        items={editForm.physicalItems}
+                        onAdd={(tag) => handleAddTraitItem('physicalItems', tag)}
+                        onRemove={(id) => handleRemoveTraitItem('physicalItems', id)}
+                        onUpdate={(id, field, val) => handleUpdateTraitItem('physicalItems', id, field, val)}
+                        icon="👤"
+                      />
                     </div>
                   )}
 
                   {/* TAB 3: TRAÇOS PSICOLÓGICOS */}
                   {activeDossierTab === 'psychological' && (
-                    <div className="space-y-4 animate-fade-in">
+                    <div className="space-y-5 animate-fade-in">
                       <div>
                         <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                          Traços Psicológicos, Temperamento & Personalidade
+                          Temperamento & Personalidade Geral
                         </label>
                         <textarea
-                          rows={5}
-                          placeholder="Como este personagem pensa e reage? Virtudes, falhas trágicas, defeitos, hábitos, temperamento (calmo, explosivo, calculista)..."
+                          rows={4}
+                          placeholder="Como este personagem pensa e reage no dia a dia? Temperamento predominante (calmo, explosivo, calculista)..."
                           value={editForm.psychologicalTraits || ''}
                           onChange={(e) => setEditForm(prev => ({ ...prev, psychologicalTraits: e.target.value }))}
                           className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 leading-relaxed outline-none focus:ring-2 focus:ring-teal-400"
@@ -657,19 +903,32 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
                           className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 leading-relaxed outline-none focus:ring-2 focus:ring-teal-400"
                         />
                       </div>
+
+                      {/* Dynamic Psychological Traits */}
+                      <SectionTraitEditor
+                        title="Traços Psicológicos Individuais"
+                        subtitle="Adicione traços específicos com botões dedicados (virtudes, defeitos/falhas, medos/fobias, hábitos, etc.)"
+                        buttonLabel="+ Adicionar Traço"
+                        presetTags={PSYCHOLOGICAL_PRESET_TAGS}
+                        items={editForm.psychologicalItems}
+                        onAdd={(tag) => handleAddTraitItem('psychologicalItems', tag)}
+                        onRemove={(id) => handleRemoveTraitItem('psychologicalItems', id)}
+                        onUpdate={(id, field, val) => handleUpdateTraitItem('psychologicalItems', id, field, val)}
+                        icon="🧠"
+                      />
                     </div>
                   )}
 
                   {/* TAB 4: HISTÓRIA & RELAÇÕES */}
                   {activeDossierTab === 'story' && (
-                    <div className="space-y-4 animate-fade-in">
+                    <div className="space-y-5 animate-fade-in">
                       <div>
                         <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                          História de Origem / Passado (Backstory)
+                          História de Origem / Passado (Backstory Geral)
                         </label>
                         <textarea
                           rows={4}
-                          placeholder="De onde ele veio? Momentos cruciais da infância, traumas, conquistas ou acontecimentos que moldaram quem ele é..."
+                          placeholder="De onde ele veio? Momentos cruciais da infância ou acontecimentos fundamentais que moldaram quem ele é..."
                           value={editForm.background || ''}
                           onChange={(e) => setEditForm(prev => ({ ...prev, background: e.target.value }))}
                           className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 leading-relaxed outline-none focus:ring-2 focus:ring-teal-400"
@@ -688,6 +947,19 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
                           className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 leading-relaxed outline-none focus:ring-2 focus:ring-teal-400"
                         />
                       </div>
+
+                      {/* Dynamic Story & Relation Facts */}
+                      <SectionTraitEditor
+                        title="Fatos Marcantes da História & Relações"
+                        subtitle="Adicione acontecimentos, segredos ou relações específicas com botões dedicados (marcos, traumas, aliados, rivais, etc.)"
+                        buttonLabel="+ Adicionar Fato / Relação"
+                        presetTags={STORY_PRESET_TAGS}
+                        items={editForm.storyItems}
+                        onAdd={(tag) => handleAddTraitItem('storyItems', tag)}
+                        onRemove={(id) => handleRemoveTraitItem('storyItems', id)}
+                        onUpdate={(id, field, val) => handleUpdateTraitItem('storyItems', id, field, val)}
+                        icon="📜"
+                      />
                     </div>
                   )}
 
@@ -788,16 +1060,30 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
                           <span className="text-sm font-bold text-slate-700">{viewingCharacter?.occupation || '—'}</span>
                         </div>
                       </div>
+
+                      {/* Dynamic Extra Identity Traits */}
+                      <SectionTraitViewer
+                        title="Informações Extras de Identidade"
+                        items={viewingCharacter?.identityItems}
+                      />
                     </div>
                   )}
 
                   {/* TAB 2: TRAÇOS FÍSICOS */}
                   {activeDossierTab === 'physical' && (
-                    <div className="bg-slate-50 p-5 rounded-2xl space-y-2">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Aparência & Traços Físicos</span>
-                      <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
-                        {viewingCharacter?.physicalTraits || 'Nenhuma descrição física informada.'}
-                      </p>
+                    <div className="space-y-4">
+                      <div className="bg-slate-50 p-5 rounded-2xl space-y-2">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Aparência & Resumo Físico</span>
+                        <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
+                          {viewingCharacter?.physicalTraits || 'Nenhuma descrição física geral informada.'}
+                        </p>
+                      </div>
+
+                      {/* Dynamic Physical Traits */}
+                      <SectionTraitViewer
+                        title="Características Físicas Detalhadas"
+                        items={viewingCharacter?.physicalItems}
+                      />
                     </div>
                   )}
 
@@ -819,6 +1105,12 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
                           </p>
                         </div>
                       )}
+
+                      {/* Dynamic Psychological Traits */}
+                      <SectionTraitViewer
+                        title="Traços Psicológicos Detalhados"
+                        items={viewingCharacter?.psychologicalItems}
+                      />
                     </div>
                   )}
 
@@ -840,6 +1132,12 @@ export const CharactersFolder: React.FC<CharactersFolderProps> = ({ projectId, u
                           </p>
                         </div>
                       )}
+
+                      {/* Dynamic Story & Relation Facts */}
+                      <SectionTraitViewer
+                        title="Fatos Marcantes & Relações Detalhadas"
+                        items={viewingCharacter?.storyItems}
+                      />
                     </div>
                   )}
 

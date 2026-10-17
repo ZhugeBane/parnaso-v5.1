@@ -23,7 +23,7 @@ interface DashboardProps {
   onNewSession: () => void;
   onFocusMode: () => void;
   onUpdateSettings: (settings: UserSettings) => void;
-  onAddProject: (project: Project) => void;
+  onAddProject: (project: Project) => Promise<Project | undefined> | void;
   onDeleteProject?: (projectId: string) => Promise<void> | void;
   onResetData: () => void;
   onLogout: () => void;
@@ -102,11 +102,40 @@ const Stat = ({ label, value, colorClass, subValue }: any) => (
   </div>
 );
 
+// Resilient helper to match a session to its project by ID or Name
+export const getProjectForSession = (session: WritingSession, allProjects: Project[]): Project | undefined => {
+  if (!session.projectId) return undefined;
+  const rawId = String(session.projectId).trim();
+  if (!rawId) return undefined;
+
+  // 1. Direct match by ID
+  const direct = allProjects.find(p => p.id === rawId);
+  if (direct) return direct;
+
+  // 2. Case-insensitive match by project name
+  const byName = allProjects.find(p => p.name.trim().toLowerCase() === rawId.toLowerCase());
+  if (byName) return byName;
+
+  return undefined;
+};
+
+export const isSessionInProject = (session: WritingSession, project: Project, allProjects: Project[]): boolean => {
+  if (!session.projectId) return false;
+  const rawId = String(session.projectId).trim();
+  if (!rawId) return false;
+
+  if (rawId === project.id) return true;
+  if (rawId.toLowerCase() === project.name.trim().toLowerCase()) return true;
+
+  const resolved = getProjectForSession(session, allProjects);
+  return resolved?.id === project.id;
+};
+
 export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, settings, onNewSession, onFocusMode, onUpdateSettings, onAddProject, onDeleteProject, onResetData, onLogout, onAdminPanel, onSocial, onHelp, readOnly = false }) => {
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'general' | 'projects' | 'achievements'>('general');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [dateFilter, setDateFilter] = useState<DateFilterType>('7days');
+  const [dateFilter, setDateFilter] = useState<DateFilterType>('all');
   const [selectedSession, setSelectedSession] = useState<WritingSession | null>(null);
 
   // Work Slidebar Selection ('all' | 'general' | projectId)
@@ -240,21 +269,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const [newProjectGoal, setNewProjectGoal] = useState('');
   const [newProjectColor, setNewProjectColor] = useState(DEFAULT_PROJECT_COLORS[Math.floor(Math.random() * DEFAULT_PROJECT_COLORS.length)]);
 
-  const handleCreateProject = (e: React.FormEvent) => {
+  const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProjectName) return;
+    if (!newProjectName.trim()) return;
 
     const project: Project = {
       id: Date.now().toString(),
-      name: newProjectName,
-      description: newProjectDesc,
+      name: newProjectName.trim(),
+      description: newProjectDesc.trim(),
       targetWordCount: newProjectGoal ? Number(newProjectGoal) : undefined,
       color: newProjectColor,
       status: 'active',
       createdAt: new Date().toISOString()
     };
 
-    onAddProject(project);
+    await onAddProject(project);
     setShowNewProject(false);
     setNewProjectName('');
     setNewProjectDesc('');
@@ -342,25 +371,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const workFilteredSessions = useMemo(() => {
     // If inspecting a specific project via Minhas Obras
     if (selectedProjectId) {
+      const selectedProj = projects.find(p => p.id === selectedProjectId);
+      if (selectedProj) {
+        return sessions.filter(s => isSessionInProject(s, selectedProj, projects));
+      }
       return sessions.filter(s => s.projectId === selectedProjectId);
     }
 
     const allowedProjectIds = new Set(projectsInAutomonitoring.map(p => p.id));
 
-    // Base allowed sessions (only allowed projects or general)
-    const baseSessions = sessions.filter(s => {
-      if (!s.projectId) return true;
-      return allowedProjectIds.has(s.projectId);
-    });
-
     if (selectedWorkId === 'all') {
-      return baseSessions;
+      return sessions.filter(s => {
+        if (!s.projectId) return true;
+        const proj = getProjectForSession(s, projects);
+        if (!proj) return true; // Keep visible if not linked to any active project
+        return allowedProjectIds.has(proj.id);
+      });
     }
+
     if (selectedWorkId === 'general') {
-      return baseSessions.filter(s => !s.projectId);
+      return sessions.filter(s => {
+        if (!s.projectId) return true;
+        const proj = getProjectForSession(s, projects);
+        return !proj;
+      });
     }
-    return baseSessions.filter(s => s.projectId === selectedWorkId);
-  }, [sessions, selectedProjectId, selectedWorkId, projectsInAutomonitoring]);
+
+    // Specific work selected in slidebar
+    const targetProject = projects.find(p => p.id === selectedWorkId);
+    if (targetProject) {
+      return sessions.filter(s => isSessionInProject(s, targetProject, projects));
+    }
+    return sessions.filter(s => s.projectId === selectedWorkId);
+  }, [sessions, selectedProjectId, selectedWorkId, projectsInAutomonitoring, projects]);
 
   const filteredSessions = filterSessionsByDate(workFilteredSessions, dateFilter);
 
@@ -374,8 +417,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     const dateStr = new Date(s.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     const existing = dateMap.get(dateStr) || { date: dateStr };
 
-    // Project ID as key, wordCount as value. Handle 'General' sessions with key 'general'
-    const key = s.projectId || 'general';
+    // Resolve project to match BarChart dataKey (which is project.id)
+    const proj = getProjectForSession(s, projects);
+    const key = proj ? proj.id : 'general';
     existing[key] = (existing[key] || 0) + s.wordCount;
     existing.total = (existing.total || 0) + s.wordCount; // Keep track of total for tooltip if needed
 
@@ -1665,7 +1709,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             )}
 
             {projects.map(project => {
-              const projWords = sessions.filter(s => s.projectId === project.id).reduce((a, b) => a + b.wordCount, 0);
+              const projWords = sessions.filter(s => isSessionInProject(s, project, projects)).reduce((a, b) => a + b.wordCount, 0);
               const percent = project.targetWordCount ? Math.min(100, Math.round((projWords / project.targetWordCount) * 100)) : 0;
               return (
                 <div key={project.id} onClick={() => setSelectedProjectId(project.id)} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all cursor-pointer group relative overflow-hidden">

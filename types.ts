@@ -18,6 +18,12 @@ export interface CustomCharacterField {
   content: string;
 }
 
+export interface TraitItem {
+  id: string;
+  label?: string; // e.g. "Cabelo", "Olhos", "Virtude", "Defeito", "Espécie", etc.
+  value: string;
+}
+
 export interface Character {
   id: string;
   projectId: string;
@@ -30,12 +36,18 @@ export interface Character {
   avatarUrl?: string;
   color?: string; // Hex color code for badges/theme
   
-  // Traits
+  // Traits (general descriptions)
   physicalTraits?: string; // Appearance, height, eyes, hair, scars, clothing style
   psychologicalTraits?: string; // Personality, temper, strengths, virtues, flaws, fears
   motivation?: string; // Core desire, objective in the plot
   background?: string; // Origin story, backstory
   relations?: string; // Relationships with other characters
+
+  // Dynamic Trait Lists with dedicated buttons per section
+  identityItems?: TraitItem[]; // Extra identity facts (species, pronouns, status, etc.)
+  physicalItems?: TraitItem[]; // Physical traits (hair, eyes, height, scars, etc.)
+  psychologicalItems?: TraitItem[]; // Psychological traits (virtues, flaws, phobias, habits, etc.)
+  storyItems?: TraitItem[]; // Story & relationship facts (traumas, milestones, rivals, etc.)
   
   // Free custom text boxes with custom title and content
   customFields?: CustomCharacterField[];

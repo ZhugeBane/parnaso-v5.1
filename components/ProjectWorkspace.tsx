@@ -25,7 +25,9 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'concepts' | 'characters' | 'comments' | 'stats'>('concepts');
 
-  const projWords = sessions.filter(s => s.projectId === project.id).reduce((a, b) => a + b.wordCount, 0);
+  const projWords = sessions
+    .filter(s => s.projectId === project.id || (s.projectId && s.projectId.trim().toLowerCase() === project.name.trim().toLowerCase()))
+    .reduce((a, b) => a + b.wordCount, 0);
   const percent = project.targetWordCount ? Math.min(100, Math.round((projWords / project.targetWordCount) * 100)) : 0;
 
   return (
