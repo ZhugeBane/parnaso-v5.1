@@ -205,6 +205,16 @@ export interface AgoraParticipant {
   isMuted?: boolean;
 }
 
+export interface AgoraSignalMessage {
+  id: string;
+  guildId: string;
+  senderId: string;
+  targetId: string;
+  type: 'offer' | 'answer' | 'ice-candidate';
+  payload: string;
+  createdAt: string;
+}
+
 export interface Guild {
   id: string;
   name: string;
@@ -214,6 +224,7 @@ export interface Guild {
   adminId: string; // Owner
   adminIds?: string[]; // Additional administrators
   members: string[];
+  pendingMemberIds?: string[]; // Pending membership requests awaiting Admin approval
   statsResetDate?: string; // Date to filter member word counts
   challenges?: GuildChallenge[];
   agoraParticipants?: AgoraParticipant[];

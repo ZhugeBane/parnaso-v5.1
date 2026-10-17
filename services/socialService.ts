@@ -11,7 +11,8 @@ import {
   ForumThread,
   ForumReply,
   GuildChallenge,
-  AgoraParticipant
+  AgoraParticipant,
+  AgoraSignalMessage
 } from '../types';
 import { db } from '../lib/firebase';
 import {
@@ -45,9 +46,11 @@ export const getFriendsList = async (userId: string): Promise<{ user: User, frie
   // Identify any user where a block exists in either direction
   const blockedUserIds = new Set<string>();
   allDocs.forEach(f => {
+    const reqId = f.requesterId;
+    const recId = f.receiverId || (f as any).recipientId;
     if (f.status === 'blocked') {
-      if (f.requesterId === userId) blockedUserIds.add(f.receiverId);
-      if (f.receiverId === userId) blockedUserIds.add(f.requesterId);
+      if (reqId === userId && recId) blockedUserIds.add(recId);
+      if (recId === userId && reqId) blockedUserIds.add(reqId);
     }
   });
 
@@ -56,9 +59,12 @@ export const getFriendsList = async (userId: string): Promise<{ user: User, frie
   return allDocs
     .map(f => {
       if (f.status !== 'accepted') return null;
-      if (f.requesterId !== userId && f.receiverId !== userId) return null;
+      const reqId = f.requesterId;
+      const recId = f.receiverId || (f as any).recipientId;
+      if (reqId !== userId && recId !== userId) return null;
 
-      const friendId = f.requesterId === userId ? f.receiverId : f.requesterId;
+      const friendId = reqId === userId ? recId : reqId;
+      if (!friendId) return null;
       if (blockedUserIds.has(friendId)) return null;
       if (seenUserIds.has(friendId)) return null;
 
@@ -198,8 +204,88 @@ export const sendFriendRequest = async (requesterId: string, receiverId: string)
   return docRef.id;
 };
 
-export const acceptFriendRequest = async (friendshipId: string) => {
-  await updateDoc(doc(db, 'friendships', friendshipId), { status: 'accepted' });
+export const acceptFriendRequest = async (friendshipId: string, userId1?: string, userId2?: string) => {
+  try {
+    let u1 = userId1;
+    let u2 = userId2;
+
+    if (!u1 || !u2) {
+      try {
+        const targetDoc = await getDoc(doc(db, 'friendships', friendshipId));
+        if (targetDoc.exists()) {
+          const data = targetDoc.data() as Friendship;
+          u1 = data.requesterId;
+          u2 = data.receiverId || (data as any).recipientId;
+        }
+      } catch {
+        // Ignore read error
+      }
+    }
+
+    // 1. Update primary friendship doc to 'accepted'
+    try {
+      await setDoc(doc(db, 'friendships', friendshipId), { status: 'accepted' }, { merge: true });
+    } catch {
+      try {
+        await updateDoc(doc(db, 'friendships', friendshipId), { status: 'accepted' });
+      } catch {
+        // Will be handled by query cleanup below if friendshipId was temporary or stale
+      }
+    }
+
+    // 2. Also find all friendship records between u1 and u2, ensure one is 'accepted', and delete any duplicate 'pending' docs
+    if (u1 && u2) {
+      const snapshot = await getDocs(collection(db, 'friendships'));
+      const matchingDocs = snapshot.docs.filter(d => {
+        const f = d.data() as Friendship;
+        if (f.status === 'blocked') return false;
+        const reqId = f.requesterId;
+        const recId = f.receiverId || (f as any).recipientId;
+        return (
+          (reqId === u1 && recId === u2) ||
+          (reqId === u2 && recId === u1)
+        );
+      });
+
+      let acceptedDocId: string | null = null;
+      // Prefer the requested friendshipId if it exists in matchingDocs
+      const exactDoc = matchingDocs.find(d => d.id === friendshipId);
+      if (exactDoc) {
+        acceptedDocId = exactDoc.id;
+        await setDoc(doc(db, 'friendships', exactDoc.id), { status: 'accepted' }, { merge: true });
+      } else if (matchingDocs.length > 0) {
+        acceptedDocId = matchingDocs[0].id;
+        await setDoc(doc(db, 'friendships', matchingDocs[0].id), { status: 'accepted' }, { merge: true });
+      } else {
+        // If no doc existed (e.g. optimistic ID), create the accepted friendship doc
+        const created = await addDoc(collection(db, 'friendships'), {
+          requesterId: u2,
+          receiverId: u1,
+          status: 'accepted',
+          createdAt: new Date().toISOString()
+        });
+        acceptedDocId = created.id;
+      }
+
+      // Delete any remaining duplicate pending/accepted records between u1 and u2
+      for (const dup of matchingDocs) {
+        if (dup.id !== acceptedDocId) {
+          try {
+            await deleteDoc(doc(db, 'friendships', dup.id));
+          } catch {
+            try {
+              await setDoc(doc(db, 'friendships', dup.id), { status: 'accepted' }, { merge: true });
+            } catch {
+              // Ignore
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao aceitar solicitação de amizade:', err);
+    throw err;
+  }
 };
 
 /**
@@ -216,11 +302,15 @@ export const removeFriendship = async (friendshipId: string, userId1?: string, u
       if (targetDoc.exists()) {
         const data = targetDoc.data() as Friendship;
         u1 = data.requesterId;
-        u2 = data.receiverId;
+        u2 = data.receiverId || (data as any).recipientId;
       }
     }
 
-    await deleteDoc(doc(db, 'friendships', friendshipId));
+    try {
+      await deleteDoc(doc(db, 'friendships', friendshipId));
+    } catch {
+      // Ignore if already deleted
+    }
 
     // Also clean up any duplicate pending/accepted records between u1 and u2
     if (u1 && u2) {
@@ -228,9 +318,11 @@ export const removeFriendship = async (friendshipId: string, userId1?: string, u
       const duplicates = snapshot.docs.filter(d => {
         const f = d.data() as Friendship;
         if (f.status === 'blocked') return false;
+        const reqId = f.requesterId;
+        const recId = f.receiverId || (f as any).recipientId;
         return (
-          (f.requesterId === u1 && f.receiverId === u2) ||
-          (f.requesterId === u2 && f.receiverId === u1)
+          (reqId === u1 && recId === u2) ||
+          (reqId === u2 && recId === u1)
         );
       });
       for (const dup of duplicates) {
@@ -305,6 +397,8 @@ const syncGuildDirectoryEntry = async (guild: Guild) => {
     const dirRef = doc(db, 'forum_threads', `guild_dir_${guild.id}`);
     await setDoc(dirRef, {
       _docType: 'guild_directory',
+      authorId: guild.adminId,
+      creatorId: guild.adminId,
       guildId: guild.id,
       name: guild.name,
       description: guild.description || '',
@@ -313,7 +407,9 @@ const syncGuildDirectoryEntry = async (guild: Guild) => {
       adminId: guild.adminId,
       adminIds: guild.adminIds || [guild.adminId],
       members: guild.members || [],
+      pendingMemberIds: guild.pendingMemberIds || [],
       challenges: guild.challenges || [],
+      agoraParticipants: guild.agoraParticipants || [],
       statsResetDate: guild.statsResetDate || null,
       createdAt: guild.createdAt || new Date().toISOString()
     }, { merge: true });
@@ -329,7 +425,13 @@ export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
     const q = query(collection(db, 'groups'), where('members', 'array-contains', userId));
     const snapshot = await getDocs(q);
     snapshot.docs.forEach(d => {
-      const g = { id: d.id, ...d.data() } as Guild;
+      const data = d.data() as Guild;
+      const g: Guild = {
+        ...data,
+        id: d.id,
+        members: data.members || [],
+        pendingMemberIds: data.pendingMemberIds || []
+      };
       guildMap.set(g.id, g);
       syncGuildDirectoryEntry(g);
     });
@@ -337,7 +439,7 @@ export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
     console.warn('Erro ao buscar grupos do usuário:', err);
   }
 
-  // Also check guild directory for guilds where user joined via directory
+  // Also check guild directory for guilds where user is an approved member
   try {
     const fSnap = await getDocs(collection(db, 'forum_threads'));
     fSnap.docs.forEach(d => {
@@ -354,14 +456,21 @@ export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
             emblemUrl: data.emblemUrl || '',
             adminId: data.adminId,
             adminIds: data.adminIds || [data.adminId],
-            members: data.members,
+            members: data.members || [],
+            pendingMemberIds: Array.isArray(data.pendingMemberIds) ? data.pendingMemberIds : [],
             challenges: data.challenges || [],
+            agoraParticipants: Array.isArray(data.agoraParticipants) ? data.agoraParticipants : [],
             statsResetDate: data.statsResetDate || undefined,
             createdAt: data.createdAt
           });
         } else {
-          // Merge members/challenges if directory has newer additions
+          // Merge challenges & pendingMemberIds if directory has updates
           const mergedMembers = Array.from(new Set([...(existing.members || []), ...(data.members || [])]));
+          const rawPending = existing.pendingMemberIds !== undefined
+            ? existing.pendingMemberIds
+            : (Array.isArray(data.pendingMemberIds) ? data.pendingMemberIds : []);
+          const cleanPending = rawPending.filter((id: string) => !mergedMembers.includes(id));
+
           const existingChallenges = existing.challenges || [];
           const dirChallenges = data.challenges || [];
           const challengeMap = new Map<string, GuildChallenge>();
@@ -371,6 +480,7 @@ export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
           guildMap.set(gId, {
             ...existing,
             members: mergedMembers,
+            pendingMemberIds: cleanPending,
             challenges: Array.from(challengeMap.values())
           });
         }
@@ -384,7 +494,7 @@ export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
 };
 
 /**
- * Fetches all guilds in the community so users can search and join guilds.
+ * Fetches all guilds in the community so users can search and request to join guilds.
  */
 export const getAllGuilds = async (currentUserId?: string): Promise<Guild[]> => {
   const guildMap = new Map<string, Guild>();
@@ -398,7 +508,13 @@ export const getAllGuilds = async (currentUserId?: string): Promise<Guild[]> => 
   try {
     const snap = await getDocs(collection(db, 'groups'));
     snap.docs.forEach(d => {
-      const g = { id: d.id, ...d.data() } as Guild;
+      const data = d.data() as Guild;
+      const g: Guild = {
+        ...data,
+        id: d.id,
+        members: data.members || [],
+        pendingMemberIds: data.pendingMemberIds || []
+      };
       guildMap.set(g.id, g);
       syncGuildDirectoryEntry(g);
     });
@@ -424,13 +540,23 @@ export const getAllGuilds = async (currentUserId?: string): Promise<Guild[]> => 
             adminId: data.adminId,
             adminIds: data.adminIds || [data.adminId],
             members: data.members || [],
+            pendingMemberIds: Array.isArray(data.pendingMemberIds) ? data.pendingMemberIds : [],
             challenges: data.challenges || [],
+            agoraParticipants: Array.isArray(data.agoraParticipants) ? data.agoraParticipants : [],
             statsResetDate: data.statsResetDate || undefined,
             createdAt: data.createdAt
           });
         } else {
           const mergedMembers = Array.from(new Set([...(existing.members || []), ...(data.members || [])]));
-          guildMap.set(gId, { ...existing, members: mergedMembers });
+          const rawPending = existing.pendingMemberIds !== undefined
+            ? existing.pendingMemberIds
+            : (Array.isArray(data.pendingMemberIds) ? data.pendingMemberIds : []);
+          const cleanPending = rawPending.filter((id: string) => !mergedMembers.includes(id));
+          guildMap.set(gId, {
+            ...existing,
+            members: mergedMembers,
+            pendingMemberIds: cleanPending
+          });
         }
       }
     });
@@ -442,23 +568,22 @@ export const getAllGuilds = async (currentUserId?: string): Promise<Guild[]> => 
 };
 
 /**
- * Allows a user to join an existing guild.
+ * Submits a membership application to join a guild.
+ * Only Guild Admins can approve the request before the user becomes a member and can access guild info.
  */
-export const joinGuild = async (guildId: string, userId: string): Promise<void> => {
-  let updatedGuild: Guild | null = null;
-
-  // 1. Try updating the group document directly
+export const requestJoinGuild = async (guildId: string, userId: string): Promise<void> => {
+  // 1. Update the group document
   try {
     const guildRef = doc(db, 'groups', guildId);
     const snap = await getDoc(guildRef);
     if (snap.exists()) {
       const data = snap.data() as Guild;
-      const members = Array.from(new Set([...(data.members || []), userId]));
-      await updateDoc(guildRef, { members });
-      updatedGuild = { ...data, id: guildId, members };
+      if ((data.members || []).includes(userId)) return;
+      const pendingMemberIds = Array.from(new Set([...(data.pendingMemberIds || []), userId]));
+      await updateDoc(guildRef, { pendingMemberIds });
     }
   } catch {
-    // Fallback to directory update if group doc update is restricted by older rules
+    // Fallback to directory update if group doc update is restricted
   }
 
   // 2. Also update the directory entry
@@ -467,8 +592,72 @@ export const joinGuild = async (guildId: string, userId: string): Promise<void> 
     const dirSnap = await getDoc(dirRef);
     if (dirSnap.exists()) {
       const dirData = dirSnap.data() as any;
-      const members = Array.from(new Set([...(dirData.members || []), userId]));
-      await updateDoc(dirRef, { members });
+      if ((dirData.members || []).includes(userId)) return;
+      const pendingMemberIds = Array.from(new Set([...(dirData.pendingMemberIds || []), userId]));
+      await updateDoc(dirRef, { pendingMemberIds });
+    }
+  } catch {
+    // Ignore
+  }
+};
+
+/**
+ * Cancels a user's pending membership application to a guild.
+ */
+export const cancelJoinGuildRequest = async (guildId: string, userId: string): Promise<void> => {
+  try {
+    const guildRef = doc(db, 'groups', guildId);
+    const snap = await getDoc(guildRef);
+    if (snap.exists()) {
+      const data = snap.data() as Guild;
+      const pendingMemberIds = (data.pendingMemberIds || []).filter(id => id !== userId);
+      await updateDoc(guildRef, { pendingMemberIds });
+    }
+  } catch {
+    // Ignore
+  }
+
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    const dirSnap = await getDoc(dirRef);
+    if (dirSnap.exists()) {
+      const dirData = dirSnap.data() as any;
+      const pendingMemberIds = (dirData.pendingMemberIds || []).filter((id: string) => id !== userId);
+      await updateDoc(dirRef, { pendingMemberIds });
+    }
+  } catch {
+    // Ignore
+  }
+};
+
+/**
+ * Admin-only action: Approves a candidate's request to join the guild, moving them from pendingMemberIds to members.
+ */
+export const approveGuildMember = async (guildId: string, targetUserId: string): Promise<void> => {
+  let updatedGuild: Guild | null = null;
+
+  try {
+    const guildRef = doc(db, 'groups', guildId);
+    const snap = await getDoc(guildRef);
+    if (snap.exists()) {
+      const data = snap.data() as Guild;
+      const members = Array.from(new Set([...(data.members || []), targetUserId]));
+      const pendingMemberIds = (data.pendingMemberIds || []).filter(id => id !== targetUserId);
+      await updateDoc(guildRef, { members, pendingMemberIds });
+      updatedGuild = { ...data, id: guildId, members, pendingMemberIds };
+    }
+  } catch (err) {
+    console.warn('Erro ao aprovar membro em groups:', err);
+  }
+
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    const dirSnap = await getDoc(dirRef);
+    if (dirSnap.exists()) {
+      const dirData = dirSnap.data() as any;
+      const members = Array.from(new Set([...(dirData.members || []), targetUserId]));
+      const pendingMemberIds = (dirData.pendingMemberIds || []).filter((id: string) => id !== targetUserId);
+      await updateDoc(dirRef, { members, pendingMemberIds });
     } else if (updatedGuild) {
       await syncGuildDirectoryEntry(updatedGuild);
     }
@@ -476,6 +665,18 @@ export const joinGuild = async (guildId: string, userId: string): Promise<void> 
     // Ignore
   }
 };
+
+/**
+ * Admin-only action: Rejects a candidate's request to join the guild.
+ */
+export const rejectGuildMember = async (guildId: string, targetUserId: string): Promise<void> => {
+  await cancelJoinGuildRequest(guildId, targetUserId);
+};
+
+/**
+ * Legacy helper (now routes to requestJoinGuild for non-admin applications).
+ */
+export const joinGuild = requestJoinGuild;
 
 // Legacy alias
 export const getUserGroups = getUserGuilds;
@@ -500,7 +701,9 @@ export const createGuild = async (
     emblemBase64: emblemBase64 || '',
     emblemUrl: emblemBase64 || '',
     members: uniqueMembers,
+    pendingMemberIds: [],
     challenges: [],
+    agoraParticipants: [],
     createdAt
   };
   const docRef = await addDoc(collection(db, 'groups'), guildData);
@@ -614,27 +817,97 @@ export const createGuildChallenge = async (
   return newChallenge;
 };
 
-// --- GUILD AGORA (VOICE ROOM PRESENCE & SIGNALING) ---
+// --- GUILD AGORA (VOICE ROOM PRESENCE & WEBRTC SIGNALING) ---
+
+const AGORA_PRESENCE_TTL_MS = 45000;
 
 export const pingGuildAgoraPresence = async (
   guildId: string,
   user: User,
   isMuted: boolean = false
 ): Promise<void> => {
+  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+  const participantEntry: AgoraParticipant = {
+    userId: user.id,
+    name: sanitizeText(user.name, 80) || 'Escritor',
+    photoURL: user.photoBase64 || user.photoURL || '',
+    isMuted: Boolean(isMuted),
+    joinedAt: nowIso,
+    lastPing: nowIso
+  };
+
+  // 1. Update presence document in guild_threads (include authorId, title, content for firestore.rules compatibility)
   try {
     const presenceRef = doc(db, 'guild_threads', `agora_${guildId}_${user.id}`);
     await setDoc(presenceRef, {
       _docType: 'agora_presence',
+      authorId: user.id,
+      title: 'agora_presence',
+      content: 'active',
       guildId,
       userId: user.id,
-      name: sanitizeText(user.name, 80) || 'Escritor',
-      photoURL: user.photoBase64 || user.photoURL || '',
-      isMuted,
-      joinedAt: new Date().toISOString(),
-      lastPing: new Date().toISOString()
+      name: participantEntry.name,
+      photoURL: participantEntry.photoURL,
+      isMuted: participantEntry.isMuted,
+      joinedAt: nowIso,
+      lastPing: nowIso,
+      createdAt: nowIso
     }, { merge: true });
   } catch (err) {
-    console.warn('Erro ao atualizar presença na Ágora:', err);
+    console.warn('Aviso ao gravar presença da Ágora em guild_threads:', err);
+  }
+
+  // 2. Also update agoraParticipants directly on groups/{guildId} so all members always see connected peers
+  try {
+    const guildRef = doc(db, 'groups', guildId);
+    const snap = await getDoc(guildRef);
+    if (snap.exists()) {
+      const data = snap.data() as Guild;
+      const existingList = Array.isArray(data.agoraParticipants) ? data.agoraParticipants : [];
+      const prevSelf = existingList.find(p => p.userId === user.id);
+      const activeOthers = existingList.filter(p => {
+        if (!p || p.userId === user.id) return false;
+        const t = new Date(p.lastPing || p.joinedAt || 0).getTime();
+        return !isNaN(t) && (nowMs - t) < AGORA_PRESENCE_TTL_MS;
+      });
+      const updatedList: AgoraParticipant[] = [
+        ...activeOthers,
+        {
+          ...participantEntry,
+          joinedAt: prevSelf?.joinedAt || nowIso
+        }
+      ];
+      await updateDoc(guildRef, { agoraParticipants: updatedList });
+    }
+  } catch {
+    // Fallback to guild directory if needed
+  }
+
+  // 3. Also sync on guild_dir_${guildId} in forum_threads
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    const dirSnap = await getDoc(dirRef);
+    if (dirSnap.exists()) {
+      const dirData = dirSnap.data() as any;
+      const existingList: AgoraParticipant[] = Array.isArray(dirData.agoraParticipants) ? dirData.agoraParticipants : [];
+      const prevSelf = existingList.find(p => p.userId === user.id);
+      const activeOthers = existingList.filter(p => {
+        if (!p || p.userId === user.id) return false;
+        const t = new Date(p.lastPing || p.joinedAt || 0).getTime();
+        return !isNaN(t) && (nowMs - t) < AGORA_PRESENCE_TTL_MS;
+      });
+      const updatedList: AgoraParticipant[] = [
+        ...activeOthers,
+        {
+          ...participantEntry,
+          joinedAt: prevSelf?.joinedAt || nowIso
+        }
+      ];
+      await updateDoc(dirRef, { agoraParticipants: updatedList });
+    }
+  } catch {
+    // Ignore
   }
 };
 
@@ -644,32 +917,210 @@ export const leaveGuildAgora = async (guildId: string, userId: string): Promise<
   } catch {
     // Ignore
   }
+
+  try {
+    const guildRef = doc(db, 'groups', guildId);
+    const snap = await getDoc(guildRef);
+    if (snap.exists()) {
+      const data = snap.data() as Guild;
+      const updatedList = (data.agoraParticipants || []).filter(p => p.userId !== userId);
+      await updateDoc(guildRef, { agoraParticipants: updatedList });
+    }
+  } catch {
+    // Ignore
+  }
+
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    const dirSnap = await getDoc(dirRef);
+    if (dirSnap.exists()) {
+      const dirData = dirSnap.data() as any;
+      const updatedList = (dirData.agoraParticipants || []).filter((p: AgoraParticipant) => p.userId !== userId);
+      await updateDoc(dirRef, { agoraParticipants: updatedList });
+    }
+  } catch {
+    // Ignore
+  }
+
+  // Clean up any pending WebRTC signals sent by this user in this guild
+  try {
+    const q = query(collection(db, 'guild_threads'), where('guildId', '==', guildId));
+    const snap = await getDocs(q);
+    for (const d of snap.docs) {
+      const data = d.data() as any;
+      if (data._docType === 'agora_signal' && (data.senderId === userId || data.targetId === userId)) {
+        try {
+          await deleteDoc(doc(db, 'guild_threads', d.id));
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  } catch {
+    // Ignore
+  }
 };
 
 export const getGuildAgoraParticipants = async (guildId: string): Promise<AgoraParticipant[]> => {
+  const participantMap = new Map<string, AgoraParticipant>();
+  const now = Date.now();
+
+  const addIfFresh = (raw: any) => {
+    if (!raw || !raw.userId) return;
+    const lastPingMs = new Date(raw.lastPing || raw.joinedAt || 0).getTime();
+    if (isNaN(lastPingMs) || (now - lastPingMs) >= AGORA_PRESENCE_TTL_MS) return;
+
+    const existing = participantMap.get(raw.userId);
+    const existingMs = existing ? new Date(existing.lastPing || existing.joinedAt || 0).getTime() : 0;
+    if (!existing || lastPingMs >= existingMs) {
+      participantMap.set(raw.userId, {
+        userId: raw.userId,
+        name: sanitizeText(raw.name, 80) || 'Escritor',
+        photoURL: raw.photoURL || '',
+        joinedAt: raw.joinedAt || raw.lastPing,
+        lastPing: raw.lastPing || raw.joinedAt,
+        isMuted: Boolean(raw.isMuted)
+      });
+    }
+  };
+
+  // 1. Check groups/{guildId}
+  try {
+    const guildSnap = await getDoc(doc(db, 'groups', guildId));
+    if (guildSnap.exists()) {
+      const data = guildSnap.data() as Guild;
+      (data.agoraParticipants || []).forEach(addIfFresh);
+    }
+  } catch {
+    // Ignore
+  }
+
+  // 2. Check forum_threads/guild_dir_${guildId}
+  try {
+    const dirSnap = await getDoc(doc(db, 'forum_threads', `guild_dir_${guildId}`));
+    if (dirSnap.exists()) {
+      const data = dirSnap.data() as any;
+      (data.agoraParticipants || []).forEach(addIfFresh);
+    }
+  } catch {
+    // Ignore
+  }
+
+  // 3. Check guild_threads presence documents
   try {
     const q = query(collection(db, 'guild_threads'), where('guildId', '==', guildId));
     const snapshot = await getDocs(q);
-    const now = Date.now();
-
-    return snapshot.docs
-      .map(d => d.data() as any)
-      .filter(data => {
-        if (data._docType !== 'agora_presence') return false;
-        const lastPingMs = new Date(data.lastPing || data.joinedAt || 0).getTime();
-        // Active if pinged within the last 30 seconds
-        return !isNaN(lastPingMs) && (now - lastPingMs) < 30000;
-      })
-      .map(data => ({
-        userId: data.userId,
-        name: sanitizeText(data.name, 80) || 'Escritor',
-        joinedAt: data.joinedAt,
-        lastPing: data.lastPing,
-        isMuted: Boolean(data.isMuted)
-      }));
+    snapshot.docs.forEach(d => {
+      const data = d.data() as any;
+      if (data._docType === 'agora_presence') {
+        addIfFresh(data);
+      }
+    });
   } catch {
-    return [];
+    // Ignore
   }
+
+  return Array.from(participantMap.values());
+};
+
+/**
+ * Sends a WebRTC signaling message (SDP offer, SDP answer, or ICE candidate) to a specific peer in the guild's Ágora.
+ */
+export const sendAgoraSignal = async (
+  guildId: string,
+  senderId: string,
+  targetId: string,
+  type: 'offer' | 'answer' | 'ice-candidate',
+  payload: any
+): Promise<void> => {
+  const nowIso = new Date().toISOString();
+  const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const signalDoc = {
+    _docType: 'agora_signal',
+    authorId: senderId,
+    creatorId: senderId,
+    title: `sig_${type}`,
+    content: payloadStr,
+    guildId,
+    senderId,
+    targetId,
+    signalType: type,
+    createdAt: nowIso
+  };
+
+  try {
+    if (type === 'offer' || type === 'answer') {
+      const deterministicId = `agorasig_${guildId}_${senderId}_${targetId}_${type}`;
+      await setDoc(doc(db, 'guild_threads', deterministicId), signalDoc);
+    } else {
+      await addDoc(collection(db, 'guild_threads'), signalDoc);
+    }
+  } catch {
+    // Fallback to forum_threads if guild_threads is restricted
+    try {
+      await addDoc(collection(db, 'forum_threads'), signalDoc);
+    } catch {
+      // Ignore
+    }
+  }
+};
+
+/**
+ * Polls incoming WebRTC signaling messages addressed to `currentUserId` in `guildId` and cleans up expired signals.
+ */
+export const pollAgoraSignals = async (
+  guildId: string,
+  currentUserId: string
+): Promise<AgoraSignalMessage[]> => {
+  const results: AgoraSignalMessage[] = [];
+  const now = Date.now();
+
+  const processDocs = async (collectionName: 'guild_threads' | 'forum_threads', docs: any[]) => {
+    for (const d of docs) {
+      const data = d.data() as any;
+      if (data._docType !== 'agora_signal' || data.guildId !== guildId) continue;
+
+      const createdMs = new Date(data.createdAt || 0).getTime();
+      const isExpired = isNaN(createdMs) || (now - createdMs) > 45000;
+
+      if (isExpired && data.senderId === currentUserId) {
+        try {
+          await deleteDoc(doc(db, collectionName, d.id));
+        } catch {
+          // Ignore
+        }
+        continue;
+      }
+
+      if (data.targetId === currentUserId && !isExpired) {
+        results.push({
+          id: d.id,
+          guildId: data.guildId,
+          senderId: data.senderId,
+          targetId: data.targetId,
+          type: data.signalType as 'offer' | 'answer' | 'ice-candidate',
+          payload: data.content,
+          createdAt: data.createdAt
+        });
+        // Delete signal after reading so it is processed once
+        try {
+          await deleteDoc(doc(db, collectionName, d.id));
+        } catch {
+          // Ignore if rules prevent recipient from deleting sender's doc; caller will deduplicate by ID
+        }
+      }
+    }
+  };
+
+  try {
+    const q = query(collection(db, 'guild_threads'), where('guildId', '==', guildId));
+    const snap = await getDocs(q);
+    await processDocs('guild_threads', snap.docs);
+  } catch {
+    // Ignore
+  }
+
+  return results.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 };
 
 // --- GUILD FORUM ---

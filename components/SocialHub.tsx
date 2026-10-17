@@ -19,6 +19,10 @@ import {
   getUserGuilds,
   getAllGuilds,
   joinGuild,
+  requestJoinGuild,
+  cancelJoinGuildRequest,
+  approveGuildMember,
+  rejectGuildMember,
   createGuild,
   getUserGroups,
   createGroup,
@@ -48,7 +52,9 @@ import {
   updateGuildEmblemBase64,
   pingGuildAgoraPresence,
   leaveGuildAgora,
-  getGuildAgoraParticipants
+  getGuildAgoraParticipants,
+  sendAgoraSignal,
+  pollAgoraSignals
 } from '../services/socialService';
 import { compressImage, resizeImageToBase64 } from '../utils/imageProcessor';
 import { ImagePicker } from './ui/ImagePicker';
@@ -92,6 +98,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [requestsFilter, setRequestsFilter] = useState<'all' | 'received' | 'sent'>('all');
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [acceptingIds, setAcceptingIds] = useState<string[]>([]);
+
+  // Optimistic caches to prevent 4-second polling from reverting accepted/rejected friend requests
+  const recentlyAcceptedUsersRef = useRef<Map<string, { user: User; friendshipId: string; timestamp: number }>>(new Map());
+  const recentlyRejectedIdsRef = useRef<Map<string, number>>(new Map());
+  const isMutatingFriendshipRef = useRef<boolean>(false);
 
   // Guild Data
   const [guilds, setGuilds] = useState<Guild[]>([]);
@@ -123,6 +135,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [isMuted, setIsMuted] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [agoraParticipants, setAgoraParticipants] = useState<AgoraParticipant[]>([]);
+  const [connectedPeerIds, setConnectedPeerIds] = useState<string[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -130,6 +143,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioAnimFrameRef = useRef<number | null>(null);
   const activeAgoraGuildIdRef = useRef<string | null>(null);
+
+  // WebRTC Mesh Audio Refs for Ágora
+  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const remoteAudioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const processedSignalIdsRef = useRef<Set<string>>(new Set());
+  const peerOfferSentAtRef = useRef<Map<string, number>>(new Map());
 
   // Forum Data
   const [threads, setThreads] = useState<ForumThread[]>([]);
@@ -164,7 +183,126 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     ? (guilds.find(g => g.id === selectedChat.target.id) || allGuilds.find(g => g.id === selectedChat.target.id) || (selectedChat.target as Guild))
     : null;
 
+  const cleanupPeerConnection = (peerId: string) => {
+    const pc = peerConnectionsRef.current.get(peerId);
+    if (pc) {
+      try {
+        pc.ontrack = null;
+        pc.onicecandidate = null;
+        pc.onconnectionstatechange = null;
+        pc.close();
+      } catch {
+        // Ignore
+      }
+      peerConnectionsRef.current.delete(peerId);
+    }
+    const audioEl = remoteAudioElementsRef.current.get(peerId);
+    if (audioEl) {
+      try {
+        audioEl.pause();
+        audioEl.srcObject = null;
+      } catch {
+        // Ignore
+      }
+      remoteAudioElementsRef.current.delete(peerId);
+    }
+    peerOfferSentAtRef.current.delete(peerId);
+    setConnectedPeerIds(Array.from(peerConnectionsRef.current.keys()));
+  };
+
+  const cleanupAllPeerConnections = () => {
+    Array.from(peerConnectionsRef.current.keys()).forEach(peerId => {
+      cleanupPeerConnection(peerId);
+    });
+    peerConnectionsRef.current.clear();
+    remoteAudioElementsRef.current.clear();
+    processedSignalIdsRef.current.clear();
+    peerOfferSentAtRef.current.clear();
+    setConnectedPeerIds([]);
+  };
+
+  const getOrCreatePeerConnection = async (
+    guildId: string,
+    peerId: string,
+    shouldCreateOffer: boolean
+  ): Promise<RTCPeerConnection | null> => {
+    if (!audioStreamRef.current) return null;
+
+    let pc = peerConnectionsRef.current.get(peerId);
+    if (pc && (pc.connectionState === 'failed' || pc.connectionState === 'closed')) {
+      cleanupPeerConnection(peerId);
+      pc = undefined;
+    }
+
+    if (!pc) {
+      pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      });
+
+      // Attach local microphone tracks
+      audioStreamRef.current.getTracks().forEach(track => {
+        if (audioStreamRef.current) {
+          pc!.addTrack(track, audioStreamRef.current);
+        }
+      });
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendAgoraSignal(guildId, currentUser.id, peerId, 'ice-candidate', event.candidate.toJSON()).catch(() => {});
+        }
+      };
+
+      pc.ontrack = (event) => {
+        const remoteStream = event.streams?.[0] || new MediaStream([event.track]);
+        let audioEl = remoteAudioElementsRef.current.get(peerId);
+        if (!audioEl) {
+          audioEl = new Audio();
+          audioEl.autoplay = true;
+          (audioEl as any).playsInline = true;
+          remoteAudioElementsRef.current.set(peerId, audioEl);
+        }
+        if (audioEl.srcObject !== remoteStream) {
+          audioEl.srcObject = remoteStream;
+          audioEl.play().catch(() => {});
+        }
+        setConnectedPeerIds(Array.from(peerConnectionsRef.current.keys()));
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (pc?.connectionState === 'connected') {
+          setConnectedPeerIds(Array.from(peerConnectionsRef.current.keys()));
+        } else if (pc?.connectionState === 'failed' || pc?.connectionState === 'closed') {
+          cleanupPeerConnection(peerId);
+        }
+      };
+
+      peerConnectionsRef.current.set(peerId, pc);
+    }
+
+    if (shouldCreateOffer) {
+      try {
+        peerOfferSentAtRef.current.set(peerId, Date.now());
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true
+        });
+        await pc.setLocalDescription(offer);
+        await sendAgoraSignal(guildId, currentUser.id, peerId, 'offer', {
+          type: offer.type,
+          sdp: offer.sdp
+        });
+      } catch (err) {
+        console.warn('Erro ao iniciar conexão de áudio WebRTC:', err);
+      }
+    }
+
+    return pc;
+  };
+
   const stopAudioInternal = () => {
+    cleanupAllPeerConnections();
     if (audioAnimFrameRef.current) {
       cancelAnimationFrame(audioAnimFrameRef.current);
       audioAnimFrameRef.current = null;
@@ -202,30 +340,120 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
     // Simulate real-time by refreshing every 4 seconds
     const interval = setInterval(() => {
-      refreshData();
+      if (!isMutatingFriendshipRef.current) {
+        refreshData();
+      }
       refreshChatIfActive();
     }, 4000);
     return () => clearInterval(interval);
   }, [selectedChat, selectedThread]);
 
-  // Keep Ágora participants & presence synced when viewing or connected to Ágora
+  // Keep Ágora participants, presence & WebRTC audio connections synced when viewing or connected to Ágora
   useEffect(() => {
-    if (!activeGuild || guildSubTab !== 'agora') return;
+    const targetGuildId = activeGuild?.id || activeAgoraGuildIdRef.current;
+    if (!targetGuildId || (guildSubTab !== 'agora' && audioPermission !== 'granted')) return;
     let isMounted = true;
 
     const syncAgora = async () => {
-      if (audioPermission === 'granted') {
-        activeAgoraGuildIdRef.current = activeGuild.id;
-        await pingGuildAgoraPresence(activeGuild.id, currentUser, isMuted);
-      }
-      const participants = await getGuildAgoraParticipants(activeGuild.id);
-      if (isMounted) {
-        setAgoraParticipants(participants);
+      try {
+        if (audioPermission === 'granted') {
+          activeAgoraGuildIdRef.current = targetGuildId;
+          await pingGuildAgoraPresence(targetGuildId, currentUser, isMuted);
+        }
+
+        const fetchedParticipants = await getGuildAgoraParticipants(targetGuildId);
+        let mergedParticipants = [...fetchedParticipants];
+
+        // Always include self immediately when connected so UI never lags
+        if (audioPermission === 'granted' && !mergedParticipants.some(p => p.userId === currentUser.id)) {
+          mergedParticipants.unshift({
+            userId: currentUser.id,
+            name: currentUser.name,
+            photoURL: currentUser.photoBase64 || currentUser.photoURL || '',
+            joinedAt: new Date().toISOString(),
+            lastPing: new Date().toISOString(),
+            isMuted
+          });
+        }
+
+        if (isMounted) {
+          setAgoraParticipants(mergedParticipants);
+        }
+
+        // WebRTC Mesh Audio Signaling when local user is connected to Ágora
+        if (audioPermission === 'granted' && audioStreamRef.current) {
+          // 1. Poll incoming WebRTC signals addressed to currentUser
+          const incomingSignals = await pollAgoraSignals(targetGuildId, currentUser.id);
+          for (const sig of incomingSignals) {
+            if (processedSignalIdsRef.current.has(`${sig.id}_${sig.createdAt}`)) continue;
+            processedSignalIdsRef.current.add(`${sig.id}_${sig.createdAt}`);
+
+            try {
+              const data = JSON.parse(sig.payload);
+              if (sig.type === 'offer') {
+                const pc = await getOrCreatePeerConnection(targetGuildId, sig.senderId, false);
+                if (pc) {
+                  await pc.setRemoteDescription(new RTCSessionDescription(data));
+                  const answer = await pc.createAnswer();
+                  await pc.setLocalDescription(answer);
+                  await sendAgoraSignal(targetGuildId, currentUser.id, sig.senderId, 'answer', {
+                    type: answer.type,
+                    sdp: answer.sdp
+                  });
+                }
+              } else if (sig.type === 'answer') {
+                const pc = peerConnectionsRef.current.get(sig.senderId);
+                if (pc && pc.signalingState === 'have-local-offer') {
+                  await pc.setRemoteDescription(new RTCSessionDescription(data));
+                }
+              } else if (sig.type === 'ice-candidate') {
+                const pc = peerConnectionsRef.current.get(sig.senderId);
+                if (pc && pc.remoteDescription) {
+                  await pc.addIceCandidate(new RTCIceCandidate(data));
+                }
+              }
+            } catch (sigErr) {
+              console.warn('Aviso no sinal WebRTC da Ágora:', sigErr);
+            }
+          }
+
+          // 2. Initiate peer connections to any active participants not yet connected
+          const activePeerIds = new Set(
+            mergedParticipants.filter(p => p.userId !== currentUser.id).map(p => p.userId)
+          );
+
+          // Disconnect peers who left the room
+          Array.from(peerConnectionsRef.current.keys()).forEach(peerId => {
+            if (!activePeerIds.has(peerId)) {
+              cleanupPeerConnection(peerId);
+            }
+          });
+
+          for (const peerId of activePeerIds) {
+            const existingPc = peerConnectionsRef.current.get(peerId);
+            const lastOfferAt = peerOfferSentAtRef.current.get(peerId) || 0;
+            const nowMs = Date.now();
+            const isConnected = existingPc && (existingPc.connectionState === 'connected' || existingPc.connectionState === 'connecting');
+
+            // Deterministic initiator (currentUser.id < peerId) or retry after 8s if no connection established yet
+            const shouldInitiate = !isConnected && (
+              ( !existingPc && currentUser.id < peerId ) ||
+              ( !existingPc && (nowMs - lastOfferAt) > 6000 ) ||
+              ( existingPc && existingPc.connectionState !== 'connected' && (nowMs - lastOfferAt) > 10000 && currentUser.id < peerId )
+            );
+
+            if (shouldInitiate) {
+              await getOrCreatePeerConnection(targetGuildId, peerId, true);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao sincronizar Ágora:', err);
       }
     };
 
     syncAgora();
-    const agoraInterval = setInterval(syncAgora, 6000);
+    const agoraInterval = setInterval(syncAgora, 2500);
     return () => {
       isMounted = false;
       clearInterval(agoraInterval);
@@ -256,11 +484,39 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         getCompetitions().catch(() => competitions)
       ]);
 
+      // Prune optimistic caches older than 45 seconds
+      const nowMs = Date.now();
+      recentlyAcceptedUsersRef.current.forEach((val, key) => {
+        if (nowMs - val.timestamp > 45000) recentlyAcceptedUsersRef.current.delete(key);
+      });
+      recentlyRejectedIdsRef.current.forEach((ts, key) => {
+        if (nowMs - ts > 45000) recentlyRejectedIdsRef.current.delete(key);
+      });
+
+      // Merge any recently accepted friends so they never disappear during Firestore propagation
+      const mergedFriends = [...friendsRes];
+      recentlyAcceptedUsersRef.current.forEach(({ user, friendshipId }) => {
+        if (!mergedFriends.some(f => f.user.id === user.id)) {
+          mergedFriends.push({ user, friendshipId });
+        }
+      });
+
+      const acceptedUserIds = new Set(mergedFriends.map(f => f.user.id));
+
+      // Filter out any requests that were recently accepted or rejected
+      const filteredRequests = requestsRes.filter(r => {
+        if (acceptedUserIds.has(r.user.id)) return false;
+        if (recentlyAcceptedUsersRef.current.has(r.user.id)) return false;
+        if (recentlyRejectedIdsRef.current.has(r.friendshipId)) return false;
+        if (recentlyRejectedIdsRef.current.has(r.user.id)) return false;
+        return true;
+      });
+
       setAllUsers(usersRes.map(u => u.id === currentUser.id ? u : toSafePublicUser(u, u.id)));
-      setFriends(friendsRes);
+      setFriends(mergedFriends);
       setBlockedUsers(blockedRes);
-      setRequests(requestsRes);
-      setAvailableUsers(availableRes);
+      setRequests(filteredRequests);
+      setAvailableUsers(availableRes.filter(u => !acceptedUserIds.has(u.id)));
       setGuilds(userGuildsRes);
       setAllGuilds(communityGuildsRes);
       setThreads(threadsRes);
@@ -416,20 +672,59 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     }
   };
 
-  const handleAccept = async (id: string) => {
-    const acceptedReq = requests.find(r => r.friendshipId === id);
-    setRequests(prev => prev.filter(r => r.friendshipId !== id));
-    if (acceptedReq) {
-      setFriends(prev => [...prev, { user: acceptedReq.user, friendshipId: id }]);
+  const handleAccept = async (id: string, targetUser?: User) => {
+    if (acceptingIds.includes(id)) return;
+    const acceptedReq = requests.find(r => r.friendshipId === id || (targetUser && r.user.id === targetUser.id));
+    const otherUser = targetUser || acceptedReq?.user;
+
+    setAcceptingIds(prev => [...prev, id]);
+    isMutatingFriendshipRef.current = true;
+
+    const nowMs = Date.now();
+    recentlyRejectedIdsRef.current.set(id, nowMs);
+    if (otherUser) {
+      recentlyAcceptedUsersRef.current.set(otherUser.id, {
+        user: otherUser,
+        friendshipId: id,
+        timestamp: nowMs
+      });
     }
-    await acceptFriendRequest(id);
-    await refreshData();
+
+    setRequests(prev => prev.filter(r => r.friendshipId !== id && (!otherUser || r.user.id !== otherUser.id)));
+    if (otherUser) {
+      setFriends(prev => {
+        if (prev.some(f => f.user.id === otherUser.id)) return prev;
+        return [...prev, { user: otherUser, friendshipId: id }];
+      });
+      setAvailableUsers(prev => prev.filter(u => u.id !== otherUser.id));
+    }
+
+    try {
+      await acceptFriendRequest(id, currentUser.id, otherUser?.id);
+    } catch (err) {
+      console.error("Erro ao aceitar solicitação:", err);
+    } finally {
+      isMutatingFriendshipRef.current = false;
+      setAcceptingIds(prev => prev.filter(item => item !== id));
+      await refreshData();
+    }
   };
 
   const handleReject = async (id: string, targetUserId?: string) => {
+    isMutatingFriendshipRef.current = true;
+    const nowMs = Date.now();
+    recentlyRejectedIdsRef.current.set(id, nowMs);
+    if (targetUserId) {
+      recentlyRejectedIdsRef.current.set(targetUserId, nowMs);
+      recentlyAcceptedUsersRef.current.delete(targetUserId);
+    }
     setRequests(prev => prev.filter(r => r.friendshipId !== id && (!targetUserId || r.user.id !== targetUserId)));
-    await removeFriendship(id, currentUser.id, targetUserId);
-    await refreshData();
+    try {
+      await removeFriendship(id, currentUser.id, targetUserId);
+    } finally {
+      isMutatingFriendshipRef.current = false;
+      await refreshData();
+    }
   };
 
   const handleRemoveFriend = async (e: React.MouseEvent, friendshipId: string, friendUserId?: string) => {
@@ -437,6 +732,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     if (confirm(t('social.friends.confirmRemoveFriend'))) {
       const friendObj = friends.find(f => f.friendshipId === friendshipId);
       const targetId = friendUserId || friendObj?.user.id;
+      if (targetId) {
+        recentlyAcceptedUsersRef.current.delete(targetId);
+      }
       await removeFriendship(friendshipId, currentUser.id, targetId);
       if (selectedChat?.type === 'direct' && targetId && selectedChat.target.id === targetId) {
         setSelectedChat(null);
@@ -505,25 +803,72 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     }
   };
 
-  const handleJoinGuild = async (e: React.MouseEvent, guild: Guild) => {
+  const handleRequestJoinGuild = async (e: React.MouseEvent, guild: Guild) => {
     e.stopPropagation();
     try {
-      await joinGuild(guild.id, currentUser.id);
       const updatedGuild: Guild = {
         ...guild,
-        members: Array.from(new Set([...(guild.members || []), currentUser.id]))
+        pendingMemberIds: Array.from(new Set([...(guild.pendingMemberIds || []), currentUser.id]))
       };
-      setGuilds(prev => [updatedGuild, ...prev.filter(g => g.id !== guild.id)]);
       setAllGuilds(prev => prev.map(g => g.id === guild.id ? updatedGuild : g));
-      setSelectedChat({ type: 'group', target: updatedGuild });
-      setSelectedThread(null);
-      setGuildSubTab('home');
-      fetchGuildThreadData(guild.id);
+      await requestJoinGuild(guild.id, currentUser.id);
       await refreshData();
     } catch (err) {
-      console.error("Erro ao entrar na guilda:", err);
-      alert("Não foi possível entrar na guilda no momento.");
+      console.error("Erro ao solicitar entrada na guilda:", err);
+      alert("Não foi possível enviar sua solicitação para a guilda no momento.");
     }
+  };
+
+  const handleCancelGuildRequest = async (e: React.MouseEvent, guild: Guild) => {
+    e.stopPropagation();
+    try {
+      const updatedGuild: Guild = {
+        ...guild,
+        pendingMemberIds: (guild.pendingMemberIds || []).filter(id => id !== currentUser.id)
+      };
+      setAllGuilds(prev => prev.map(g => g.id === guild.id ? updatedGuild : g));
+      await cancelJoinGuildRequest(guild.id, currentUser.id);
+      await refreshData();
+    } catch (err) {
+      console.error("Erro ao cancelar solicitação na guilda:", err);
+    }
+  };
+
+  const handleApproveGuildMember = async (guildId: string, candidateUserId: string) => {
+    const targetGuild = guilds.find(g => g.id === guildId) || allGuilds.find(g => g.id === guildId);
+    if (!targetGuild || !isOwnerOrAdmin(targetGuild)) return;
+
+    const updatedGuild: Guild = {
+      ...targetGuild,
+      members: Array.from(new Set([...(targetGuild.members || []), candidateUserId])),
+      pendingMemberIds: (targetGuild.pendingMemberIds || []).filter(id => id !== candidateUserId)
+    };
+    setGuilds(prev => prev.map(g => g.id === guildId ? updatedGuild : g));
+    setAllGuilds(prev => prev.map(g => g.id === guildId ? updatedGuild : g));
+    if (selectedChat?.type === 'group' && selectedChat.target.id === guildId) {
+      setSelectedChat({ type: 'group', target: updatedGuild });
+    }
+
+    await approveGuildMember(guildId, candidateUserId);
+    await refreshData();
+  };
+
+  const handleRejectGuildMember = async (guildId: string, candidateUserId: string) => {
+    const targetGuild = guilds.find(g => g.id === guildId) || allGuilds.find(g => g.id === guildId);
+    if (!targetGuild || !isOwnerOrAdmin(targetGuild)) return;
+
+    const updatedGuild: Guild = {
+      ...targetGuild,
+      pendingMemberIds: (targetGuild.pendingMemberIds || []).filter(id => id !== candidateUserId)
+    };
+    setGuilds(prev => prev.map(g => g.id === guildId ? updatedGuild : g));
+    setAllGuilds(prev => prev.map(g => g.id === guildId ? updatedGuild : g));
+    if (selectedChat?.type === 'group' && selectedChat.target.id === guildId) {
+      setSelectedChat({ type: 'group', target: updatedGuild });
+    }
+
+    await rejectGuildMember(guildId, candidateUserId);
+    await refreshData();
   };
 
   const handleUpdateEmblem = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -695,7 +1040,27 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         activeAgoraGuildIdRef.current = activeGuild.id;
         await pingGuildAgoraPresence(activeGuild.id, currentUser, false);
         const participants = await getGuildAgoraParticipants(activeGuild.id);
-        setAgoraParticipants(participants);
+        const withSelf = participants.some(p => p.userId === currentUser.id)
+          ? participants
+          : [
+              {
+                userId: currentUser.id,
+                name: currentUser.name,
+                photoURL: currentUser.photoBase64 || currentUser.photoURL || '',
+                joinedAt: new Date().toISOString(),
+                lastPing: new Date().toISOString(),
+                isMuted: false
+              },
+              ...participants
+            ];
+        setAgoraParticipants(withSelf);
+
+        // Immediately initiate WebRTC offers to all other active participants in the Ágora
+        for (const part of withSelf) {
+          if (part.userId !== currentUser.id) {
+            await getOrCreatePeerConnection(activeGuild.id, part.userId, true);
+          }
+        }
       }
     } catch (err) {
       console.error("Erro ao acessar microfone:", err);
@@ -800,6 +1165,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
   const isOwnerOrAdmin = (guild: Guild) => {
     return guild.adminId === currentUser.id || (guild.adminIds || []).includes(currentUser.id);
+  };
+
+  const isGuildMember = (guild?: Guild | null) => {
+    if (!guild) return false;
+    return (guild.members || []).includes(currentUser.id) || isOwnerOrAdmin(guild);
   };
 
   const handleResetStats = async (guildId: string) => {
@@ -1049,15 +1419,17 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         {type === 'received' ? (
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
-              onClick={() => handleAccept(friendshipId)}
-              className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer shadow-2xs"
+              onClick={() => handleAccept(friendshipId, user)}
+              disabled={acceptingIds.includes(friendshipId)}
+              className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer shadow-2xs"
               title="Aceitar amizade"
             >
-              Aceitar
+              {acceptingIds.includes(friendshipId) ? 'Aceitando...' : 'Aceitar'}
             </button>
             <button
               onClick={() => handleReject(friendshipId, user.id)}
-              className="px-2 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold rounded-lg text-[11px] transition-colors cursor-pointer"
+              disabled={acceptingIds.includes(friendshipId)}
+              className="px-2 py-1.5 bg-slate-100 hover:bg-rose-50 disabled:opacity-50 text-slate-500 hover:text-rose-600 font-bold rounded-lg text-[11px] transition-colors cursor-pointer"
               title="Recusar solicitação"
             >
               Recusar
@@ -1198,6 +1570,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     g.name.toLowerCase().includes(trimmedGuildSearch) ||
     (g.description || '').toLowerCase().includes(trimmedGuildSearch)
   );
+  const totalPendingGuildApplicationsForAdmin = guilds.reduce((acc, g) => {
+    if (isOwnerOrAdmin(g)) {
+      return acc + (g.pendingMemberIds?.length || 0);
+    }
+    return acc;
+  }, 0);
 
   return (
     <div className="h-screen bg-slate-50 flex flex-col md:flex-row overflow-hidden animate-fade-in">
@@ -1250,7 +1628,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
             <button
               onClick={() => { setActiveTab('guilds'); setSelectedChat(null); setSelectedThread(null); }}
-              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+              className={`relative flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
                 activeTab === 'guilds'
                   ? 'bg-white text-purple-700 shadow-xs ring-1 ring-purple-500/20'
                   : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
@@ -1258,6 +1636,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             >
               <span className="text-xs leading-none">🛡️</span>
               <span className="truncate max-w-full">{t('social.tabs.guilds')}</span>
+              {totalPendingGuildApplicationsForAdmin > 0 && (
+                <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white"></span>
+              )}
             </button>
 
             <button
@@ -1480,10 +1861,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
                 {filteredMyGuilds.map(guild => {
                   const isSelected = selectedChat?.target.id === guild.id;
+                  const pendingCount = isOwnerOrAdmin(guild) ? (guild.pendingMemberIds?.length || 0) : 0;
                   return (
                     <button
                       key={guild.id}
                       onClick={() => {
+                        if (!isGuildMember(guild)) return;
                         setSelectedChat({ type: 'group', target: guild });
                         setSelectedThread(null);
                         setGuildSubTab('home');
@@ -1513,10 +1896,16 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         {guild.description && (
                           <p className="text-[11px] text-slate-400 truncate">{guild.description}</p>
                         )}
-                        <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5 mt-0.5">
+                        <div className="text-[11px] text-slate-400 truncate flex items-center flex-wrap gap-1.5 mt-0.5">
                           <span className="inline-flex items-center px-1.5 py-0.2 rounded-md bg-purple-50 text-purple-700 font-semibold text-[10px]">
                             {guild.members.length} {t('social.guilds.members')}
                           </span>
+                          {pendingCount > 0 && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 font-extrabold text-[10px]">
+                              <span>📥</span>
+                              <span>{pendingCount} pendente{pendingCount > 1 ? 's' : ''}</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                     </button>
@@ -1531,7 +1920,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 )}
               </div>
 
-              {/* Explore / Search Community Guilds */}
+              {/* Explore / Search Community Guilds (Non-members can only apply, not view internal info) */}
               {(filteredDiscoverableGuilds.length > 0 || trimmedGuildSearch) && (
                 <div className="pt-2 border-t border-slate-100 space-y-2">
                   <div className="flex items-center justify-between px-1">
@@ -1540,41 +1929,63 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     </span>
                   </div>
 
-                  {filteredDiscoverableGuilds.map(guild => (
-                    <div
-                      key={guild.id}
-                      className="w-full flex items-center justify-between p-3 rounded-2xl bg-white hover:bg-purple-50/30 border border-slate-100 hover:border-purple-200 transition-all shadow-2xs gap-2"
-                    >
-                      <div className="flex items-center min-w-0 flex-1">
-                        {(guild.emblemBase64 || guild.emblemUrl) ? (
-                          <img
-                            src={guild.emblemBase64 || guild.emblemUrl}
-                            alt="Emblem"
-                            className="w-10 h-10 rounded-full object-cover mr-3 border border-purple-200 flex-shrink-0"
-                          />
-                        ) : (
-                          <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(guild.name)} flex items-center justify-center text-white font-extrabold text-xs mr-3 flex-shrink-0`}>
-                            {guild.name.charAt(0).toUpperCase()}
+                  {filteredDiscoverableGuilds.map(guild => {
+                    const hasPendingApplication = (guild.pendingMemberIds || []).includes(currentUser.id);
+                    return (
+                      <div
+                        key={guild.id}
+                        className={`w-full flex flex-col p-3 rounded-2xl bg-white border transition-all shadow-2xs gap-2.5 ${
+                          hasPendingApplication
+                            ? 'border-amber-200 bg-amber-50/20'
+                            : 'border-slate-100 hover:border-purple-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center min-w-0 flex-1">
+                            {(guild.emblemBase64 || guild.emblemUrl) ? (
+                              <img
+                                src={guild.emblemBase64 || guild.emblemUrl}
+                                alt="Emblem"
+                                className="w-10 h-10 rounded-full object-cover mr-3 border border-purple-200 flex-shrink-0"
+                              />
+                            ) : (
+                              <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(guild.name)} flex items-center justify-center text-white font-extrabold text-xs mr-3 flex-shrink-0`}>
+                                {guild.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold text-xs text-slate-800 truncate">{guild.name}</p>
+                              <p className="text-[10px] text-slate-400 truncate">
+                                {guild.description || 'Guilda literária da comunidade'}
+                              </p>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="inline-block text-[9px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.2 rounded">
+                                  🔒 Acesso mediante aprovação de Adm
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-xs text-slate-800 truncate">{guild.name}</p>
-                          <p className="text-[10px] text-slate-400 truncate">
-                            {guild.description || 'Guilda literária da comunidade'}
-                          </p>
-                          <span className="inline-block text-[9px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.2 rounded mt-0.5">
-                            {(guild.members || []).length} {t('social.guilds.members')}
-                          </span>
+
+                          {hasPendingApplication ? (
+                            <button
+                              onClick={(e) => handleCancelGuildRequest(e, guild)}
+                              className="px-2.5 py-1.5 bg-amber-100 hover:bg-rose-100 text-amber-800 hover:text-rose-700 border border-amber-200 rounded-xl text-[10px] font-bold transition-colors flex-shrink-0 cursor-pointer"
+                              title="Clique para cancelar sua solicitação"
+                            >
+                              ⏳ Aguardando Adm (Cancelar)
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => handleRequestJoinGuild(e, guild)}
+                              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-[11px] font-bold transition-colors flex-shrink-0 cursor-pointer shadow-xs"
+                            >
+                              📩 Candidatar-se
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <button
-                        onClick={(e) => handleJoinGuild(e, guild)}
-                        className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-[11px] font-bold transition-colors flex-shrink-0 cursor-pointer shadow-xs"
-                      >
-                        Entrar
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
 
                   {trimmedGuildSearch && filteredDiscoverableGuilds.length === 0 && filteredMyGuilds.length === 0 && (
                     <div className="text-center py-6 px-3 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
@@ -1949,9 +2360,19 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 </button>
               )}
 
-              {selectedChat.type === 'group' && (
+              {selectedChat.type === 'group' && activeGuild && isGuildMember(activeGuild) && (
                 <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
-                  <button onClick={() => setGuildSubTab('home')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'home' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>{t('social.tabs.home')}</button>
+                  <button
+                    onClick={() => setGuildSubTab('home')}
+                    className={`relative px-3 py-1 text-xs font-bold rounded-md transition-all flex items-center gap-1 ${guildSubTab === 'home' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}
+                  >
+                    <span>{t('social.tabs.home')}</span>
+                    {isOwnerOrAdmin(activeGuild) && (activeGuild.pendingMemberIds?.length || 0) > 0 && (
+                      <span className="px-1.5 py-0.1 rounded-full bg-amber-500 text-white text-[9px] font-black">
+                        {activeGuild.pendingMemberIds?.length}
+                      </span>
+                    )}
+                  </button>
                   <button onClick={() => setGuildSubTab('chat')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'chat' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>{t('social.tabs.chat')}</button>
                   <button onClick={() => { setGuildSubTab('forum'); if (activeGuild) fetchGuildThreadData(activeGuild.id); }} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'forum' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>{t('social.tabs.forum')}</button>
                   <button onClick={() => setGuildSubTab('agora')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${guildSubTab === 'agora' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>{t('social.tabs.agora')}</button>
@@ -1959,7 +2380,33 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               )}
             </div>
 
-            {selectedChat.type === 'group' && guildSubTab === 'home' && activeGuild && (
+            {selectedChat.type === 'group' && activeGuild && !isGuildMember(activeGuild) && (
+              <div className="flex-1 overflow-y-auto bg-slate-50 flex items-center justify-center p-6">
+                <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-200 shadow-sm text-center space-y-4">
+                  <div className="w-16 h-16 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center text-3xl mx-auto">
+                    🔒
+                  </div>
+                  <h3 className="text-xl font-black text-slate-800">Acesso Restrito aos Membros</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    As informações internas da guilda (membros, ranking de palavras, chat, fórum e Ágora) ficam visíveis apenas após um Administrador aprovar sua solicitação de entrada.
+                  </p>
+                  {(activeGuild.pendingMemberIds || []).includes(currentUser.id) ? (
+                    <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold">
+                      ⏳ Sua candidatura já foi enviada e aguarda aprovação de um Adm.
+                    </div>
+                  ) : (
+                    <button
+                      onClick={(e) => handleRequestJoinGuild(e, activeGuild)}
+                      className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      📩 Solicitar Entrada na Guilda
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {selectedChat.type === 'group' && guildSubTab === 'home' && activeGuild && isGuildMember(activeGuild) && (
               <div className="flex-1 overflow-y-auto bg-slate-50 p-6 md:p-10">
                 <div className="max-w-4xl mx-auto space-y-8">
 
@@ -2003,6 +2450,90 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       )}
                     </div>
                   </div>
+
+                  {/* ADMIN-ONLY: PENDING GUILD APPLICATIONS PANEL */}
+                  {isOwnerOrAdmin(activeGuild) && (
+                    <div className={`rounded-3xl p-6 border shadow-sm transition-all ${
+                      (activeGuild.pendingMemberIds?.length || 0) > 0
+                        ? 'bg-gradient-to-r from-amber-50/90 via-white to-purple-50/70 border-amber-200'
+                        : 'bg-white border-slate-100'
+                    }`}>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-black">
+                            🛡️
+                          </span>
+                          <div>
+                            <h3 className="font-black text-slate-800 uppercase tracking-tight text-xs sm:text-sm">
+                              Candidaturas Pendentes à Guilda (Exclusivo Adms)
+                            </h3>
+                            <p className="text-[11px] text-slate-400">
+                              Novos candidatos só podem entrar e visualizar membros, ranking e salas após aprovação de um Adm.
+                            </p>
+                          </div>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-extrabold ${
+                          (activeGuild.pendingMemberIds?.length || 0) > 0
+                            ? 'bg-amber-500 text-white'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {activeGuild.pendingMemberIds?.length || 0} pendente{(activeGuild.pendingMemberIds?.length || 0) === 1 ? '' : 's'}
+                        </span>
+                      </div>
+
+                      {(activeGuild.pendingMemberIds && activeGuild.pendingMemberIds.length > 0) ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {activeGuild.pendingMemberIds.map(candidateId => {
+                            const candName = getUserName(candidateId);
+                            const candPhoto = getUserPhotoURL(candidateId);
+                            return (
+                              <div
+                                key={candidateId}
+                                className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-amber-200/80 shadow-2xs gap-3"
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  {candPhoto ? (
+                                    <img src={candPhoto} alt={candName} className="w-10 h-10 rounded-full object-cover border border-amber-200 flex-shrink-0" />
+                                  ) : (
+                                    <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(candName)} text-white flex items-center justify-center font-bold text-xs flex-shrink-0`}>
+                                      {candName.charAt(0).toUpperCase()}
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-sm text-slate-800 truncate">{candName}</p>
+                                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                                      Solicitou entrada na guilda
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  <button
+                                    onClick={() => handleApproveGuildMember(activeGuild.id, candidateId)}
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer shadow-xs"
+                                    title="Aprovar entrada na guilda"
+                                  >
+                                    ✓ Aceitar
+                                  </button>
+                                  <button
+                                    onClick={() => handleRejectGuildMember(activeGuild.id, candidateId)}
+                                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                                    title="Recusar solicitação"
+                                  >
+                                    ✕ Recusar
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-400 italic">
+                          Nenhuma solicitação de entrada pendente no momento.
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* STATS & MEMBERS */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -2086,7 +2617,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               </div>
             )}
 
-            {selectedChat.type === 'group' && guildSubTab === 'chat' && activeGuild && (
+            {selectedChat.type === 'group' && guildSubTab === 'chat' && activeGuild && isGuildMember(activeGuild) && (
               <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50">
                 {/* Guild Summary & Members Production */}
                 <div className="bg-indigo-50 border border-indigo-100 rounded-2xl overflow-hidden mb-6 shadow-sm">
@@ -2151,7 +2682,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               </div>
             )}
 
-            {selectedChat.type === 'group' && guildSubTab === 'forum' && (
+            {selectedChat.type === 'group' && guildSubTab === 'forum' && activeGuild && isGuildMember(activeGuild) && (
               <div className="flex-1 overflow-y-auto bg-slate-50 flex flex-col">
                 {selectedGuildThread ? (
                   <div className="flex flex-col h-full bg-slate-50 overflow-hidden animate-slide-in">
@@ -2415,7 +2946,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               </div>
             )}
 
-            {selectedChat.type === 'group' && guildSubTab === 'agora' && (
+            {selectedChat.type === 'group' && guildSubTab === 'agora' && activeGuild && isGuildMember(activeGuild) && (
               <div className="flex-1 overflow-y-auto bg-slate-50 flex flex-col items-center justify-center p-6 md:p-10 text-center">
                 <div className="max-w-2xl w-full bg-white rounded-3xl p-8 border border-slate-200/80 shadow-sm space-y-6">
                   {/* Animated Microphone Avatar / Level Ring */}
@@ -2489,6 +3020,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         {agoraParticipants.map(part => {
                           const isMe = part.userId === currentUser.id;
                           const speakingNow = isMe ? (!isMuted && audioLevel > 12) : !part.isMuted;
+                          const isPeerConnected = !isMe && remoteAudioElementsRef.current.has(part.userId);
                           return (
                             <div
                               key={part.userId}
@@ -2517,7 +3049,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                   {part.name} {isMe && <span className="text-[10px] text-indigo-600">(Você)</span>}
                                 </p>
                                 <p className="text-[10px] text-slate-400 font-semibold">
-                                  {part.isMuted ? '🔇 Mutado' : '🎙️ Conectado'}
+                                  {part.isMuted
+                                    ? '🔇 Mutado'
+                                    : isPeerConnected
+                                    ? '🔊 Áudio Conectado'
+                                    : '🎙️ Na Sala'}
                                 </p>
                               </div>
                             </div>
@@ -2601,7 +3137,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               </>
             )}
 
-            {(selectedChat.type === 'direct' || (selectedChat.type === 'group' && guildSubTab === 'chat')) && (
+            {(selectedChat.type === 'direct' || (selectedChat.type === 'group' && guildSubTab === 'chat' && activeGuild && isGuildMember(activeGuild))) && (
               <div className="p-4 bg-white border-t border-slate-200 flex-shrink-0">
                 <form onSubmit={handleSendMessage} className="flex gap-2">
                   <input
