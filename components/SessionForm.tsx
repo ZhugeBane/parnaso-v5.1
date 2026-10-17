@@ -157,7 +157,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       date: formData.date || new Date().toISOString(),
       startTime: formData.startTime!,
       endTime: formData.endTime!,
-      wordCount: Number(formData.wordCount) || 0,
+      wordCount: Number(formData.wordCount) > 0 ? Number(formData.wordCount) : (formData.content ? formData.content.trim().split(/\s+/).filter(Boolean).length : 0),
       content: formData.content || '',
       stressLevel: formData.stressLevel!,
       usedSkeleton: formData.usedSkeleton!,
@@ -348,9 +348,22 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
              rows={8}
              placeholder={t('sessionForm.draftPlaceholder')}
              value={formData.content}
-             onChange={(e) => handleChange('content', e.target.value)}
+             onChange={(e) => {
+               const val = e.target.value;
+               const words = val.trim() ? val.trim().split(/\s+/).filter(Boolean).length : 0;
+               setFormData(prev => ({
+                 ...prev,
+                 content: val,
+                 wordCount: prev.wordCount === 0 || prev.wordCount === undefined ? words : prev.wordCount
+               }));
+             }}
            ></textarea>
-           <p className="text-xs text-slate-500 mt-2 text-right">{t('sessionForm.draftWarning')}</p>
+           <div className="flex justify-between items-center mt-2 text-xs text-slate-500">
+             <span className="font-semibold text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-md border border-teal-200">
+               Palavras no texto: {formData.content ? formData.content.trim().split(/\s+/).filter(Boolean).length : 0}
+             </span>
+             <p className="text-right">{t('sessionForm.draftWarning')}</p>
+           </div>
         </Card>
 
         {/* Section 1 */}

@@ -2146,6 +2146,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       {selectedSession && (
         <SessionDetailsModal
           session={selectedSession}
+          projects={projects}
           onClose={() => setSelectedSession(null)}
           isPrivateView={readOnly}
         />
