@@ -83,8 +83,8 @@ function App() {
     setProjects([]);
   };
 
-  const handleNewSession = () => {
-    setPrefilledData({});
+  const handleNewSession = (initialData?: Partial<WritingSession>) => {
+    setPrefilledData(initialData || {});
     setView('form');
   };
 

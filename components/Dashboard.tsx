@@ -24,7 +24,7 @@ interface DashboardProps {
   sessions: WritingSession[];
   projects: Project[];
   settings: UserSettings;
-  onNewSession: () => void;
+  onNewSession: (initialData?: Partial<WritingSession>) => void;
   onFocusMode: () => void;
   onUpdateSettings: (settings: UserSettings) => void;
   onAddProject: (project: Project) => Promise<Project | undefined> | void;
@@ -329,6 +329,74 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     setNewProjectGoal('');
     setNewProjectColor(DEFAULT_PROJECT_COLORS[Math.floor(Math.random() * DEFAULT_PROJECT_COLORS.length)]);
   };
+
+  // Projects Gallery Search & Sorting
+  const [projectSearchQuery, setProjectSearchQuery] = useState('');
+  const [projectSortBy, setProjectSortBy] = useState<'recent' | 'words' | 'alphabetical'>('recent');
+
+  // Inline Description Quick Edit
+  const [editingDescProjectId, setEditingDescProjectId] = useState<string | null>(null);
+  const [tempDescValue, setTempDescValue] = useState<string>('');
+
+  // Edit Project Modal State
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editProjectName, setEditProjectName] = useState('');
+  const [editProjectDesc, setEditProjectDesc] = useState('');
+  const [editProjectGoal, setEditProjectGoal] = useState('');
+  const [editProjectColor, setEditProjectColor] = useState('');
+
+  const handleOpenEditProject = (project: Project) => {
+    setEditingProject(project);
+    setEditProjectName(project.name);
+    setEditProjectDesc(project.description || '');
+    setEditProjectGoal(project.targetWordCount ? String(project.targetWordCount) : '');
+    setEditProjectColor(project.color || '#2dd4bf');
+  };
+
+  const handleSaveEditedProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProject || !editProjectName.trim()) return;
+
+    const updated: Project = {
+      ...editingProject,
+      name: editProjectName.trim(),
+      description: editProjectDesc.trim(),
+      targetWordCount: editProjectGoal ? Number(editProjectGoal) : undefined,
+      color: editProjectColor || editingProject.color,
+    };
+
+    await onAddProject(updated);
+    setEditingProject(null);
+  };
+
+  const filteredAndSortedProjects = useMemo(() => {
+    let list = projects.filter(p => {
+      if (!projectSearchQuery.trim()) return true;
+      const q = projectSearchQuery.toLowerCase();
+      const matchName = p.name.toLowerCase().includes(q);
+      const matchDesc = p.description ? p.description.toLowerCase().includes(q) : false;
+      return matchName || matchDesc;
+    });
+
+    if (projectSortBy === 'words') {
+      list = [...list].sort((a, b) => {
+        const wordsA = sessions.filter(s => isSessionInProject(s, a, projects)).reduce((acc, curr) => acc + curr.wordCount, 0);
+        const wordsB = sessions.filter(s => isSessionInProject(s, b, projects)).reduce((acc, curr) => acc + curr.wordCount, 0);
+        return wordsB - wordsA;
+      });
+    } else if (projectSortBy === 'alphabetical') {
+      list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    } else {
+      // Recent: if createdAt exists, newest first; otherwise preserve array order
+      list = [...list].sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+      });
+    }
+
+    return list;
+  }, [projects, sessions, projectSearchQuery, projectSortBy]);
 
   // Delete Project Modal State (Double Verification: Click Trash -> Confirm Checkbox)
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
@@ -2215,7 +2283,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Projeto Parnaso</h1>
-                <p className="text-slate-500 mt-1 flex items-center gap-2">
+                <p className="text-slate-500 mt-1 text-sm sm:text-base leading-relaxed">
                   {t('dashboard.welcome')}, <span className="font-semibold text-teal-600">{user.name}</span>. {t('dashboard.letsWrite')}
                 </p>
               </div>
@@ -2298,7 +2366,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 </svg>
                 {t('dashboard.focusMode')}
               </button>
-              <button onClick={onNewSession} className="flex items-center justify-center px-5 py-3 bg-teal-500 hover:bg-teal-600 text-white font-medium rounded-xl shadow-lg shadow-teal-200 transition-all hover:-translate-y-0.5">
+              <button onClick={() => onNewSession()} className="flex items-center justify-center px-5 py-3 bg-teal-500 hover:bg-teal-600 text-white font-medium rounded-xl shadow-lg shadow-teal-200 transition-all hover:-translate-y-0.5">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
@@ -2356,61 +2424,278 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
       {/* VIEW: PROJECTS LIST */}
       {activeTab === 'projects' && !selectedProjectId && (
-        <div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* New Project Button */}
+        <div className="space-y-6">
+          {/* Top Control Bar: Search, Sorting & Counter */}
+          <div className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            {/* Search Input */}
+            <div className="relative flex-1 max-w-md">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                value={projectSearchQuery}
+                onChange={(e) => setProjectSearchQuery(e.target.value)}
+                placeholder="Buscar obra por título ou sinopse..."
+                className="w-full pl-9 pr-8 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200/80 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all placeholder:text-slate-400"
+              />
+              {projectSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setProjectSearchQuery('')}
+                  className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Limpar busca"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            {/* Sorting Pills & Active Counter */}
+            <div className="flex items-center gap-3 flex-wrap justify-between md:justify-end">
+              <div className="flex items-center gap-1 bg-slate-100/90 p-1 rounded-xl text-xs">
+                <button
+                  type="button"
+                  onClick={() => setProjectSortBy('recent')}
+                  className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                    projectSortBy === 'recent'
+                      ? 'bg-white text-slate-800 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Recentes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProjectSortBy('words')}
+                  className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                    projectSortBy === 'words'
+                      ? 'bg-white text-slate-800 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Mais Palavras
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProjectSortBy('alphabetical')}
+                  className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                    projectSortBy === 'alphabetical'
+                      ? 'bg-white text-slate-800 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Ordem Alfabética
+                </button>
+              </div>
+
+              {/* Subtle Counter */}
+              <span className="text-xs text-slate-400 font-medium whitespace-nowrap px-1">
+                {filteredAndSortedProjects.length} {filteredAndSortedProjects.length === 1 ? 'obra ativa' : 'obras ativas'}
+              </span>
+            </div>
+          </div>
+
+          {/* Grid of Projects */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Inviting "+ Nova Obra" Card */}
             {!readOnly && (
               <button
+                type="button"
                 onClick={() => setShowNewProject(true)}
-                className="flex flex-col items-center justify-center h-48 rounded-2xl border-2 border-dashed border-slate-300 text-slate-500 hover:border-teal-400 hover:text-teal-600 hover:bg-teal-50 transition-all"
+                className="group relative flex flex-col items-center justify-center min-h-[240px] rounded-2xl border-2 border-dashed border-slate-200 hover:border-emerald-400 bg-white hover:bg-emerald-50/40 text-slate-400 hover:text-emerald-700 transition-all duration-300 cursor-pointer shadow-xs hover:shadow-md hover:shadow-emerald-500/10 hover:-translate-y-1 p-6"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                <span className="font-medium">{t('dashboard.newProject')}</span>
+                <div className="w-14 h-14 rounded-2xl bg-slate-50 group-hover:bg-emerald-100/70 border border-slate-200/60 group-hover:border-emerald-300 flex items-center justify-center text-slate-400 group-hover:text-emerald-600 transition-all duration-300 mb-3 shadow-inner group-hover:scale-110">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 transition-transform duration-300 group-hover:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                  </svg>
+                </div>
+                <span className="font-bold text-sm text-slate-700 group-hover:text-emerald-700 transition-colors">
+                  {t('dashboard.newProject')}
+                </span>
+                <span className="text-xs text-slate-400 group-hover:text-emerald-600/80 transition-colors mt-1 text-center">
+                  Comece um novo livro, conto ou roteiro
+                </span>
               </button>
             )}
 
-            {projects.map(project => {
+            {/* Project Cards */}
+            {filteredAndSortedProjects.map(project => {
               const projWords = sessions.filter(s => isSessionInProject(s, project, projects)).reduce((a, b) => a + b.wordCount, 0);
               const percent = project.targetWordCount ? Math.min(100, Math.round((projWords / project.targetWordCount) * 100)) : 0;
               return (
-                <div key={project.id} onClick={() => setSelectedProjectId(project.id)} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all cursor-pointer group relative overflow-hidden">
+                <div
+                  key={project.id}
+                  onClick={() => setSelectedProjectId(project.id)}
+                  className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-pointer group relative overflow-hidden flex flex-col justify-between"
+                >
                   {/* Color indicator strip */}
-                  <div className="absolute top-0 left-0 w-2 h-full" style={{ backgroundColor: project.color || '#ccc' }}></div>
+                  <div
+                    className="absolute top-0 left-0 w-2.5 h-full transition-all duration-300 group-hover:w-3.5"
+                    style={{ backgroundColor: project.color || '#2dd4bf' }}
+                  ></div>
 
-                  <div className="pl-4">
+                  <div className="pl-3.5">
+                    {/* Header: Title and Quick Action Buttons */}
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="text-xl font-bold text-slate-800 group-hover:text-teal-600 transition-colors">{project.name}</h3>
-                      {!readOnly && onDeleteProject && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setProjectToDelete(project);
-                            setDeleteConfirmedCheck(false);
-                          }}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer -mr-2 -mt-1 opacity-80 group-hover:opacity-100"
-                          title={t('dashboard.deleteProject')}
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-sm text-slate-500 mt-1 line-clamp-2 h-10">{project.description || t('dashboard.noDescription')}</p>
+                      <h3 className="text-lg sm:text-xl font-bold text-slate-800 group-hover:text-teal-600 transition-colors truncate">
+                        {project.name}
+                      </h3>
 
-                    <div className="mt-6">
-                      <div className="flex justify-between text-xs text-slate-500 mb-1">
-                        <span>{t('dashboard.progress')}</span>
-                        <span>{projWords.toLocaleString('pt-BR')} {project.targetWordCount ? `/ ${project.targetWordCount.toLocaleString('pt-BR')}` : t('dashboard.words')}</span>
-                      </div>
-                      {project.targetWordCount && (
-                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                          <div className="h-2 rounded-full" style={{ width: `${percent}%`, backgroundColor: project.color || '#2dd4bf' }}></div>
+                      {/* Quick Action Icons (Hover Menu) */}
+                      {!readOnly && (
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 -mr-1 -mt-1 flex-shrink-0">
+                          {/* Quick New Session */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onNewSession({ projectId: project.id });
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors cursor-pointer"
+                            title="+ Nova Sessão nesta Obra"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                            </svg>
+                          </button>
+
+                          {/* Edit Project Modal */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenEditProject(project);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                            title="Editar título, meta ou cor da obra"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                          </button>
+
+                          {/* Delete with protection */}
+                          {onDeleteProject && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setProjectToDelete(project);
+                                setDeleteConfirmedCheck(false);
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                              title={t('dashboard.deleteProject')}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          )}
                         </div>
                       )}
+                    </div>
+
+                    {/* Editable Synopsis / Description */}
+                    {editingDescProjectId === project.id ? (
+                      <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                        <textarea
+                          rows={2}
+                          value={tempDescValue}
+                          onChange={(e) => setTempDescValue(e.target.value)}
+                          className="w-full p-2 text-xs border border-teal-300 rounded-xl focus:ring-1 focus:ring-teal-500 outline-none transition-all"
+                          placeholder="Escreva uma sinopse ou tags para esta obra..."
+                          autoFocus
+                        />
+                        <div className="flex gap-1.5 justify-end mt-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingDescProjectId(null)}
+                            className="px-2 py-0.5 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await onAddProject({ ...project, description: tempDescValue.trim() });
+                              setEditingDescProjectId(null);
+                            }}
+                            className="px-2.5 py-0.5 text-[11px] bg-teal-500 text-white font-semibold rounded-lg hover:bg-teal-600 shadow-2xs transition-colors cursor-pointer"
+                          >
+                            Salvar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingDescProjectId(project.id);
+                          setTempDescValue(project.description || '');
+                        }}
+                        className={`text-sm mt-1 line-clamp-2 min-h-[2.5rem] transition-colors rounded p-1 -m-1 cursor-pointer hover:bg-slate-50 ${
+                          project.description
+                            ? 'text-slate-500 hover:text-slate-700'
+                            : 'text-slate-400 italic hover:text-teal-600'
+                        }`}
+                        title="Clique para editar a sinopse rapidamente"
+                      >
+                        {project.description || '+ Clique para adicionar uma sinopse ou tag...'}
+                      </p>
+                    )}
+
+                    {/* Progress Section with Permanent Bar */}
+                    <div className="mt-5">
+                      <div className="flex justify-between items-baseline text-xs text-slate-500 mb-1.5">
+                        <span className="font-semibold text-slate-600">{t('dashboard.progress')}</span>
+                        <span className="font-medium text-slate-700">
+                          {project.targetWordCount ? (
+                            <>
+                              <span className="font-bold text-slate-900">{projWords.toLocaleString('pt-BR')}</span>
+                              <span className="text-slate-400"> / {project.targetWordCount.toLocaleString('pt-BR')} pal.</span>
+                              <span className="ml-1.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-100 text-slate-600">
+                                {percent}%
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="font-bold text-slate-900">{projWords.toLocaleString('pt-BR')}</span>
+                              <span className="text-slate-400"> palavras</span>
+                              {!readOnly && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenEditProject(project);
+                                  }}
+                                  className="ml-2 text-[10px] font-semibold text-teal-600 hover:underline cursor-pointer"
+                                >
+                                  + Meta
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </span>
+                      </div>
+
+                      {/* Clean Colored Progress Bar */}
+                      <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner">
+                        <div
+                          className="h-2 rounded-full transition-all duration-700"
+                          style={{
+                            width: project.targetWordCount
+                              ? `${percent}%`
+                              : `${Math.min(100, Math.max(10, Math.min(100, (projWords / 10000) * 100)))}%`,
+                            backgroundColor: project.color || '#2dd4bf',
+                            opacity: project.targetWordCount ? 1 : 0.6,
+                          }}
+                        />
+                      </div>
                     </div>
 
                     {/* Purple Diamonds earned in this project */}
@@ -2424,33 +2709,58 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       </span>
                     </div>
 
-                    {/* Checkbox: Exibir ou não no automonitoramento */}
+                    {/* Modernized Automonitoring Toggle */}
                     <div
                       className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={project.showInAutomonitoring !== false}
-                          onChange={(e) => handleToggleProjectInAutomonitoring(project, e.target.checked)}
-                          className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 border-slate-300 transition-colors cursor-pointer"
-                        />
-                        <span className="text-xs font-semibold text-slate-700">
-                          {t('dashboard.showInAutomonitoring')}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleProjectInAutomonitoring(project, project.showInAutomonitoring === false)}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border select-none ${
+                          project.showInAutomonitoring !== false
+                            ? 'bg-teal-50/80 border-teal-200 text-teal-700 hover:bg-teal-100/80 shadow-2xs'
+                            : 'bg-amber-50/80 border-amber-200 text-amber-700 hover:bg-amber-100/80 shadow-2xs'
+                        }`}
+                        title={
+                          project.showInAutomonitoring !== false
+                            ? 'Clique para ocultar esta obra dos gráficos e métricas do automonitoramento'
+                            : 'Clique para voltar a exibir esta obra nos gráficos e métricas'
+                        }
+                      >
+                        <span className="text-sm">
+                          {project.showInAutomonitoring !== false ? '👁️' : '👁️‍🗨️'}
                         </span>
-                      </label>
-                      {project.showInAutomonitoring === false && (
-                        <span className="text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 rounded-full font-bold">
-                          {t('dashboard.hiddenFromAutomonitoring')}
+                        <span>
+                          {project.showInAutomonitoring !== false
+                            ? 'Visível nas Métricas'
+                            : 'Oculto do Automonitoramento'}
                         </span>
-                      )}
+                      </button>
                     </div>
                   </div>
                 </div>
-              )
+              );
             })}
           </div>
+
+          {/* Empty Search Result */}
+          {filteredAndSortedProjects.length === 0 && projectSearchQuery && (
+            <div className="text-center py-12 bg-white rounded-2xl border border-slate-100 p-8">
+              <div className="text-4xl mb-3">🔍</div>
+              <h4 className="font-bold text-slate-700 mb-1">Nenhuma obra encontrada</h4>
+              <p className="text-xs text-slate-500 mb-4">
+                Não encontramos nenhum projeto com o termo "{projectSearchQuery}".
+              </p>
+              <button
+                type="button"
+                onClick={() => setProjectSearchQuery('')}
+                className="px-4 py-2 text-xs font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Limpar busca
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -2664,6 +2974,108 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 <div className="flex justify-end gap-3 mt-6">
                   <button type="button" onClick={() => setShowNewProject(false)} className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">{t('common.cancel')}</button>
                   <button type="submit" className="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600">{t('dashboard.createProject')}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Project Modal */}
+      {editingProject && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in-up">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                  <span>✏️</span>
+                  <span>Editar Obra</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setEditingProject(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditedProject} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">{t('dashboard.projectName')} *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editProjectName}
+                    onChange={(e) => setEditProjectName(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors text-sm"
+                    placeholder="Título da obra"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">{t('dashboard.projectDescription')}</label>
+                  <textarea
+                    rows={3}
+                    value={editProjectDesc}
+                    onChange={(e) => setEditProjectDesc(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors text-sm"
+                    placeholder="Sinopse, premissa ou notas gerais..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Meta de Palavras da Obra ({t('dashboard.optional')})
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editProjectGoal}
+                    onChange={(e) => setEditProjectGoal(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors text-sm"
+                    placeholder="Ex: 50000"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Permite acompanhar a barra de progresso e a porcentagem concluída no card.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">{t('dashboard.projectColor')}</label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <input
+                      type="color"
+                      value={editProjectColor}
+                      onChange={(e) => setEditProjectColor(e.target.value)}
+                      className="w-10 h-10 rounded-xl cursor-pointer border-none p-0"
+                    />
+                    <div className="flex-1 flex flex-wrap gap-1.5">
+                      {DEFAULT_PROJECT_COLORS.map(c => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setEditProjectColor(c)}
+                          style={{ backgroundColor: c }}
+                          className={`w-6 h-6 rounded-full border-2 transition-transform ${editProjectColor === c ? 'border-slate-800 scale-110 shadow-sm' : 'border-white hover:scale-105'}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 mt-6 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setEditingProject(null)}
+                    className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 text-sm bg-teal-500 text-white font-bold rounded-xl hover:bg-teal-600 transition-colors shadow-sm cursor-pointer"
+                  >
+                    {t('common.save')}
+                  </button>
                 </div>
               </form>
             </div>
