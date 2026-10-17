@@ -90,7 +90,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
             <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
               <span>Progresso da Obra</span>
               <span className="font-bold text-slate-800">
-                {projWords} {project.targetWordCount ? `/ ${project.targetWordCount}` : 'palavras'}
+                {projWords.toLocaleString('pt-BR')} {project.targetWordCount ? `/ ${project.targetWordCount.toLocaleString('pt-BR')}` : 'palavras'}
               </span>
             </div>
             {project.targetWordCount ? (
@@ -104,6 +104,17 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
             <div className="flex justify-between text-[11px] text-slate-400 mt-1">
               <span>{sessions.filter(s => s.projectId === project.id).length} sessões</span>
               {project.targetWordCount ? <span>{percent}% da meta</span> : null}
+            </div>
+
+            {/* Purple Diamonds Badge */}
+            <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex items-center justify-between text-xs bg-purple-50/80 border border-purple-100/90 px-3 py-1.5 rounded-xl text-purple-900">
+              <span className="flex items-center gap-1.5 font-semibold">
+                <span className="text-sm">💎</span>
+                <span>Diamantes Roxos:</span>
+              </span>
+              <span className="font-extrabold text-purple-800 bg-purple-200/70 px-2 py-0.5 rounded-md">
+                +{Math.floor(projWords / 2).toLocaleString('pt-BR')} 💎
+              </span>
             </div>
           </div>
         </div>

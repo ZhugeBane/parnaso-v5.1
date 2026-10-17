@@ -251,6 +251,28 @@ export interface Competition {
   status: 'active' | 'finished';
 }
 
+// --- REWARDS SYSTEM (1 Purple Diamond per 2 words) ---
+export interface UserReward {
+  id: string;
+  userId: string;
+  title: string;
+  cost: number; // in purple diamonds
+  description?: string;
+  icon?: string; // emoji or icon string
+  category?: 'lazer' | 'comida' | 'compras' | 'descanso' | 'outro';
+  createdAt: string;
+}
+
+export interface ClaimedReward {
+  id: string;
+  userId: string;
+  rewardId: string;
+  rewardTitle: string;
+  cost: number;
+  claimedAt: string;
+  notes?: string;
+}
+
 export const INITIAL_SETTINGS: UserSettings = {
   dailyWordGoal: 500,
   weeklyWordGoal: 3500

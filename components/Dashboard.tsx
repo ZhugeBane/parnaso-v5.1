@@ -15,6 +15,8 @@ import {
   LineChart, Line, AreaChart, Area, ReferenceLine, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { ProjectWorkspace } from './ProjectWorkspace';
+import { RewardsShop } from './RewardsShop';
+import { wordsToDiamonds } from '../services/rewardService';
 
 interface DashboardProps {
   user: User;
@@ -134,7 +136,7 @@ export const isSessionInProject = (session: WritingSession, project: Project, al
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, settings, onNewSession, onFocusMode, onUpdateSettings, onAddProject, onDeleteProject, onResetData, onLogout, onAdminPanel, onSocial, onHelp, readOnly = false }) => {
   const { t } = useLanguage();
-  const [activeTab, setActiveTab] = useState<'general' | 'projects' | 'achievements'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'projects' | 'achievements' | 'rewards'>('general');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilterType>('all');
   const [selectedSession, setSelectedSession] = useState<WritingSession | null>(null);
@@ -503,6 +505,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   // KPIs
   const totalWords = filteredSessions.reduce((acc, curr) => acc + curr.wordCount, 0);
+  const lifetimeTotalWords = sessions.reduce((acc, curr) => acc + (curr.wordCount || 0), 0);
   const avgRating = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + (curr.sessionRating || 0), 0) / filteredSessions.length).toFixed(1) : '0';
   const avgStress = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + (curr.stressLevel || 0), 0) / filteredSessions.length).toFixed(1) : '0';
   const avgDifficulty = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + (curr.difficultyLevel || 0), 0) / filteredSessions.length).toFixed(1) : '0';
@@ -1471,6 +1474,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       ? `${t('dashboard.workNumber')} #${projectsInAutomonitoring.findIndex(p => p.id === selectedWorkId) + 1 || 1}`
                       : projects.find(p => p.id === selectedWorkId)?.name)}
             </span>
+            {selectedWorkId !== 'all' && selectedWorkId !== 'general' && (
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1">
+                <span>💎</span>
+                <span>
+                  {Math.floor(
+                    sessions
+                      .filter(s => {
+                        const prj = projects.find(p => p.id === selectedWorkId);
+                        return prj ? isSessionInProject(s, prj, projects) : false;
+                      })
+                      .reduce((a, b) => a + b.wordCount, 0) / 2
+                  ).toLocaleString('pt-BR')} 💎
+                </span>
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -1836,6 +1854,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
         <div className="flex gap-3">
           {!readOnly && <LanguageSelector />}
+
+          {/* Purple Diamonds Balance Pill */}
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => { setActiveTab('rewards'); setSelectedProjectId(null); }}
+              className={`flex items-center gap-2 px-3.5 py-3 rounded-xl font-bold text-xs transition-all shadow-sm cursor-pointer ${
+                activeTab === 'rewards'
+                  ? 'bg-purple-600 text-white shadow-purple-200 ring-2 ring-purple-400'
+                  : 'bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-900'
+              }`}
+              title="Loja de Autorrecompensas (2 palavras = 1 💎)"
+            >
+              <span className="text-base leading-none">💎</span>
+              <span className="font-extrabold">{wordsToDiamonds(lifetimeTotalWords).toLocaleString('pt-BR')}</span>
+              <span className="hidden sm:inline font-semibold opacity-90">{t('dashboard.purpleDiamonds')}</span>
+            </button>
+          )}
           {user.role === 'admin' && !readOnly && (
             <button
               onClick={onAdminPanel}
@@ -1936,6 +1972,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         >
           {t('dashboard.achievements')}
         </button>
+        <button
+          onClick={() => { setActiveTab('rewards'); setSelectedProjectId(null); }}
+          className={`pb-3 px-1 font-medium text-sm transition-colors border-b-2 whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'rewards' ? 'border-purple-600 text-purple-700 font-bold' : 'border-transparent text-slate-500 hover:text-purple-600'
+          }`}
+        >
+          <span>💎</span>
+          <span>{t('dashboard.rewards')}</span>
+        </button>
       </div>
 
       {/* VIEW: PROJECTS LIST */}
@@ -1988,13 +2033,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     <div className="mt-6">
                       <div className="flex justify-between text-xs text-slate-500 mb-1">
                         <span>{t('dashboard.progress')}</span>
-                        <span>{projWords} {project.targetWordCount ? `/ ${project.targetWordCount}` : t('dashboard.words')}</span>
+                        <span>{projWords.toLocaleString('pt-BR')} {project.targetWordCount ? `/ ${project.targetWordCount.toLocaleString('pt-BR')}` : t('dashboard.words')}</span>
                       </div>
                       {project.targetWordCount && (
                         <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                           <div className="h-2 rounded-full" style={{ width: `${percent}%`, backgroundColor: project.color || '#2dd4bf' }}></div>
                         </div>
                       )}
+                    </div>
+
+                    {/* Purple Diamonds earned in this project */}
+                    <div className="mt-3.5 flex items-center justify-between text-xs bg-purple-50/80 border border-purple-100/90 px-3 py-1.5 rounded-xl text-purple-900">
+                      <span className="flex items-center gap-1.5 font-semibold">
+                        <span className="text-sm">💎</span>
+                        <span>{t('rewards.perProjectDiamonds')}:</span>
+                      </span>
+                      <span className="font-extrabold text-purple-800 bg-purple-200/70 px-2 py-0.5 rounded-md">
+                        +{Math.floor(projWords / 2).toLocaleString('pt-BR')} 💎
+                      </span>
                     </div>
 
                     {/* Checkbox: Exibir ou não no automonitoramento */}
@@ -2029,6 +2085,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
       {/* VIEW: ACHIEVEMENTS */}
       {activeTab === 'achievements' && renderAchievements()}
+
+      {/* VIEW: REWARDS SHOP */}
+      {activeTab === 'rewards' && (
+        <RewardsShop
+          user={user}
+          totalWords={lifetimeTotalWords}
+          readOnly={readOnly}
+        />
+      )}
 
       {/* VIEW: PROJECT WORKSPACE (Organização de Ideias, Personagens e Métricas da Obra) */}
       {selectedProjectId && (
