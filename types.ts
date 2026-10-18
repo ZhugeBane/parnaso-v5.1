@@ -173,6 +173,23 @@ export interface UserSettings {
   weeklyWordGoal: number;
 }
 
+export interface PurchaseLink {
+  id: string;
+  storeName: string; // e.g. "Amazon", "Site Oficial", "Editora", "Wattpad", "Mercado Livre", "Uiclap", "Kobo"
+  url: string;
+}
+
+export interface PublishedWork {
+  id: string;
+  title: string;
+  synopsis: string;
+  coverBase64?: string; // 300x450 JPEG Base64
+  coverUrl?: string;
+  links: PurchaseLink[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -185,6 +202,14 @@ export interface User {
   photoBase64?: string; // 200x200 JPEG Base64
   lastSeen?: string; // ISO timestamp of last activity
   isOnline?: boolean; // Real-time online flag
+
+  // Author Profile & Showcase Fields
+  bio?: string; // Mini-bio / literary title
+  location?: string; // Cidade/Estado (ex: "Fortaleza, CE")
+  contactEmail?: string; // E-mail público de contato
+  instagram?: string; // @usuario ou URL
+  whatsapp?: string; // Número com DDD ou link
+  publishedWorks?: PublishedWork[];
 
   // Public Aggregated Word Counts & History (for Guild & Community stats)
   wordCountWeekly?: number;

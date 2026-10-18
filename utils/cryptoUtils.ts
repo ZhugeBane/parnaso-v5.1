@@ -207,5 +207,13 @@ export function toSafePublicUser<T extends Record<string, any>>(raw: T, docId?: 
     yearlyHistory: raw.yearlyHistory && typeof raw.yearlyHistory === 'object' ? raw.yearlyHistory : {},
     dailyHistory: raw.dailyHistory && typeof raw.dailyHistory === 'object' ? raw.dailyHistory : {},
     statsUpdatedAt: raw.statsUpdatedAt || undefined,
+
+    // Perfil do Autor & Vitrine Literária
+    bio: typeof raw.bio === 'string' ? sanitizeText(raw.bio, 250) : undefined,
+    location: typeof raw.location === 'string' ? sanitizeText(raw.location, 100) : undefined,
+    contactEmail: typeof raw.contactEmail === 'string' ? sanitizeText(raw.contactEmail, 120) : undefined,
+    instagram: typeof raw.instagram === 'string' ? sanitizeText(raw.instagram, 100) : undefined,
+    whatsapp: typeof raw.whatsapp === 'string' ? sanitizeText(raw.whatsapp, 50) : undefined,
+    publishedWorks: Array.isArray(raw.publishedWorks) ? raw.publishedWorks : [],
   };
 }

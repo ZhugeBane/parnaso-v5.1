@@ -18,6 +18,7 @@ import { ProjectWorkspace } from './ProjectWorkspace';
 import { RewardsShop } from './RewardsShop';
 import { AchievementsGallery } from './AchievementsGallery';
 import { wordsToDiamonds } from '../services/rewardService';
+import { AuthorProfileModal } from './AuthorProfileModal';
 
 interface DashboardProps {
   user: User;
@@ -145,6 +146,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilterType>('all');
   const [selectedSession, setSelectedSession] = useState<WritingSession | null>(null);
+  const [showAuthorProfileModal, setShowAuthorProfileModal] = useState(false);
 
   // Work Slidebar Selection ('all' | 'general' | projectId)
   const [selectedWorkId, setSelectedWorkId] = useState<string>('all');
@@ -2488,8 +2490,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 {/* Imposing Avatar with Double Ring Frame */}
                 <div
                   className="relative group cursor-pointer flex-shrink-0"
-                  onClick={() => !readOnly && fileInputRef.current?.click()}
-                  title="Clique para alterar a foto de perfil"
+                  onClick={() => !readOnly && setShowAuthorProfileModal(true)}
+                  title="Ver e editar Meu Perfil de Autor & Vitrine Literária"
                 >
                   <div className="absolute inset-0 bg-emerald-400 rounded-full blur-md opacity-25 group-hover:opacity-70 transition-opacity pointer-events-none"></div>
                   {(user.photoBase64 || user.photoURL) ? (
@@ -2505,7 +2507,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   )}
 
                   {!readOnly && (
-                    <div className="absolute -bottom-1 -right-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 p-2 rounded-full shadow-lg border-2 border-slate-900 opacity-90 group-hover:opacity-100 transition-all group-hover:scale-110">
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                      className="absolute -bottom-1 -right-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 p-2 rounded-full shadow-lg border-2 border-slate-900 opacity-90 group-hover:opacity-100 transition-all group-hover:scale-110 cursor-pointer"
+                      title="Alterar foto de perfil"
+                    >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -2526,7 +2535,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     </span>
                   </div>
                   <p className="text-slate-300 text-sm sm:text-base font-normal tracking-wide">
-                    {t('dashboard.welcome')}, <strong className="font-extrabold text-teal-300">{user.name}.</strong> {t('dashboard.letsWrite')}
+                    {t('dashboard.welcome')}, <strong onClick={() => !readOnly && setShowAuthorProfileModal(true)} className="font-extrabold text-teal-300 hover:underline cursor-pointer" title="Ver Meu Perfil de Autor & Vitrine">{user.name}.</strong> {t('dashboard.letsWrite')}
                   </p>
                 </div>
               </>
@@ -2539,6 +2548,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
               {!readOnly && (
                 <>
+                  {/* Author Showcase Pill */}
+                  <button
+                    type="button"
+                    onClick={() => setShowAuthorProfileModal(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold backdrop-blur-md bg-gradient-to-r from-emerald-600/30 to-teal-600/30 hover:from-emerald-600/50 hover:to-teal-600/50 border border-emerald-400/40 text-emerald-200 hover:text-white transition-all shadow-sm cursor-pointer"
+                    title="Ver e editar Meu Perfil de Autor & Vitrine Literária"
+                  >
+                    <span>📖</span>
+                    <span>Meu Perfil</span>
+                  </button>
+
                   {/* Purple Diamonds Pill with Glassmorphism */}
                   <button
                     type="button"
@@ -3567,6 +3587,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               : undefined
           }
           isPrivateView={readOnly}
+        />
+      )}
+
+      {/* Author Profile & Showcase Modal */}
+      {showAuthorProfileModal && (
+        <AuthorProfileModal
+          user={user}
+          currentUser={user}
+          isOpen={showAuthorProfileModal}
+          onClose={() => setShowAuthorProfileModal(false)}
+          onUpdateCurrentUser={(updated) => {
+            Object.assign(user, updated);
+          }}
         />
       )}
     </div>

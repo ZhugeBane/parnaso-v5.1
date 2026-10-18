@@ -68,6 +68,7 @@ import { getSessions, syncUserPublicWordStats } from '../services/sessionService
 import { getAllUsers, isUserCurrentlyOnline, updateUserPresence } from '../services/authService';
 import { sanitizeText, toSafePublicUser } from '../utils/cryptoUtils';
 import { Users, Shield, MessageSquare, Trophy, Search, UserPlus, ArrowRight, Sparkles, Flame, Zap, Calendar } from 'lucide-react';
+import { AuthorProfileModal } from './AuthorProfileModal';
 
 interface SocialHubProps {
   currentUser: User;
@@ -203,6 +204,28 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [sentDirectSpark, setSentDirectSpark] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLInputElement>(null);
+  const [viewingAuthorUser, setViewingAuthorUser] = useState<User | null>(null);
+
+  const handleOpenAuthorProfile = (e: React.MouseEvent, targetUserOrId: User | string) => {
+    e.stopPropagation();
+    if (typeof targetUserOrId === 'string') {
+      const found = allUsers.find(u => u.id === targetUserOrId) || (targetUserOrId === currentUser.id ? currentUser : null);
+      if (found) {
+        setViewingAuthorUser(found);
+      } else {
+        setViewingAuthorUser({
+          id: targetUserOrId,
+          name: getUserName(targetUserOrId),
+          photoURL: getUserPhotoURL(targetUserOrId),
+          photoBase64: getUserPhotoURL(targetUserOrId),
+          email: '',
+          role: 'user'
+        });
+      }
+    } else {
+      setViewingAuthorUser(targetUserOrId);
+    }
+  };
 
   // Active guild dynamically synced from guilds or allGuilds array
   const activeGuild: Guild | null = selectedChat?.type === 'group'
@@ -1725,19 +1748,25 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             {!isMe && (
               <div className="mr-2.5 flex-shrink-0">
                 {!isGrouped ? (
-                  senderPhoto ? (
-                    <img
-                      src={senderPhoto}
-                      alt={senderName}
-                      className="w-9 h-9 rounded-full object-cover border border-slate-200/90 shadow-2xs"
-                    />
-                  ) : (
-                    <div
-                      className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarGradient(senderName)} text-white flex items-center justify-center font-extrabold text-xs shadow-2xs border border-white`}
-                    >
-                      {senderName.charAt(0).toUpperCase()}
-                    </div>
-                  )
+                  <div
+                    onClick={(e) => handleOpenAuthorProfile(e, msg.senderId)}
+                    className="cursor-pointer group/msgAvatar transition-transform hover:scale-105"
+                    title={`Ver Perfil Literário de ${senderName}`}
+                  >
+                    {senderPhoto ? (
+                      <img
+                        src={senderPhoto}
+                        alt={senderName}
+                        className="w-9 h-9 rounded-full object-cover border border-slate-200/90 shadow-2xs group-hover/msgAvatar:ring-2 group-hover/msgAvatar:ring-indigo-400"
+                      />
+                    ) : (
+                      <div
+                        className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarGradient(senderName)} text-white flex items-center justify-center font-extrabold text-xs shadow-2xs border border-white group-hover/msgAvatar:ring-2 group-hover/msgAvatar:ring-indigo-400`}
+                      >
+                        {senderName.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="w-9 h-1" />
                 )}
@@ -1761,7 +1790,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               {/* Sender Header inside received bubble (only on first message of a group) */}
               {!isMe && !isGrouped && (
                 <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                  <span className={`text-xs font-extrabold tracking-tight ${getSenderNameColor(senderName)}`}>
+                  <span
+                    onClick={(e) => handleOpenAuthorProfile(e, msg.senderId)}
+                    className={`text-xs font-extrabold tracking-tight ${getSenderNameColor(senderName)} cursor-pointer hover:underline`}
+                    title={`Ver Perfil Literário de ${senderName}`}
+                  >
                     {senderName}
                   </span>
                   {isSenderGuildOwner && (
@@ -1866,11 +1899,15 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         }`}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="relative flex-shrink-0">
+          <div
+            onClick={(e) => handleOpenAuthorProfile(e, user)}
+            className="relative flex-shrink-0 cursor-pointer group/reqAv transition-transform hover:scale-105"
+            title={`Ver Perfil de ${user.name}`}
+          >
             {reqAvatar ? (
-              <img src={reqAvatar} alt={user.name} className="w-9 h-9 rounded-full object-cover border border-slate-200" />
+              <img src={reqAvatar} alt={user.name} className="w-9 h-9 rounded-full object-cover border border-slate-200 group-hover/reqAv:ring-2 group-hover/reqAv:ring-purple-400" />
             ) : (
-              <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-xs font-extrabold`}>
+              <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-xs font-extrabold group-hover/reqAv:ring-2 group-hover/reqAv:ring-purple-400`}>
                 {user.name.charAt(0).toUpperCase()}
               </div>
             )}
@@ -1881,7 +1918,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             />
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-bold text-slate-800 truncate">{user.name}</p>
+            <p
+              onClick={(e) => handleOpenAuthorProfile(e, user)}
+              className="text-xs font-bold text-slate-800 truncate cursor-pointer hover:text-purple-700 hover:underline"
+              title={`Ver Perfil de ${user.name}`}
+            >
+              {user.name}
+            </p>
             {type === 'received' ? (
               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded-md border border-purple-200/60">
                 <span>📥</span>
@@ -2089,6 +2132,46 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             </button>
           </div>
 
+          {/* Quick Author Profile Banner for Current User */}
+          <div
+            onClick={(e) => handleOpenAuthorProfile(e, currentUser)}
+            className="mb-3 p-2.5 rounded-xl bg-gradient-to-r from-emerald-50/90 via-teal-50/90 to-indigo-50/90 border border-emerald-200/70 hover:border-emerald-300 flex items-center justify-between cursor-pointer transition-all hover:shadow-xs group"
+            title="Ver e editar Meu Perfil de Autor & Vitrine Literária"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="relative flex-shrink-0">
+                {currentUser.photoURL || currentUser.photoBase64 ? (
+                  <img
+                    src={currentUser.photoURL || currentUser.photoBase64}
+                    alt={currentUser.name}
+                    className="w-8 h-8 rounded-full object-cover ring-2 ring-emerald-500/40"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-600 text-white font-black text-xs flex items-center justify-center ring-2 ring-emerald-500/30">
+                    {currentUser.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-black text-slate-800 truncate group-hover:text-emerald-700 transition-colors">
+                    {currentUser.name}
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded font-bold uppercase">
+                    Meu Perfil
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 truncate flex items-center gap-1 font-medium">
+                  <span>📖</span> {currentUser.publishedWorks?.length ? `${currentUser.publishedWorks.length} obra(s) na vitrine` : 'Vitrine Literária'}
+                </p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-emerald-600 group-hover:translate-x-0.5 transition-transform flex-shrink-0">
+              Editar →
+            </span>
+          </div>
+
           {/* Modern 5 Sub-Tabs Pill Bar with Larger Lucide Icons & Rich Category Gradients */}
           <div className="grid grid-cols-5 bg-slate-100/90 p-1.5 rounded-2xl gap-1 border border-slate-200/70">
             <button
@@ -2240,15 +2323,19 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       onClick={() => { setSelectedChat({ type: 'direct', target: user }); setSelectedThread(null); }}
                       className="flex items-center flex-1 min-w-0 text-left cursor-pointer"
                     >
-                      <div className="relative mr-3 flex-shrink-0">
+                      <div
+                        onClick={(e) => { e.stopPropagation(); handleOpenAuthorProfile(e, user); }}
+                        className="relative mr-3 flex-shrink-0 cursor-pointer group/fAv transition-transform hover:scale-105"
+                        title={`Ver Perfil & Vitrine Literária de ${user.name}`}
+                      >
                         {avatar ? (
                           <img
                             src={avatar}
                             alt={user.name}
-                            className="w-11 h-11 rounded-full object-cover border-2 border-white shadow-sm ring-1 ring-slate-200"
+                            className="w-11 h-11 rounded-full object-cover border-2 border-white shadow-sm ring-1 ring-slate-200 group-hover/fAv:ring-2 group-hover/fAv:ring-emerald-400"
                           />
                         ) : (
-                          <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} flex items-center justify-center text-white font-extrabold text-sm border-2 border-white shadow-sm`}>
+                          <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} flex items-center justify-center text-white font-extrabold text-sm border-2 border-white shadow-sm group-hover/fAv:ring-2 group-hover/fAv:ring-emerald-400`}>
                             {user.name.charAt(0).toUpperCase()}
                           </div>
                         )}
@@ -2279,6 +2366,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       </div>
                     </button>
                     <div className="flex items-center gap-0.5 opacity-0 group-hover/friend:opacity-100 transition-all">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleOpenAuthorProfile(e, user); }}
+                        className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all rounded-xl cursor-pointer"
+                        title="Ver Perfil & Vitrine Literária"
+                      >
+                        📖
+                      </button>
                       <button
                         onClick={(e) => handleRemoveFriend(e, friendshipId, user.id)}
                         className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all rounded-xl cursor-pointer"
@@ -2616,17 +2710,21 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       )}
 
                       <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
-                        <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          onClick={(e) => { e.stopPropagation(); handleOpenAuthorProfile(e, thread.authorId); }}
+                          className="flex items-center gap-2.5 min-w-0 cursor-pointer group/thAuth hover:opacity-80 transition-opacity"
+                          title={`Ver Perfil & Vitrine Literária de ${authorName}`}
+                        >
                           {authorAvatar ? (
-                            <img src={authorAvatar} alt={authorName} className="w-8 h-8 rounded-full object-cover border border-amber-200 shadow-2xs flex-shrink-0" />
+                            <img src={authorAvatar} alt={authorName} className="w-8 h-8 rounded-full object-cover border border-amber-200 shadow-2xs flex-shrink-0 group-hover/thAuth:ring-2 group-hover/thAuth:ring-amber-400" />
                           ) : (
-                            <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarGradient(authorName)} text-white flex items-center justify-center text-xs font-extrabold flex-shrink-0 shadow-2xs`}>
+                            <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarGradient(authorName)} text-white flex items-center justify-center text-xs font-extrabold flex-shrink-0 shadow-2xs group-hover/thAuth:ring-2 group-hover/thAuth:ring-amber-400`}>
                               {authorName.charAt(0).toUpperCase()}
                             </div>
                           )}
                           <div className="min-w-0">
                             <p className="text-[11px] text-slate-500 truncate">
-                              {t('social.forum.by')} <strong className="font-bold text-slate-800">{authorName}</strong>
+                              {t('social.forum.by')} <strong className="font-bold text-slate-800 group-hover/thAuth:text-amber-700 group-hover/thAuth:underline">{authorName}</strong>
                             </p>
                           </div>
                         </div>
@@ -2880,24 +2978,41 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     return (
                       <div key={user.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 hover:border-emerald-200 rounded-2xl shadow-2xs transition-all">
                         <div className="flex items-center min-w-0 mr-2">
-                          <div className="relative mr-3 flex-shrink-0">
+                          <div
+                            onClick={(e) => handleOpenAuthorProfile(e, user)}
+                            className="relative mr-3 flex-shrink-0 cursor-pointer group/uAv transition-transform hover:scale-105"
+                            title={`Ver Perfil & Vitrine Literária de ${user.name}`}
+                          >
                             {uAvatar ? (
-                              <img src={uAvatar} alt={user.name} className="w-10 h-10 rounded-full object-cover border border-slate-200" />
+                              <img src={uAvatar} alt={user.name} className="w-10 h-10 rounded-full object-cover border border-slate-200 group-hover/uAv:ring-2 group-hover/uAv:ring-emerald-400" />
                             ) : (
-                              <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-sm font-extrabold shadow-2xs`}>
+                              <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-sm font-extrabold shadow-2xs group-hover/uAv:ring-2 group-hover/uAv:ring-emerald-400`}>
                                 {user.name.charAt(0).toUpperCase()}
                               </div>
                             )}
                             <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${isOnline ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                           </div>
                           <div className="min-w-0">
-                            <span className="text-sm font-bold text-slate-800 block truncate">{user.name}</span>
+                            <span
+                              onClick={(e) => handleOpenAuthorProfile(e, user)}
+                              className="text-sm font-bold text-slate-800 block truncate cursor-pointer hover:underline hover:text-emerald-700"
+                              title={`Ver Perfil & Vitrine Literária de ${user.name}`}
+                            >
+                              {user.name}
+                            </span>
                             <span className="text-[10px] text-slate-400">
                               {isOnline ? '🟢 Online agora' : 'Escritor da Comunidade'}
                             </span>
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={(e) => handleOpenAuthorProfile(e, user)}
+                            className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition-all cursor-pointer border border-transparent hover:border-emerald-200"
+                            title="Ver Perfil & Vitrine Literária"
+                          >
+                            📖
+                          </button>
                           <button
                             onClick={() => handleSendRequest(user.id)}
                             className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-500 text-emerald-700 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer border border-emerald-200/80"
@@ -3008,15 +3123,19 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
                 {selectedChat.type === 'direct' ? (
                   <div className="flex items-center min-w-0">
-                    <div className="relative mr-3 flex-shrink-0">
+                    <div
+                      onClick={(e) => handleOpenAuthorProfile(e, selectedChat.target as User)}
+                      className="relative mr-3 flex-shrink-0 cursor-pointer group/dcAv transition-transform hover:scale-105"
+                      title={`Ver Perfil & Vitrine Literária de ${(selectedChat.target as User).name}`}
+                    >
                       {getUserPhotoURL((selectedChat.target as User).id) || (selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL ? (
                         <img
                           src={getUserPhotoURL((selectedChat.target as User).id) || (selectedChat.target as User).photoBase64 || (selectedChat.target as User).photoURL}
                           alt={(selectedChat.target as User).name}
-                          className="w-10 h-10 rounded-full object-cover border-2 border-emerald-200 shadow-xs"
+                          className="w-10 h-10 rounded-full object-cover border-2 border-emerald-200 shadow-xs group-hover/dcAv:ring-2 group-hover/dcAv:ring-emerald-400"
                         />
                       ) : (
-                        <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient((selectedChat.target as User).name)} text-white flex items-center justify-center font-bold text-base shadow-xs border-2 border-white`}>
+                        <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient((selectedChat.target as User).name)} text-white flex items-center justify-center font-bold text-base shadow-xs border-2 border-white group-hover/dcAv:ring-2 group-hover/dcAv:ring-emerald-400`}>
                           {(selectedChat.target as User).name.charAt(0).toUpperCase()}
                         </div>
                       )}
@@ -3028,7 +3147,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-extrabold text-slate-800 text-sm md:text-base truncate">
+                        <h3
+                          onClick={(e) => handleOpenAuthorProfile(e, selectedChat.target as User)}
+                          className="font-extrabold text-slate-800 text-sm md:text-base truncate cursor-pointer hover:underline hover:text-emerald-700"
+                          title={`Ver Perfil & Vitrine Literária de ${(selectedChat.target as User).name}`}
+                        >
                           {(selectedChat.target as User).name}
                         </h3>
                         <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/70">
@@ -3091,6 +3214,14 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
               {selectedChat.type === 'direct' && (
                 <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={(e) => handleOpenAuthorProfile(e, selectedChat.target as User)}
+                    className="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                    title="Ver perfil completo e vitrine literária deste autor"
+                  >
+                    <span>📖</span>
+                    <span className="hidden sm:inline">Ver Perfil</span>
+                  </button>
                   <button
                     onClick={() => handleSendDirectSpark(selectedChat.target as User)}
                     disabled={isActionSubmitting || sentDirectSpark}
@@ -3762,15 +3893,19 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                   {getRankBadge(index)}
 
                                   {/* Real Profile Photo or Vibrant Gradient Avatar */}
-                                  <div className="relative flex-shrink-0">
+                                  <div
+                                    onClick={(e) => handleOpenAuthorProfile(e, memberId)}
+                                    className="relative flex-shrink-0 cursor-pointer group/mAv transition-transform hover:scale-105"
+                                    title={`Ver Perfil & Vitrine Literária de ${mName}`}
+                                  >
                                     {mPhoto ? (
                                       <img
                                         src={mPhoto}
                                         alt={mName}
-                                        className="w-11 h-11 rounded-full object-cover ring-2 ring-white shadow-sm border border-slate-200"
+                                        className="w-11 h-11 rounded-full object-cover ring-2 ring-white shadow-sm border border-slate-200 group-hover/mAv:ring-2 group-hover/mAv:ring-indigo-400"
                                       />
                                     ) : (
-                                      <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(mName)} text-white flex items-center justify-center font-extrabold text-sm ring-2 ring-white shadow-sm`}>
+                                      <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(mName)} text-white flex items-center justify-center font-extrabold text-sm ring-2 ring-white shadow-sm group-hover/mAv:ring-2 group-hover/mAv:ring-indigo-400`}>
                                         {mName.charAt(0).toUpperCase()}
                                       </div>
                                     )}
@@ -3786,7 +3921,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                   <div className="flex-1 min-w-0">
                                     <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1">
                                       <div className="flex items-center gap-1.5 min-w-0">
-                                        <p className="font-bold text-slate-800 text-sm truncate">
+                                        <p
+                                          onClick={(e) => handleOpenAuthorProfile(e, memberId)}
+                                          className="font-bold text-slate-800 text-sm truncate cursor-pointer hover:text-indigo-600 hover:underline"
+                                          title={`Ver Perfil & Vitrine Literária de ${mName}`}
+                                        >
                                           {mName}
                                         </p>
                                         {memberId === activeGuild.adminId && (
@@ -3826,6 +3965,14 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
                                   {/* Quick Micro-Interaction: Incentivar / Enviar Faísca + Admin Promote */}
                                   <div className="flex items-center gap-1.5 flex-shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleOpenAuthorProfile(e, memberId)}
+                                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all cursor-pointer border border-transparent hover:border-indigo-200"
+                                      title={`Ver Perfil & Vitrine Literária de ${mName}`}
+                                    >
+                                      📖
+                                    </button>
                                     {memberId !== currentUser.id && (
                                       <button
                                         type="button"
@@ -4091,14 +4238,16 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             key={memberId}
                             src={photo}
                             alt={name}
-                            title={`${name}: ${memberWords.toLocaleString('pt-BR')} palavras`}
-                            className="w-6 h-6 rounded-full object-cover ring-2 ring-white shadow-2xs"
+                            onClick={(e) => handleOpenAuthorProfile(e, memberId)}
+                            title={`${name}: ${memberWords.toLocaleString('pt-BR')} palavras (Clique para ver perfil)`}
+                            className="w-6 h-6 rounded-full object-cover ring-2 ring-white shadow-2xs cursor-pointer hover:scale-125 hover:z-20 transition-transform"
                           />
                         ) : (
                           <div
                             key={memberId}
-                            title={`${name}: ${memberWords.toLocaleString('pt-BR')} palavras`}
-                            className={`w-6 h-6 rounded-full bg-gradient-to-br ${getAvatarGradient(name)} text-white flex items-center justify-center text-[10px] font-black ring-2 ring-white shadow-2xs`}
+                            onClick={(e) => handleOpenAuthorProfile(e, memberId)}
+                            title={`${name}: ${memberWords.toLocaleString('pt-BR')} palavras (Clique para ver perfil)`}
+                            className={`w-6 h-6 rounded-full bg-gradient-to-br ${getAvatarGradient(name)} text-white flex items-center justify-center text-[10px] font-black ring-2 ring-white shadow-2xs cursor-pointer hover:scale-125 hover:z-20 transition-transform`}
                           >
                             {name.charAt(0).toUpperCase()}
                           </div>
@@ -4227,8 +4376,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                           const mPhoto = getUserPhotoURL(memberId);
                           const mWords = Math.round(getMemberWordsForPeriod(memberId, guildPeriodFilter, selectedGuildMonthOffset, activeGuild));
                           return (
-                            <div key={memberId} className="flex items-center gap-2 p-2 rounded-xl bg-slate-50/90 border border-slate-200/70 shadow-2xs">
-                              <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs ring-2 ring-white overflow-hidden flex-shrink-0">
+                            <div
+                              key={memberId}
+                              onClick={(e) => handleOpenAuthorProfile(e, memberId)}
+                              className="flex items-center gap-2 p-2 rounded-xl bg-slate-50/90 border border-slate-200/70 hover:border-indigo-300 shadow-2xs cursor-pointer transition-all hover:bg-white group/gridMember"
+                              title={`Ver Perfil & Vitrine Literária de ${mName}`}
+                            >
+                              <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs ring-2 ring-white overflow-hidden flex-shrink-0 group-hover/gridMember:ring-indigo-400 transition-all">
                                 {mPhoto ? (
                                   <img src={mPhoto} alt={mName} className="w-full h-full object-cover" />
                                 ) : (
@@ -4236,7 +4390,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                 )}
                               </div>
                               <div className="min-w-0">
-                                <p className="text-[11px] font-bold text-slate-700 truncate">{mName}</p>
+                                <p className="text-[11px] font-bold text-slate-700 truncate group-hover/gridMember:text-indigo-700 group-hover/gridMember:underline">{mName}</p>
                                 <p className="text-[10px] font-extrabold text-indigo-600">
                                   {mWords.toLocaleString('pt-BR')} <span className="text-slate-400 font-normal">{t('social.guilds.words')}</span>
                                 </p>
@@ -4294,7 +4448,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         <article className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
                           <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                             <div className="flex items-center gap-3.5">
-                              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-indigo-200 shadow-xs flex-shrink-0 bg-indigo-50 flex items-center justify-center font-black text-indigo-700 text-sm">
+                              <div
+                                onClick={(e) => handleOpenAuthorProfile(e, selectedGuildThread.authorId)}
+                                className="w-12 h-12 rounded-full overflow-hidden border-2 border-indigo-200 shadow-xs flex-shrink-0 bg-indigo-50 flex items-center justify-center font-black text-indigo-700 text-sm cursor-pointer hover:ring-2 hover:ring-indigo-400 transition-all"
+                                title={`Ver Perfil & Vitrine Literária de ${getUserName(selectedGuildThread.authorId)}`}
+                              >
                                 {getUserPhotoURL(selectedGuildThread.authorId) ? (
                                   <img src={getUserPhotoURL(selectedGuildThread.authorId)} alt={getUserName(selectedGuildThread.authorId)} className="w-full h-full object-cover" />
                                 ) : (
@@ -4303,7 +4461,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                               </div>
                               <div>
                                 <div className="flex items-center gap-2">
-                                  <h4 className="font-extrabold text-slate-800 text-base leading-tight">
+                                  <h4
+                                    onClick={(e) => handleOpenAuthorProfile(e, selectedGuildThread.authorId)}
+                                    className="font-extrabold text-slate-800 text-base leading-tight cursor-pointer hover:underline hover:text-indigo-700"
+                                    title={`Ver Perfil & Vitrine Literária de ${getUserName(selectedGuildThread.authorId)}`}
+                                  >
                                     {getUserName(selectedGuildThread.authorId)}
                                   </h4>
                                   <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
@@ -4342,7 +4504,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                               <div key={reply.id} className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-2xs space-y-3 relative group transition-all hover:border-slate-300">
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-full overflow-hidden border border-slate-200 flex-shrink-0 bg-slate-100 flex items-center justify-center font-bold text-slate-600 text-xs">
+                                    <div
+                                      onClick={(e) => handleOpenAuthorProfile(e, reply.authorId)}
+                                      className="w-9 h-9 rounded-full overflow-hidden border border-slate-200 flex-shrink-0 bg-slate-100 flex items-center justify-center font-bold text-slate-600 text-xs cursor-pointer hover:ring-2 hover:ring-indigo-400 transition-all"
+                                      title={`Ver Perfil & Vitrine Literária de ${getUserName(reply.authorId)}`}
+                                    >
                                       {getUserPhotoURL(reply.authorId) ? (
                                         <img src={getUserPhotoURL(reply.authorId)} alt={getUserName(reply.authorId)} className="w-full h-full object-cover" />
                                       ) : (
@@ -4351,7 +4517,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                     </div>
                                     <div>
                                       <div className="flex items-center gap-2">
-                                        <span className="font-bold text-sm text-slate-800">{getUserName(reply.authorId)}</span>
+                                        <span
+                                          onClick={(e) => handleOpenAuthorProfile(e, reply.authorId)}
+                                          className="font-bold text-sm text-slate-800 cursor-pointer hover:underline hover:text-indigo-700"
+                                          title={`Ver Perfil & Vitrine Literária de ${getUserName(reply.authorId)}`}
+                                        >
+                                          {getUserName(reply.authorId)}
+                                        </span>
                                         {isAuthor && (
                                           <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
                                             Autor
@@ -4487,7 +4659,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             className="w-full text-left p-4 bg-white rounded-2xl border border-slate-100 hover:border-indigo-200 hover:shadow-md transition-all"
                           >
                             <h4 className="font-bold text-slate-800 group-hover/thread:text-indigo-600 transition-colors">{thread.title}</h4>
-                            <div className="flex items-center gap-2 mt-2">
+                            <div
+                              onClick={(e) => { e.stopPropagation(); handleOpenAuthorProfile(e, thread.authorId); }}
+                              className="inline-flex items-center gap-2 mt-2 cursor-pointer hover:opacity-80 transition-opacity"
+                              title={`Ver Perfil & Vitrine Literária de ${getUserName(thread.authorId)}`}
+                            >
                               <div className="w-5 h-5 rounded-full bg-indigo-50 flex items-center justify-center text-[10px] font-bold text-indigo-600 border border-indigo-100 overflow-hidden">
                                 {getUserPhotoURL(thread.authorId) ? (
                                   <img src={getUserPhotoURL(thread.authorId)} alt={getUserName(thread.authorId)} className="w-full h-full object-cover" />
@@ -4495,7 +4671,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                   getUserName(thread.authorId).charAt(0)
                                 )}
                               </div>
-                              <span className="text-[10px] text-slate-400">{t('social.forum.by')} {getUserName(thread.authorId)} • {new Date(thread.createdAt).toLocaleDateString()}</span>
+                              <span className="text-[10px] text-slate-400 hover:text-indigo-600 hover:underline">{t('social.forum.by')} {getUserName(thread.authorId)} • {new Date(thread.createdAt).toLocaleDateString()}</span>
                             </div>
                           </button>
                           {selectedChat?.type === 'group' && activeGuild && (isOwnerOrAdmin(activeGuild) || thread.authorId === currentUser.id) && (
@@ -4844,7 +5020,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   {/* Author Header */}
                   <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                     <div className="flex items-center gap-3.5">
-                      <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-teal-200 shadow-xs flex-shrink-0 bg-slate-100 flex items-center justify-center font-black text-slate-600 text-sm">
+                      <div
+                        onClick={(e) => handleOpenAuthorProfile(e, selectedThread.authorId)}
+                        className="w-12 h-12 rounded-full overflow-hidden border-2 border-teal-200 shadow-xs flex-shrink-0 bg-slate-100 flex items-center justify-center font-black text-slate-600 text-sm cursor-pointer hover:ring-2 hover:ring-teal-400 transition-all"
+                        title={`Ver Perfil & Vitrine Literária de ${getUserName(selectedThread.authorId)}`}
+                      >
                         {getUserPhotoURL(selectedThread.authorId) ? (
                           <img src={getUserPhotoURL(selectedThread.authorId)} alt={getUserName(selectedThread.authorId)} className="w-full h-full object-cover" />
                         ) : (
@@ -4853,7 +5033,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <h4 className="font-extrabold text-slate-800 text-base leading-tight">
+                          <h4
+                            onClick={(e) => handleOpenAuthorProfile(e, selectedThread.authorId)}
+                            className="font-extrabold text-slate-800 text-base leading-tight cursor-pointer hover:underline hover:text-teal-700"
+                            title={`Ver Perfil & Vitrine Literária de ${getUserName(selectedThread.authorId)}`}
+                          >
                             {getUserName(selectedThread.authorId)}
                           </h4>
                           <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
@@ -4915,7 +5099,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       <div key={reply.id} className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-2xs space-y-3 relative group transition-all hover:border-slate-300">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full overflow-hidden border border-slate-200 flex-shrink-0 bg-slate-100 flex items-center justify-center font-bold text-slate-600 text-xs">
+                            <div
+                              onClick={(e) => handleOpenAuthorProfile(e, reply.authorId)}
+                              className="w-9 h-9 rounded-full overflow-hidden border border-slate-200 flex-shrink-0 bg-slate-100 flex items-center justify-center font-bold text-slate-600 text-xs cursor-pointer hover:ring-2 hover:ring-teal-400 transition-all"
+                              title={`Ver Perfil & Vitrine Literária de ${getUserName(reply.authorId)}`}
+                            >
                               {getUserPhotoURL(reply.authorId) ? (
                                 <img src={getUserPhotoURL(reply.authorId)} alt={getUserName(reply.authorId)} className="w-full h-full object-cover" />
                               ) : (
@@ -4924,7 +5112,13 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             </div>
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="font-bold text-sm text-slate-800">{getUserName(reply.authorId)}</span>
+                                <span
+                                  onClick={(e) => handleOpenAuthorProfile(e, reply.authorId)}
+                                  className="font-bold text-sm text-slate-800 cursor-pointer hover:underline hover:text-teal-700"
+                                  title={`Ver Perfil & Vitrine Literária de ${getUserName(reply.authorId)}`}
+                                >
+                                  {getUserName(reply.authorId)}
+                                </span>
                                 {isAuthor && (
                                   <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
                                     Autor
@@ -5714,6 +5908,22 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             </div>
           </div>
         </div>
+      )}
+
+      {/* Author Profile & Literary Showcase Modal */}
+      {viewingAuthorUser && (
+        <AuthorProfileModal
+          user={viewingAuthorUser}
+          currentUser={currentUser}
+          isOpen={Boolean(viewingAuthorUser)}
+          onClose={() => setViewingAuthorUser(null)}
+          onUpdateCurrentUser={(updated) => {
+            if (updated.id === currentUser.id) {
+              Object.assign(currentUser, updated);
+            }
+            setViewingAuthorUser(updated);
+          }}
+        />
       )}
     </div>
   );

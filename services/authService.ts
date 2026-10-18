@@ -1,5 +1,5 @@
 
-import { User } from '../types';
+import { User, PublishedWork } from '../types';
 import { auth, db } from '../lib/firebase';
 import {
   createUserWithEmailAndPassword,
@@ -10,6 +10,7 @@ import {
   sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
+import { sanitizeText } from '../utils/cryptoUtils';
 
 // Helper to map Firestore doc to User type
 const mapUser = (docData: any, uid: string, email: string): User => ({
@@ -30,7 +31,15 @@ const mapUser = (docData: any, uid: string, email: string): User => ({
   monthlyHistory: docData.monthlyHistory || {},
   yearlyHistory: docData.yearlyHistory || {},
   dailyHistory: docData.dailyHistory || {},
-  statsUpdatedAt: docData.statsUpdatedAt
+  statsUpdatedAt: docData.statsUpdatedAt,
+
+  // Author Profile & Showcase Fields
+  bio: docData.bio || '',
+  location: docData.location || '',
+  contactEmail: docData.contactEmail || '',
+  instagram: docData.instagram || '',
+  whatsapp: docData.whatsapp || '',
+  publishedWorks: Array.isArray(docData.publishedWorks) ? docData.publishedWorks : []
 });
 
 export const updateUserPresence = async (userId: string, isOnline: boolean = true): Promise<void> => {
@@ -235,7 +244,15 @@ export const getAllUsers = async (): Promise<User[]> => {
         monthlyHistory: data.monthlyHistory || {},
         yearlyHistory: data.yearlyHistory || {},
         dailyHistory: data.dailyHistory || {},
-        statsUpdatedAt: data.statsUpdatedAt
+        statsUpdatedAt: data.statsUpdatedAt,
+
+        // Author Profile & Showcase Fields
+        bio: data.bio || '',
+        location: data.location || '',
+        contactEmail: data.contactEmail || '',
+        instagram: data.instagram || '',
+        whatsapp: data.whatsapp || '',
+        publishedWorks: Array.isArray(data.publishedWorks) ? data.publishedWorks : []
       };
     });
   } catch (e) {
@@ -342,3 +359,47 @@ export const updateUserProfilePicture = async (userId: string, fileOrBase64: Fil
   const base64 = await resizeImageToBase64(fileOrBase64, 200, 200, 0.7);
   return updateUserProfileBase64(userId, base64);
 };
+
+export const updateAuthorProfile = async (
+  userId: string,
+  profileData: {
+    name?: string;
+    bio?: string;
+    location?: string;
+    contactEmail?: string;
+    instagram?: string;
+    whatsapp?: string;
+    photoBase64?: string;
+    publishedWorks?: PublishedWork[];
+  }
+): Promise<void> => {
+  const userRef = doc(db, 'users', userId);
+  const cleanData: any = {};
+  if (profileData.name !== undefined) cleanData.name = sanitizeText(profileData.name, 80);
+  if (profileData.bio !== undefined) cleanData.bio = sanitizeText(profileData.bio, 250);
+  if (profileData.location !== undefined) cleanData.location = sanitizeText(profileData.location, 100);
+  if (profileData.contactEmail !== undefined) cleanData.contactEmail = sanitizeText(profileData.contactEmail, 120);
+  if (profileData.instagram !== undefined) cleanData.instagram = sanitizeText(profileData.instagram, 100);
+  if (profileData.whatsapp !== undefined) cleanData.whatsapp = sanitizeText(profileData.whatsapp, 50);
+  if (profileData.photoBase64 !== undefined) {
+    cleanData.photoBase64 = profileData.photoBase64;
+    cleanData.photoURL = profileData.photoBase64;
+  }
+  if (profileData.publishedWorks !== undefined) {
+    cleanData.publishedWorks = profileData.publishedWorks;
+  }
+
+  await updateDoc(userRef, cleanData);
+
+  if (auth.currentUser && auth.currentUser.uid === userId) {
+    const authProfileUpdate: any = {};
+    if (cleanData.name) authProfileUpdate.displayName = cleanData.name;
+    if (cleanData.photoURL) authProfileUpdate.photoURL = cleanData.photoURL;
+    if (Object.keys(authProfileUpdate).length > 0) {
+      try {
+        await updateProfile(auth.currentUser, authProfileUpdate);
+      } catch {}
+    }
+  }
+};
+
