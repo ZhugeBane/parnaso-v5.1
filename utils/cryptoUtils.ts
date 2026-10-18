@@ -215,5 +215,8 @@ export function toSafePublicUser<T extends Record<string, any>>(raw: T, docId?: 
     instagram: typeof raw.instagram === 'string' ? sanitizeText(raw.instagram, 100) : undefined,
     whatsapp: typeof raw.whatsapp === 'string' ? sanitizeText(raw.whatsapp, 50) : undefined,
     publishedWorks: Array.isArray(raw.publishedWorks) ? raw.publishedWorks : [],
+
+    // Gamification Hestius Shield
+    hestiusCount: typeof raw.hestiusCount === 'number' ? Math.max(0, Math.min(3, raw.hestiusCount)) : 1,
   };
 }

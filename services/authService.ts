@@ -39,7 +39,12 @@ const mapUser = (docData: any, uid: string, email: string): User => ({
   contactEmail: docData.contactEmail || '',
   instagram: docData.instagram || '',
   whatsapp: docData.whatsapp || '',
-  publishedWorks: Array.isArray(docData.publishedWorks) ? docData.publishedWorks : []
+  publishedWorks: Array.isArray(docData.publishedWorks) ? docData.publishedWorks : [],
+
+  // Gamification: Hestius (Streak Freeze)
+  hestiusCount: typeof docData.hestiusCount === 'number' ? Math.max(0, Math.min(3, docData.hestiusCount)) : 1,
+  hestiusLastRechargeDate: docData.hestiusLastRechargeDate || '',
+  hestiusLastConsumedDate: docData.hestiusLastConsumedDate || '',
 });
 
 export const updateUserPresence = async (userId: string, isOnline: boolean = true): Promise<void> => {
@@ -400,6 +405,24 @@ export const updateAuthorProfile = async (
         await updateProfile(auth.currentUser, authProfileUpdate);
       } catch {}
     }
+  }
+};
+
+export const updateUserHestius = async (
+  userId: string,
+  hestiusCount: number,
+  additionalData?: { hestiusLastRechargeDate?: string; hestiusLastConsumedDate?: string }
+): Promise<void> => {
+  if (!userId) return;
+  const safeCount = Math.max(0, Math.min(3, hestiusCount));
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      hestiusCount: safeCount,
+      ...(additionalData || {})
+    });
+  } catch (e) {
+    console.warn('Erro ao atualizar Hestius no Firestore:', e);
   }
 };
 

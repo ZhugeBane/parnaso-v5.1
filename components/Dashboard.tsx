@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { WritingSession, UserSettings, Project, User } from '../types';
+import { WritingSession, UserSettings, Project, User, ClaimedReward } from '../types';
 import { Card } from './ui/Card';
 import { Logo } from './ui/Logo';
 import { SessionDetailsModal } from './SessionDetailsModal';
@@ -17,8 +17,16 @@ import {
 import { ProjectWorkspace } from './ProjectWorkspace';
 import { RewardsShop } from './RewardsShop';
 import { AchievementsGallery } from './AchievementsGallery';
-import { wordsToDiamonds } from '../services/rewardService';
+import {
+  wordsToDiamonds,
+  wordsToScriptus,
+  sessionToKronus,
+  calculateBalances,
+  evaluateStreakWithHestius,
+  getClaimedRewards
+} from '../services/rewardService';
 import { AuthorProfileModal } from './AuthorProfileModal';
+import { ScriptusIcon, KronusIcon, HestiusIcon, HestiusOrbs } from './ui/GamificationIcons';
 
 interface DashboardProps {
   user: User;
@@ -35,6 +43,7 @@ interface DashboardProps {
   onAdminPanel?: () => void;
   onSocial?: () => void; // Added Prop
   onHelp?: () => void; // Added Prop for Help Page
+  onUpdateUser?: (updated: Partial<User>) => void;
   readOnly?: boolean;
 }
 
@@ -140,13 +149,22 @@ export const isSessionInProject = (session: WritingSession, project: Project, al
   return resolved?.id === project.id;
 };
 
-export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, settings, onNewSession, onFocusMode, onUpdateSettings, onAddProject, onDeleteProject, onResetData, onLogout, onAdminPanel, onSocial, onHelp, readOnly = false }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, settings, onNewSession, onFocusMode, onUpdateSettings, onAddProject, onDeleteProject, onResetData, onLogout, onAdminPanel, onSocial, onHelp, onUpdateUser, readOnly = false }) => {
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'general' | 'projects' | 'achievements' | 'rewards'>('general');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilterType>('all');
   const [selectedSession, setSelectedSession] = useState<WritingSession | null>(null);
   const [showAuthorProfileModal, setShowAuthorProfileModal] = useState(false);
+  const [claims, setClaims] = useState<ClaimedReward[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    getClaimedRewards(user.id).then(c => {
+      if (isMounted) setClaims(c);
+    }).catch(() => {});
+    return () => { isMounted = false; };
+  }, [user.id, activeTab]);
 
   // Work Slidebar Selection ('all' | 'general' | projectId)
   const [selectedWorkId, setSelectedWorkId] = useState<string>('all');
@@ -675,41 +693,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const avgAutoCorrection = filteredSessions.length ? (filteredSessions.reduce((acc, curr) => acc + (curr.autoCorrectionFrequency || 0), 0) / filteredSessions.length).toFixed(1) : '0';
   const avgWords = filteredSessions.length ? Math.round(totalWords / filteredSessions.length) : 0;
 
-  // Streak calculation
-  const calculateStreak = () => {
-    if (workFilteredSessions.length === 0) return 0;
-    const allSorted = [...workFilteredSessions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  // Gamification Balances (Scriptus, Kronus)
+  const balances = useMemo(() => {
+    return calculateBalances(lifetimeTotalWords, sessions, claims);
+  }, [lifetimeTotalWords, sessions, claims]);
 
-    const uniqueTimestamps = Array.from(new Set(allSorted.map(s => {
-      const d = new Date(s.date);
-      d.setHours(0, 0, 0, 0);
-      return d.getTime();
-    })));
-
-    const uniqueDates = uniqueTimestamps.map(ts => new Date(ts as number));
-    if (uniqueDates.length === 0) return 0;
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    const lastWriteTime = uniqueDates[0].getTime();
-
-    // If user hasn't written today or yesterday, streak is broken
-    if (lastWriteTime !== today.getTime() && lastWriteTime !== yesterday.getTime()) return 0;
-
-    let streak = 1;
-    for (let i = 0; i < uniqueDates.length - 1; i++) {
-      const current = uniqueDates[i];
-      const prev = uniqueDates[i + 1];
-      const diffTime = Math.abs(current.getTime() - prev.getTime());
-      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-      if (diffDays === 1) streak++; else break;
-    }
-    return streak;
-  };
-  const currentStreak = calculateStreak();
+  // Streak calculation with Hestius Shield
+  const streakResult = useMemo(() => {
+    return evaluateStreakWithHestius(workFilteredSessions, user.hestiusCount ?? 1);
+  }, [workFilteredSessions, user.hestiusCount]);
+  const currentStreak = streakResult.currentStreak;
 
   // --- Writing Pattern Analysis ---
   const analyzeWritingPatterns = () => {
@@ -2002,20 +1995,36 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           </Card>
         )}
 
-        {/* Current Streak */}
-        {currentStreak > 0 && (
+        {/* Current Streak & Hestius Protection */}
+        {(currentStreak > 0 || (user.hestiusCount ?? 1) > 0) && (
           <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <div className="flex items-start gap-3">
-              <div className="p-2 bg-gradient-to-br from-violet-400 to-purple-500 rounded-lg">
-                <span className="text-2xl">✨</span>
+              <div className="p-2 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl text-white shadow-xs">
+                <HestiusIcon className="w-6 h-6" />
               </div>
-              <div className="flex-1">
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.currentStreak')}</p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-1 flex-wrap mb-1">
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{t('dashboard.currentStreak')}</p>
+                  {(user.hestiusCount ?? 1) > 0 ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/90 shadow-2xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                      🛡️ Protegido por {user.hestiusCount ?? 1}/3 Hestius
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/90">
+                      ⚠️ Altar desprotegido (0/3 Hestius - Recarregue na Loja)
+                    </span>
+                  )}
+                </div>
                 <p className="text-lg font-bold text-slate-800">
                   {currentStreak} {t('dashboard.days')}
                 </p>
                 <p className="text-xs text-slate-600 mt-1">
-                  {t('dashboard.streakKeepItUp')}
+                  {streakResult.isProtected
+                    ? '🔥 Chama resgatada por Hestius! Sua sequência foi mantida intacta.'
+                    : currentStreak > 0
+                      ? t('dashboard.streakKeepItUp')
+                      : 'Escreva hoje para manter sua chama acesa!'}
                 </p>
               </div>
             </div>
@@ -2559,21 +2568,41 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     <span>Meu Perfil</span>
                   </button>
 
-                  {/* Purple Diamonds Pill with Glassmorphism */}
-                  <button
-                    type="button"
+                  {/* Triple Capsule with Glassmorphism: Scriptus, Kronus, Hestius */}
+                  <div
                     onClick={() => { setActiveTab('rewards'); setSelectedProjectId(null); }}
-                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs transition-all shadow-sm cursor-pointer backdrop-blur-md ${
+                    className={`flex items-center gap-1.5 p-1 rounded-2xl backdrop-blur-md border shadow-sm cursor-pointer transition-all ${
                       activeTab === 'rewards'
-                        ? 'bg-purple-600 text-white shadow-purple-500/30 ring-2 ring-purple-400'
-                        : 'bg-purple-950/50 hover:bg-purple-900/60 border border-purple-500/30 text-purple-200'
+                        ? 'bg-purple-900/70 border-purple-400/60 ring-2 ring-purple-400/40 shadow-purple-500/25'
+                        : 'bg-slate-900/50 hover:bg-slate-900/70 border-white/15 text-slate-200'
                     }`}
-                    title="Loja de Autorrecompensas (2 palavras = 1 💎)"
+                    title="Loja de Recompensas & Altar de Hestius"
                   >
-                    <span className="text-sm">💎</span>
-                    <span className="font-extrabold tracking-wide">{wordsToDiamonds(lifetimeTotalWords).toLocaleString('pt-BR')}</span>
-                    <span className="hidden sm:inline opacity-85 font-semibold">{t('dashboard.purpleDiamonds')}</span>
-                  </button>
+                    {/* Scriptus Capsule */}
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/30 text-violet-200 transition-colors">
+                      <ScriptusIcon className="w-4 h-4 text-violet-300" />
+                      <span className="font-extrabold text-xs tracking-wide text-violet-100">{balances.balanceScriptus.toLocaleString('pt-BR')}</span>
+                      <span className="hidden md:inline text-[11px] font-semibold text-violet-300/80">Scriptus</span>
+                    </div>
+
+                    {/* Kronus Capsule */}
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/30 text-amber-200 transition-colors">
+                      <KronusIcon className="w-4 h-4 text-amber-300" />
+                      <span className="font-extrabold text-xs tracking-wide text-amber-100">{balances.balanceKronus.toLocaleString('pt-BR')}</span>
+                      <span className="hidden md:inline text-[11px] font-semibold text-amber-300/80">Kronus</span>
+                    </div>
+
+                    {/* Hestius Capsule with Orbs */}
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/30 text-rose-200 transition-colors">
+                      <HestiusIcon className="w-4 h-4 text-rose-300" />
+                      <span className="font-extrabold text-xs tracking-wide text-rose-100">
+                        {user.hestiusCount ?? 1}/3
+                      </span>
+                      <div className="hidden sm:flex items-center">
+                        <HestiusOrbs count={user.hestiusCount ?? 1} size="sm" />
+                      </div>
+                    </div>
+                  </div>
 
                   {/* Social Hub Pill */}
                   {onSocial && (
@@ -2818,7 +2847,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
             {/* Project Cards */}
             {filteredAndSortedProjects.map(project => {
-              const projWords = sessions.filter(s => isSessionInProject(s, project, projects)).reduce((a, b) => a + b.wordCount, 0);
+              const projSessions = sessions.filter(s => isSessionInProject(s, project, projects));
+              const projWords = projSessions.reduce((a, b) => a + b.wordCount, 0);
+              const projKronus = projSessions.reduce((a, b) => a + sessionToKronus(b.startTime, b.endTime), 0);
+              const projScriptus = Math.floor(projWords / 2);
               const percent = project.targetWordCount ? Math.min(100, Math.round((projWords / project.targetWordCount) * 100)) : 0;
               const isDiscreet = isProjectDiscreet(project);
               const hasDiscreetModeEnabled = project.showInAutomonitoring === false || customDiscreetIds.includes(project.id);
@@ -3033,15 +3065,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       </div>
                     </div>
 
-                    {/* Purple Diamonds earned in this project */}
-                    <div className="mt-3.5 flex items-center justify-between text-xs bg-purple-50/80 border border-purple-100/90 px-3 py-1.5 rounded-xl text-purple-900">
-                      <span className="flex items-center gap-1.5 font-semibold">
-                        <span className="text-sm">💎</span>
-                        <span>{t('rewards.perProjectDiamonds')}:</span>
-                      </span>
-                      <span className="font-extrabold text-purple-800 bg-purple-200/70 px-2 py-0.5 rounded-md">
-                        +{Math.floor(projWords / 2).toLocaleString('pt-BR')} 💎
-                      </span>
+                    {/* Scriptus & Kronus earned in this project */}
+                    <div className="mt-3.5 grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex items-center justify-between bg-violet-50/80 border border-violet-100/90 px-2.5 py-1.5 rounded-xl text-violet-900">
+                        <span className="flex items-center gap-1 font-semibold truncate">
+                          <ScriptusIcon className="w-3.5 h-3.5 text-violet-600 flex-shrink-0" />
+                          <span className="truncate">Scriptus:</span>
+                        </span>
+                        <span className="font-extrabold text-violet-800 bg-violet-200/70 px-1.5 py-0.5 rounded-md text-[11px] ml-1">
+                          +{projScriptus.toLocaleString('pt-BR')}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between bg-amber-50/80 border border-amber-100/90 px-2.5 py-1.5 rounded-xl text-amber-900">
+                        <span className="flex items-center gap-1 font-semibold truncate">
+                          <KronusIcon className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                          <span className="truncate">Kronus:</span>
+                        </span>
+                        <span className="font-extrabold text-amber-800 bg-amber-200/70 px-1.5 py-0.5 rounded-md text-[11px] ml-1">
+                          +{projKronus.toLocaleString('pt-BR')}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Modernized Automonitoring & Discreet Curtain Toggle */}
@@ -3128,6 +3172,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         <RewardsShop
           user={user}
           totalWords={lifetimeTotalWords}
+          sessions={sessions}
+          onUpdateUser={onUpdateUser}
           readOnly={readOnly}
         />
       )}

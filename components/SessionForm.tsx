@@ -18,6 +18,8 @@ import {
   Flame,
   AlertCircle
 } from 'lucide-react';
+import { ScriptusIcon, KronusIcon, HestiusIcon } from './ui/GamificationIcons';
+import { sessionToKronus, evaluateStreakWithHestius, checkHestiusConsistencyRecharge } from '../services/rewardService';
 
 interface SessionFormProps {
   onSubmit: (session: WritingSession) => void;
@@ -25,6 +27,8 @@ interface SessionFormProps {
   initialValues?: Partial<WritingSession>;
   projects: Project[];
   onAddProject?: (project: Project) => Promise<Project | undefined> | void;
+  userHestius?: number;
+  sessions?: WritingSession[];
 }
 
 const DEFAULT_PROJECT_COLORS = [
@@ -217,7 +221,9 @@ export const SessionForm: React.FC<SessionFormProps> = ({
   onCancel,
   initialValues,
   projects,
-  onAddProject
+  onAddProject,
+  userHestius,
+  sessions
 }) => {
   const { t } = useLanguage();
   const [showSuccess, setShowSuccess] = useState(false);
@@ -369,6 +375,28 @@ export const SessionForm: React.FC<SessionFormProps> = ({
   // Calculated duration badge
   const durationText = calculateDuration(formData.startTime, formData.endTime);
   const wordsInText = formData.content ? formData.content.trim().split(/\s+/).filter(Boolean).length : 0;
+
+  // Real-time Gamification Preview (Scriptus, Kronus, Hestius)
+  const sessionWords = Number(formData.wordCount) || 0;
+  const sessionScriptus = Math.floor(sessionWords / 2);
+  const sessionKronus = sessionToKronus(formData.startTime, formData.endTime);
+
+  const willRechargeHestius = useMemo(() => {
+    const currentHestius = userHestius ?? 1;
+    if (currentHestius >= 3) return false;
+    if (!sessions || sessions.length === 0) return false;
+    const hypotheticalSessions = [
+      {
+        ...formData,
+        date: formData.date || new Date().toISOString(),
+        wordCount: sessionWords
+      } as WritingSession,
+      ...sessions
+    ];
+    const streakEval = evaluateStreakWithHestius(hypotheticalSessions, currentHestius);
+    const recharge = checkHestiusConsistencyRecharge(streakEval.currentStreak, undefined, currentHestius);
+    return recharge.willRecharge;
+  }, [formData, sessionWords, sessions, userHestius]);
 
   return (
     <div className="max-w-5xl mx-auto py-8 px-4 sm:px-6 animate-fade-in">
@@ -636,6 +664,35 @@ export const SessionForm: React.FC<SessionFormProps> = ({
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-teal-600 uppercase">
                     palavras
                   </span>
+                </div>
+
+                {/* Live Gamification Preview (Scriptus, Kronus, Hestius) */}
+                <div className="mt-3.5 p-3.5 bg-gradient-to-r from-violet-50/80 via-amber-50/50 to-purple-50/80 border border-violet-100 rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-violet-600" />
+                      <span>Ganhos desta Sessão:</span>
+                    </span>
+
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-violet-100/90 text-violet-800 font-extrabold text-xs shadow-2xs border border-violet-200/80">
+                        <ScriptusIcon className="w-3.5 h-3.5 text-violet-600" />
+                        <span>+{sessionScriptus} Scriptus</span>
+                      </span>
+
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-100/90 text-amber-800 font-extrabold text-xs shadow-2xs border border-amber-200/80">
+                        <KronusIcon className="w-3.5 h-3.5 text-amber-600" />
+                        <span>+{sessionKronus} Kronus</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {willRechargeHestius && (
+                    <div className="flex items-center gap-2 p-2 bg-amber-100 border border-amber-300 text-amber-900 rounded-xl text-xs font-bold animate-fade-in">
+                      <HestiusIcon className="w-4 h-4 text-amber-600 flex-shrink-0 animate-pulse" />
+                      <span>🔥 Esta sessão completará 2 dias seguidos e recarregará +1 Hestius para o seu Altar!</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

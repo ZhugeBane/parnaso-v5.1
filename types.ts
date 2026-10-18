@@ -220,6 +220,11 @@ export interface User {
   yearlyHistory?: Record<string, number>; // e.g. { "2025": 45000, "2026": 17015 }
   dailyHistory?: Record<string, number>; // e.g. { "2026-10-17": 500, "2026-10-18": 1200 }
   statsUpdatedAt?: string;
+
+  // Gamification: Hestius (Streak Freeze & Flame Protection)
+  hestiusCount?: number; // 0 to 3 (max 3)
+  hestiusLastRechargeDate?: string; // ISO or YYYY-MM-DD
+  hestiusLastConsumedDate?: string; // ISO or YYYY-MM-DD
 }
 
 export interface Friendship {
@@ -352,15 +357,16 @@ export interface Competition {
   status: 'active' | 'finished';
 }
 
-// --- REWARDS SYSTEM (1 Purple Diamond per 2 words) ---
+// --- REWARDS SYSTEM: Scriptus (words), Kronus (time), Hestius (flame protection) ---
 export interface UserReward {
   id: string;
   userId: string;
   title: string;
-  cost: number; // in purple diamonds
+  cost: number; // in Scriptus (default) or Kronus
+  currency?: 'scriptus' | 'kronus'; // default 'scriptus'
   description?: string;
   icon?: string; // emoji or icon string
-  category?: 'lazer' | 'comida' | 'compras' | 'descanso' | 'outro';
+  category?: 'lazer' | 'comida' | 'compras' | 'descanso' | 'hestius' | 'outro';
   createdAt: string;
 }
 
@@ -370,6 +376,7 @@ export interface ClaimedReward {
   rewardId: string;
   rewardTitle: string;
   cost: number;
+  currency?: 'scriptus' | 'kronus'; // default 'scriptus'
   claimedAt: string;
   notes?: string;
 }

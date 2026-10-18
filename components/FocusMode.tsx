@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Logo } from './ui/Logo';
 import { PomodoroTimer } from './ui/PomodoroTimer';
 import { useLanguage } from '../i18n/LanguageContext';
+import { ScriptusIcon, KronusIcon } from './ui/GamificationIcons';
 
 interface FocusModeProps {
   onExit: (sessionData?: { startTime: string; endTime: string; text: string; wordCount: number }) => void;
@@ -63,6 +64,11 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
   const handlePomodoroComplete = (count: number) => {
     setPomodoros(count);
   };
+
+  const liveWords = text.trim() ? text.trim().split(/\s+/).filter(w => w.length > 0).length : 0;
+  const liveScriptus = Math.floor(liveWords / 2);
+  const liveMinutes = Math.floor(seconds / 60);
+  const liveKronus = Math.floor(liveMinutes / 2);
 
 
   return (
@@ -126,6 +132,29 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
           ></textarea>
           <div className="absolute bottom-4 right-4 text-xs text-slate-500 pointer-events-none">
             {text.length > 0 ? `${text.trim().split(/\s+/).filter(w => w.length > 0).length} ${t('dashboard.words')}` : t('focusMode.startWritingPrompt')}
+          </div>
+        </div>
+
+        {/* Live Gamification Bar: Scriptus & Kronus */}
+        <div className="w-full max-w-4xl mt-3 flex items-center justify-between text-xs px-2 flex-wrap gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            {/* Live Scriptus */}
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-950/70 border border-violet-500/40 text-violet-300 backdrop-blur-sm shadow-xs">
+              <ScriptusIcon className="w-3.5 h-3.5 text-violet-400" />
+              <span className="font-extrabold text-violet-100">+{liveScriptus}</span>
+              <span className="opacity-80">Scriptus</span>
+            </div>
+
+            {/* Live Kronus */}
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-950/70 border border-amber-500/40 text-amber-300 backdrop-blur-sm shadow-xs">
+              <KronusIcon className="w-3.5 h-3.5 text-amber-400" />
+              <span className="font-extrabold text-amber-100">+{liveKronus}</span>
+              <span className="opacity-80">Kronus</span>
+            </div>
+          </div>
+
+          <div className="text-slate-400 text-xs font-medium">
+            {liveWords} {t('dashboard.words')} • {liveMinutes} min
           </div>
         </div>
 

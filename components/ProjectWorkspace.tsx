@@ -3,6 +3,8 @@ import { Project, User, WritingSession } from '../types';
 import { ConceptMapCanvas } from './ConceptMapCanvas';
 import { CharactersFolder } from './CharactersFolder';
 import { ProjectComments } from './ProjectComments';
+import { ScriptusIcon, KronusIcon } from './ui/GamificationIcons';
+import { sessionToKronus } from '../services/rewardService';
 
 interface ProjectWorkspaceProps {
   project: Project;
@@ -25,9 +27,11 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'concepts' | 'characters' | 'comments' | 'stats'>('concepts');
 
-  const projWords = sessions
-    .filter(s => s.projectId === project.id || (s.projectId && s.projectId.trim().toLowerCase() === project.name.trim().toLowerCase()))
-    .reduce((a, b) => a + b.wordCount, 0);
+  const projSessions = sessions
+    .filter(s => s.projectId === project.id || (s.projectId && s.projectId.trim().toLowerCase() === project.name.trim().toLowerCase()));
+  const projWords = projSessions.reduce((a, b) => a + b.wordCount, 0);
+  const projKronus = projSessions.reduce((a, b) => a + sessionToKronus(b.startTime, b.endTime), 0);
+  const projScriptus = Math.floor(projWords / 2);
   const percent = project.targetWordCount ? Math.min(100, Math.round((projWords / project.targetWordCount) * 100)) : 0;
 
   return (
@@ -106,15 +110,27 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
               {project.targetWordCount ? <span>{percent}% da meta</span> : null}
             </div>
 
-            {/* Purple Diamonds Badge */}
-            <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex items-center justify-between text-xs bg-purple-50/80 border border-purple-100/90 px-3 py-1.5 rounded-xl text-purple-900">
-              <span className="flex items-center gap-1.5 font-semibold">
-                <span className="text-sm">💎</span>
-                <span>Diamantes Roxos:</span>
-              </span>
-              <span className="font-extrabold text-purple-800 bg-purple-200/70 px-2 py-0.5 rounded-md">
-                +{Math.floor(projWords / 2).toLocaleString('pt-BR')} 💎
-              </span>
+            {/* Gamification Badges: Scriptus & Kronus */}
+            <div className="mt-3 pt-2.5 border-t border-slate-200/70 grid grid-cols-2 gap-2 text-xs">
+              <div className="flex items-center justify-between bg-violet-50/80 border border-violet-100/90 px-3 py-1.5 rounded-xl text-violet-900">
+                <span className="flex items-center gap-1.5 font-semibold truncate">
+                  <ScriptusIcon className="w-4 h-4 text-violet-600 flex-shrink-0" />
+                  <span className="truncate">Scriptus:</span>
+                </span>
+                <span className="font-extrabold text-violet-800 bg-violet-200/70 px-2 py-0.5 rounded-md text-[11px] ml-1">
+                  +{projScriptus.toLocaleString('pt-BR')}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between bg-amber-50/80 border border-amber-100/90 px-3 py-1.5 rounded-xl text-amber-900">
+                <span className="flex items-center gap-1.5 font-semibold truncate">
+                  <KronusIcon className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <span className="truncate">Kronus:</span>
+                </span>
+                <span className="font-extrabold text-amber-800 bg-amber-200/70 px-2 py-0.5 rounded-md text-[11px] ml-1">
+                  +{projKronus.toLocaleString('pt-BR')}
+                </span>
+              </div>
             </div>
           </div>
         </div>

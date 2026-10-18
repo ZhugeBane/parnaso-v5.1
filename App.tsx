@@ -11,7 +11,8 @@ import { SocialHub } from './components/SocialHub'; // CONNECTED SOCIAL HUB
 import { HelpPage } from './components/HelpPage';
 import { WritingSession, UserSettings, INITIAL_SETTINGS, Project, User } from './types';
 import { getSessions, saveSession, getSettings, saveSettings, getProjects, saveProject, deleteProject, clearAllData, syncUserPublicWordStats } from './services/sessionService';
-import { getCurrentUser, logout, updateUserPresence } from './services/authService';
+import { getCurrentUser, logout, updateUserPresence, updateUserHestius } from './services/authService';
+import { evaluateStreakWithHestius, checkHestiusConsistencyRecharge } from './services/rewardService';
 import { LanguageProvider } from './i18n/LanguageContext';
 
 
@@ -158,6 +159,25 @@ function App() {
       // Reload to ensure sync/IDs
       const freshSessions = await getSessions(user.id);
       setSessions(freshSessions);
+
+      // Check consistency recharge for Hestius (recharges +1 every 2 consecutive days)
+      const streakEval = evaluateStreakWithHestius(freshSessions, user.hestiusCount ?? 1);
+      const rechargeCheck = checkHestiusConsistencyRecharge(
+        streakEval.currentStreak,
+        user.hestiusLastRechargeDate,
+        user.hestiusCount ?? 1
+      );
+      if (rechargeCheck.willRecharge) {
+        const todayKey = new Date().toISOString().slice(0, 10);
+        await updateUserHestius(user.id, rechargeCheck.newHestiusCount, {
+          hestiusLastRechargeDate: todayKey
+        });
+        setUser(prev => prev ? {
+          ...prev,
+          hestiusCount: rechargeCheck.newHestiusCount,
+          hestiusLastRechargeDate: todayKey
+        } : null);
+      }
 
       console.log('[App] Sessões recarregadas:', freshSessions.length);
     } catch (error: any) {
@@ -379,6 +399,7 @@ function App() {
           onAdminPanel={handleAdminPanel}
           onSocial={handleSocial}
           onHelp={handleHelp}
+          onUpdateUser={(updated) => setUser(prev => prev ? { ...prev, ...updated } : null)}
         />
       )}
 
@@ -390,6 +411,8 @@ function App() {
             onCancel={handleCancel}
             onAddProject={handleSaveProject}
             initialValues={prefilledData}
+            userHestius={user.hestiusCount ?? 1}
+            sessions={sessions}
           />
         </div>
       )}
