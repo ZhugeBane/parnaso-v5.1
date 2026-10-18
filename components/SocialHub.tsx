@@ -63,6 +63,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { getSessions } from '../services/sessionService';
 import { getAllUsers, isUserCurrentlyOnline, updateUserPresence } from '../services/authService';
 import { sanitizeText, toSafePublicUser } from '../utils/cryptoUtils';
+import { Users, Shield, MessageSquare, Trophy, Search, UserPlus, ArrowRight, Sparkles, Flame, Zap, Calendar } from 'lucide-react';
 
 interface SocialHubProps {
   currentUser: User;
@@ -1939,92 +1940,134 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             </button>
           </div>
 
-          {/* Modern 5 Sub-Tabs Pill Bar */}
-          <div className="grid grid-cols-5 bg-slate-100/90 p-1 rounded-xl gap-1 border border-slate-200/60">
+          {/* Modern 5 Sub-Tabs Pill Bar with Larger Lucide Icons & Rich Category Gradients */}
+          <div className="grid grid-cols-5 bg-slate-100/90 p-1.5 rounded-2xl gap-1 border border-slate-200/70">
             <button
               onClick={() => { setActiveTab('friends'); setSelectedChat(null); setSelectedThread(null); }}
-              className={`relative flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+              className={`relative flex flex-col items-center justify-center py-2 px-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer gap-1 ${
                 activeTab === 'friends'
-                  ? 'bg-white text-emerald-700 shadow-xs ring-1 ring-emerald-500/20'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                  ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm border border-emerald-400/40'
+                  : 'text-slate-500 hover:text-emerald-700 hover:bg-white/70'
               }`}
             >
-              <span className="text-xs leading-none">👥</span>
-              <span className="truncate max-w-full">{t('social.tabs.friends')}</span>
-              {requests.length > 0 && (
-                <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white"></span>
-              )}
+              <Users className={`w-5 h-5 ${activeTab === 'friends' ? 'text-white' : 'text-emerald-600'}`} strokeWidth={2.2} />
+              <span className="truncate max-w-full leading-tight">{t('social.tabs.friends')}</span>
+              {requests.length > 0 ? (
+                <span className="absolute -top-1 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center ring-2 ring-white shadow-2xs">
+                  {requests.length}
+                </span>
+              ) : uniqueFriends.length > 0 ? (
+                <span className={`absolute top-1 right-1 text-[8px] font-black px-1 rounded-full ${
+                  activeTab === 'friends' ? 'bg-white/25 text-white' : 'bg-emerald-100 text-emerald-700'
+                }`}>
+                  {uniqueFriends.length}
+                </span>
+              ) : null}
             </button>
 
             <button
               onClick={() => { setActiveTab('guilds'); setSelectedChat(null); setSelectedThread(null); }}
-              className={`relative flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+              className={`relative flex flex-col items-center justify-center py-2 px-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer gap-1 ${
                 activeTab === 'guilds'
-                  ? 'bg-white text-purple-700 shadow-xs ring-1 ring-purple-500/20'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                  ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-sm border border-violet-400/40'
+                  : 'text-slate-500 hover:text-violet-700 hover:bg-white/70'
               }`}
             >
-              <span className="text-xs leading-none">🛡️</span>
-              <span className="truncate max-w-full">{t('social.tabs.guilds')}</span>
-              {totalPendingGuildApplicationsForAdmin > 0 && (
-                <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white"></span>
-              )}
+              <Shield className={`w-5 h-5 ${activeTab === 'guilds' ? 'text-white' : 'text-violet-600'}`} strokeWidth={2.2} />
+              <span className="truncate max-w-full leading-tight">{t('social.tabs.guilds')}</span>
+              {totalPendingGuildApplicationsForAdmin > 0 ? (
+                <span className="absolute -top-1 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[9px] font-black flex items-center justify-center ring-2 ring-white shadow-2xs">
+                  {totalPendingGuildApplicationsForAdmin}
+                </span>
+              ) : guilds.length > 0 ? (
+                <span className={`absolute top-1 right-1 text-[8px] font-black px-1 rounded-full ${
+                  activeTab === 'guilds' ? 'bg-white/25 text-white' : 'bg-violet-100 text-violet-700'
+                }`}>
+                  {guilds.length}
+                </span>
+              ) : null}
             </button>
 
             <button
               onClick={() => { setActiveTab('forum'); setSelectedChat(null); setSelectedThread(null); }}
-              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+              className={`relative flex flex-col items-center justify-center py-2 px-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer gap-1 ${
                 activeTab === 'forum'
-                  ? 'bg-white text-emerald-700 shadow-xs ring-1 ring-emerald-500/20'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                  ? 'bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-sm border border-amber-400/40'
+                  : 'text-slate-500 hover:text-amber-700 hover:bg-white/70'
               }`}
             >
-              <span className="text-xs leading-none">💬</span>
-              <span className="truncate max-w-full">{t('social.tabs.forum')}</span>
+              <MessageSquare className={`w-5 h-5 ${activeTab === 'forum' ? 'text-white' : 'text-amber-600'}`} strokeWidth={2.2} />
+              <span className="truncate max-w-full leading-tight">{t('social.tabs.forum')}</span>
+              {threads.length > 0 && (
+                <span className={`absolute top-1 right-1 text-[8px] font-black px-1 rounded-full ${
+                  activeTab === 'forum' ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {threads.length}
+                </span>
+              )}
             </button>
 
             <button
               onClick={() => { setActiveTab('competitions'); setSelectedChat(null); setSelectedThread(null); }}
-              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+              className={`relative flex flex-col items-center justify-center py-2 px-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer gap-1 ${
                 activeTab === 'competitions'
-                  ? 'bg-white text-amber-700 shadow-xs ring-1 ring-amber-500/20'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                  ? 'bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-sm border border-orange-400/40'
+                  : 'text-slate-500 hover:text-orange-700 hover:bg-white/70'
               }`}
             >
-              <span className="text-xs leading-none">🏆</span>
-              <span className="truncate max-w-full">{t('social.tabs.competitions')}</span>
+              <Trophy className={`w-5 h-5 ${activeTab === 'competitions' ? 'text-white' : 'text-orange-500'}`} strokeWidth={2.2} />
+              <span className="truncate max-w-full leading-tight">{t('social.tabs.competitions')}</span>
+              {competitions.length > 0 && (
+                <span className={`absolute top-1 right-1 text-[8px] font-black px-1 rounded-full ${
+                  activeTab === 'competitions' ? 'bg-white/25 text-white' : 'bg-orange-100 text-orange-700'
+                }`}>
+                  {competitions.length}
+                </span>
+              )}
             </button>
 
             <button
               onClick={() => { setActiveTab('find'); setSelectedChat(null); setSelectedThread(null); }}
-              className={`relative flex flex-col items-center justify-center py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer gap-0.5 ${
+              className={`relative flex flex-col items-center justify-center py-2 px-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer gap-1 ${
                 activeTab === 'find'
-                  ? 'bg-white text-emerald-700 shadow-xs ring-1 ring-emerald-500/20'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
+                  ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm border border-emerald-400/40'
+                  : 'text-slate-500 hover:text-emerald-700 hover:bg-white/70'
               }`}
             >
-              <span className="text-xs leading-none">🔍</span>
-              <span className="truncate max-w-full">{t('social.tabs.find')}</span>
+              <Search className={`w-5 h-5 ${activeTab === 'find' ? 'text-white' : 'text-teal-600'}`} strokeWidth={2.2} />
+              <span className="truncate max-w-full leading-tight">{t('social.tabs.find')}</span>
               {requests.length > 0 && (
-                <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white"></span>
+                <span className="absolute -top-1 -right-0.5 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white"></span>
               )}
             </button>
           </div>
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-3">
+        <div className="flex-1 overflow-y-auto p-3.5">
 
           {/* TAB: FRIENDS */}
           {activeTab === 'friends' && (
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               <div className="mb-3">
                 <button
                   onClick={() => setActiveTab('find')}
-                  className="w-full px-3.5 py-2.5 text-xs font-bold text-emerald-700 bg-emerald-50/60 hover:bg-emerald-50 rounded-xl border border-dashed border-emerald-300 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
+                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white flex items-center justify-between gap-3 transition-all cursor-pointer shadow-sm group"
                 >
-                  <span>🔍</span>
-                  <span>{t('social.friends.addFriend')}</span>
+                  <div className="flex items-center gap-3 min-w-0 text-left">
+                    <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0 ring-1 ring-white/30">
+                      <UserPlus className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-extrabold tracking-tight truncate">
+                        + {t('social.friends.addFriend')}
+                      </p>
+                      <p className="text-[10px] text-emerald-100 font-medium truncate">
+                        Encontre escritores e acompanhe jornadas
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-emerald-100 group-hover:translate-x-1 transition-transform flex-shrink-0" />
                 </button>
               </div>
 
@@ -2150,12 +2193,25 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
           {/* TAB: GUILDS */}
           {activeTab === 'guilds' && (
             <div className="space-y-3">
+              {/* Compact Banner Action Button: Fundar Nova Guilda */}
               <button
                 onClick={() => setShowCreateGuild(true)}
-                className="w-full px-3.5 py-2.5 text-xs font-bold text-purple-700 bg-purple-50/60 hover:bg-purple-50 rounded-xl border border-dashed border-purple-300 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
+                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white flex items-center justify-between gap-3 transition-all cursor-pointer shadow-sm group"
               >
-                <span>🛡️</span>
-                <span>{t('social.guilds.foundNewGuild')}</span>
+                <div className="flex items-center gap-3 min-w-0 text-left">
+                  <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0 ring-1 ring-white/30">
+                    <Shield className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-extrabold tracking-tight truncate">
+                      + {t('social.guilds.foundNewGuild')}
+                    </p>
+                    <p className="text-[10px] text-violet-100 font-medium truncate">
+                      Crie seu clã literário e some palavras
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-violet-100 group-hover:translate-x-1 transition-transform flex-shrink-0" />
               </button>
 
               {/* Guild Search Input */}
@@ -2168,7 +2224,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   placeholder="Procurar guilda pelo nome ou lema..."
                   value={guildSearchTerm}
                   onChange={(e) => setGuildSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-8 py-2 bg-slate-100/90 focus:bg-white border border-slate-200/80 focus:border-purple-500 rounded-xl text-xs outline-none focus:ring-2 focus:ring-purple-500/20 transition-all text-slate-800 placeholder:text-slate-400"
+                  className="w-full pl-9 pr-8 py-2.5 bg-slate-100/90 focus:bg-white border border-slate-200/80 focus:border-violet-500 rounded-xl text-xs outline-none focus:ring-2 focus:ring-violet-500/20 transition-all text-slate-800 placeholder:text-slate-400"
                 />
                 {guildSearchTerm && (
                   <button
@@ -2182,7 +2238,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               </div>
 
               {/* My Guilds */}
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <div className="flex items-center justify-between px-1">
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
                     Minhas Guildas ({filteredMyGuilds.length})
@@ -2202,48 +2258,61 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         setGuildSubTab('home');
                         fetchGuildThreadData(guild.id);
                       }}
-                      className={`w-full flex items-center p-3 rounded-2xl transition-all cursor-pointer border ${
+                      className={`group/guild w-full flex items-center justify-between p-3.5 rounded-2xl transition-all cursor-pointer border ${
                         isSelected
-                          ? 'bg-purple-50/90 border-purple-200 shadow-xs'
-                          : 'bg-white hover:bg-slate-50 border-slate-100 hover:border-slate-200'
+                          ? 'bg-violet-100/80 border-violet-300 shadow-xs ring-1 ring-violet-400/20'
+                          : 'bg-violet-50/40 hover:bg-violet-50/80 border-violet-100 hover:border-violet-200 shadow-2xs'
                       }`}
                     >
-                      {(guild.emblemBase64 || guild.emblemUrl) ? (
-                        <img
-                          src={guild.emblemBase64 || guild.emblemUrl}
-                          alt="Emblem"
-                          className="w-11 h-11 rounded-full object-cover mr-3 border-2 border-purple-200 shadow-xs flex-shrink-0"
-                        />
-                      ) : (
-                        <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(guild.name)} flex items-center justify-center text-white font-extrabold text-sm mr-3 border-2 border-white shadow-sm flex-shrink-0`}>
-                          {guild.name.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                      <div className="text-left flex-1 min-w-0">
-                        <div className={`font-bold text-sm truncate ${isSelected ? 'text-purple-950' : 'text-slate-800'}`}>
-                          {guild.name}
-                        </div>
-                        {guild.description && (
-                          <p className="text-[11px] text-slate-400 truncate">{guild.description}</p>
+                      <div className="flex items-center min-w-0 flex-1 mr-2">
+                        {(guild.emblemBase64 || guild.emblemUrl) ? (
+                          <img
+                            src={guild.emblemBase64 || guild.emblemUrl}
+                            alt="Emblem"
+                            className="w-14 h-14 rounded-2xl object-cover mr-3.5 border-2 border-violet-200 shadow-xs flex-shrink-0"
+                          />
+                        ) : (
+                          <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${getAvatarGradient(guild.name)} flex items-center justify-center text-white font-black text-lg mr-3.5 border-2 border-white shadow-sm flex-shrink-0`}>
+                            {guild.name.charAt(0).toUpperCase()}
+                          </div>
                         )}
-                        <div className="text-[11px] text-slate-400 truncate flex items-center flex-wrap gap-1.5 mt-0.5">
-                          <span className="inline-flex items-center px-1.5 py-0.2 rounded-md bg-purple-50 text-purple-700 font-semibold text-[10px]">
-                            {guild.members.length} {t('social.guilds.members')}
-                          </span>
-                          {pendingCount > 0 && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 font-extrabold text-[10px]">
-                              <span>📥</span>
-                              <span>{pendingCount} pendente{pendingCount > 1 ? 's' : ''}</span>
-                            </span>
+                        <div className="text-left flex-1 min-w-0">
+                          <div className={`font-extrabold text-sm truncate ${isSelected ? 'text-violet-950' : 'text-slate-800'}`}>
+                            {guild.name}
+                          </div>
+                          {guild.description ? (
+                            <p className="text-[11px] text-slate-500 truncate mt-0.5">{guild.description}</p>
+                          ) : (
+                            <p className="text-[11px] text-slate-400 italic truncate mt-0.5">Clã literário ParnasoTec</p>
                           )}
+                          <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 border border-violet-200/80 text-violet-700 font-extrabold text-[10px] shadow-2xs">
+                              <Users className="w-3 h-3 text-violet-500" />
+                              <span>{guild.members.length} {t('social.guilds.members')}</span>
+                            </span>
+                            {pendingCount > 0 && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 font-extrabold text-[10px]">
+                                <span>📥</span>
+                                <span>{pendingCount} pendente{pendingCount > 1 ? 's' : ''}</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
+                      </div>
+
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
+                        isSelected
+                          ? 'bg-violet-600 text-white'
+                          : 'bg-white/80 text-violet-500 group-hover/guild:bg-violet-600 group-hover/guild:text-white'
+                      }`}>
+                        <ArrowRight className="w-4 h-4 group-hover/guild:translate-x-0.5 transition-transform" />
                       </div>
                     </button>
                   );
                 })}
 
                 {filteredMyGuilds.length === 0 && !trimmedGuildSearch && (
-                  <div className="text-center py-6 px-4 bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
+                  <div className="text-center py-6 px-4 bg-violet-50/30 rounded-2xl border border-dashed border-violet-200">
                     <p className="text-xs font-bold text-slate-600 mb-0.5">Você ainda não participa de uma guilda</p>
                     <p className="text-[11px] text-slate-400">Funde uma nova ou explore as guildas da comunidade abaixo!</p>
                   </div>
@@ -2254,7 +2323,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               {(filteredDiscoverableGuilds.length > 0 || trimmedGuildSearch) && (
                 <div className="pt-2 border-t border-slate-100 space-y-2">
                   <div className="flex items-center justify-between px-1">
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-600">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-violet-600">
                       🧭 Explorar Guildas ({filteredDiscoverableGuilds.length})
                     </span>
                   </div>
@@ -2264,33 +2333,33 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     return (
                       <div
                         key={guild.id}
-                        className={`w-full flex flex-col p-3 rounded-2xl bg-white border transition-all shadow-2xs gap-2.5 ${
+                        className={`w-full flex flex-col p-3.5 rounded-2xl border transition-all shadow-2xs gap-2.5 ${
                           hasPendingApplication
-                            ? 'border-amber-200 bg-amber-50/20'
-                            : 'border-slate-100 hover:border-purple-200'
+                            ? 'border-amber-200 bg-amber-50/30'
+                            : 'bg-violet-50/25 hover:bg-violet-50/60 border-violet-100 hover:border-violet-200'
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center justify-between gap-2.5">
                           <div className="flex items-center min-w-0 flex-1">
                             {(guild.emblemBase64 || guild.emblemUrl) ? (
                               <img
                                 src={guild.emblemBase64 || guild.emblemUrl}
                                 alt="Emblem"
-                                className="w-10 h-10 rounded-full object-cover mr-3 border border-purple-200 flex-shrink-0"
+                                className="w-12 h-12 rounded-2xl object-cover mr-3 border border-violet-200 flex-shrink-0"
                               />
                             ) : (
-                              <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(guild.name)} flex items-center justify-center text-white font-extrabold text-xs mr-3 flex-shrink-0`}>
+                              <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${getAvatarGradient(guild.name)} flex items-center justify-center text-white font-extrabold text-sm mr-3 flex-shrink-0 shadow-2xs`}>
                                 {guild.name.charAt(0).toUpperCase()}
                               </div>
                             )}
                             <div className="min-w-0 flex-1">
-                              <p className="font-bold text-xs text-slate-800 truncate">{guild.name}</p>
-                              <p className="text-[10px] text-slate-400 truncate">
+                              <p className="font-extrabold text-xs text-slate-800 truncate">{guild.name}</p>
+                              <p className="text-[10px] text-slate-500 truncate">
                                 {guild.description || 'Guilda literária da comunidade'}
                               </p>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="inline-block text-[9px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.2 rounded">
-                                  🔒 Acesso mediante aprovação de Adm
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <span className="inline-block text-[9px] font-bold text-violet-700 bg-white/90 border border-violet-200/70 px-1.5 py-0.5 rounded-md">
+                                  🔒 Acesso mediante aprovação
                                 </span>
                               </div>
                             </div>
@@ -2302,12 +2371,12 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                               className="px-2.5 py-1.5 bg-amber-100 hover:bg-rose-100 text-amber-800 hover:text-rose-700 border border-amber-200 rounded-xl text-[10px] font-bold transition-colors flex-shrink-0 cursor-pointer"
                               title="Clique para cancelar sua solicitação"
                             >
-                              ⏳ Aguardando Adm (Cancelar)
+                              ⏳ Aguardando (Cancelar)
                             </button>
                           ) : (
                             <button
                               onClick={(e) => handleRequestJoinGuild(e, guild)}
-                              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-[11px] font-bold transition-colors flex-shrink-0 cursor-pointer shadow-xs"
+                              className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-[11px] font-bold transition-colors flex-shrink-0 cursor-pointer shadow-xs"
                             >
                               📩 Candidatar-se
                             </button>
@@ -2329,13 +2398,26 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
           {/* TAB: FORUM */}
           {activeTab === 'forum' && (
-            <div className="space-y-2.5">
+            <div className="space-y-3">
+              {/* Compact Banner Action Button: Novo Tópico */}
               <button
                 onClick={() => setShowCreateThread(true)}
-                className="w-full px-3.5 py-2.5 text-xs font-bold text-emerald-700 bg-emerald-50/60 hover:bg-emerald-50 rounded-xl border border-dashed border-emerald-300 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
+                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white flex items-center justify-between gap-3 transition-all cursor-pointer shadow-sm group"
               >
-                <span>✍️</span>
-                <span>{t('social.forum.newThread')}</span>
+                <div className="flex items-center gap-3 min-w-0 text-left">
+                  <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0 ring-1 ring-white/30">
+                    <MessageSquare className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-extrabold tracking-tight truncate">
+                      {t('social.forum.newThread')}
+                    </p>
+                    <p className="text-[10px] text-amber-50 font-medium truncate">
+                      Compartilhe ideias, dúvidas ou trechos
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-amber-50 group-hover:translate-x-1 transition-transform flex-shrink-0" />
               </button>
 
               {threads.map(thread => {
@@ -2348,37 +2430,58 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   <div key={thread.id} className="relative group">
                     <button
                       onClick={() => { setSelectedThread(thread); setSelectedChat(null); }}
-                      className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                      className={`w-full text-left p-3.5 rounded-2xl border border-l-4 border-l-amber-400 transition-all cursor-pointer ${
                         isSelected
-                          ? 'bg-emerald-50/70 border-emerald-300 shadow-xs'
-                          : 'bg-white border-slate-100 hover:border-slate-300 hover:shadow-2xs'
+                          ? 'bg-amber-50/70 border-amber-300 shadow-xs'
+                          : 'bg-white border-slate-200/80 hover:border-amber-300 hover:bg-amber-50/20 shadow-2xs'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-2 pr-5">
                         <span className={`text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full border ${getCategoryBadgeStyle(thread.category)}`}>
                           {thread.category}
                         </span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border ${
-                          likeCount > 0
-                            ? 'bg-rose-50 text-rose-600 border-rose-200/80'
-                            : 'bg-slate-50 text-slate-400 border-slate-200/60'
-                        }`}>
-                          <span>❤️</span>
-                          <span>{likeCount}</span>
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200/70">
+                            <MessageSquare className="w-3 h-3" />
+                            <span>Debate</span>
+                          </span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border ${
+                            likeCount > 0
+                              ? 'bg-rose-50 text-rose-600 border-rose-200/80'
+                              : 'bg-slate-50 text-slate-400 border-slate-200/60'
+                          }`}>
+                            <span>❤️</span>
+                            <span>{likeCount}</span>
+                          </span>
+                        </div>
                       </div>
-                      <h3 className="font-bold text-slate-800 text-sm leading-snug mb-2.5 line-clamp-2">{thread.title}</h3>
-                      <div className="flex items-center gap-2">
-                        {authorAvatar ? (
-                          <img src={authorAvatar} alt={authorName} className="w-5 h-5 rounded-full object-cover border border-slate-200 flex-shrink-0" />
-                        ) : (
-                          <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${getAvatarGradient(authorName)} text-white flex items-center justify-center text-[9px] font-bold flex-shrink-0`}>
-                            {authorName.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <p className="text-[11px] text-slate-500 truncate">
-                          {t('social.forum.by')} <strong className="font-semibold text-slate-700">{authorName}</strong>
+
+                      <h3 className="font-extrabold text-slate-800 text-sm leading-snug mb-1 line-clamp-2">
+                        {thread.title}
+                      </h3>
+
+                      {thread.content && (
+                        <p className="text-xs text-slate-500 line-clamp-1 mb-3 leading-relaxed">
+                          {thread.content}
                         </p>
+                      )}
+
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {authorAvatar ? (
+                            <img src={authorAvatar} alt={authorName} className="w-8 h-8 rounded-full object-cover border border-amber-200 shadow-2xs flex-shrink-0" />
+                          ) : (
+                            <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarGradient(authorName)} text-white flex items-center justify-center text-xs font-extrabold flex-shrink-0 shadow-2xs`}>
+                              {authorName.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {t('social.forum.by')} <strong className="font-bold text-slate-800">{authorName}</strong>
+                            </p>
+                          </div>
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-amber-500 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
                       </div>
                     </button>
                     {(currentUser.role === 'admin' || thread.authorId === currentUser.id) && (
@@ -2401,13 +2504,27 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
           {/* TAB: COMPETITIONS */}
           {activeTab === 'competitions' && (
             <div className="space-y-3">
+              {/* Compact Banner Action Button: Criar Novo Desafio */}
               <button
                 onClick={() => { setCompError(null); setShowCreateComp(true); }}
-                className="w-full px-3.5 py-2.5 text-xs font-bold text-amber-700 bg-amber-50/70 hover:bg-amber-50 rounded-xl border border-dashed border-amber-300 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
+                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-400 hover:to-amber-500 text-white flex items-center justify-between gap-3 transition-all cursor-pointer shadow-sm group"
               >
-                <span>🏆</span>
-                <span>{t('social.competitions.createNewChallenge')}</span>
+                <div className="flex items-center gap-3 min-w-0 text-left">
+                  <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0 ring-1 ring-white/30">
+                    <Trophy className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-extrabold tracking-tight truncate">
+                      {t('social.competitions.createNewChallenge')}
+                    </p>
+                    <p className="text-[10px] text-amber-50 font-medium truncate">
+                      Lance metas de palavras ou dias seguidos
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-amber-50 group-hover:translate-x-1 transition-transform flex-shrink-0" />
               </button>
+
               {competitions.map(comp => {
                 const isParticipant = comp.participants.includes(currentUser.id);
                 return (
@@ -2476,10 +2593,87 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               })}
 
               {competitions.length === 0 && (
-                <div className="text-center py-8 px-4 bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
-                  <span className="text-2xl block mb-2">🏆</span>
-                  <p className="text-xs font-bold text-slate-600 mb-1">Nenhum desafio ativo</p>
-                  <p className="text-[11px] text-slate-400">Crie o primeiro desafio literário para engajar a comunidade!</p>
+                <div className="p-5 bg-gradient-to-b from-amber-50/50 via-white to-orange-50/30 rounded-2xl border border-amber-200/70 shadow-2xs space-y-4">
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-100 to-orange-100 border-2 border-amber-200/90 text-amber-600 flex items-center justify-center mx-auto mb-3 shadow-inner ring-4 ring-amber-50">
+                      <Trophy className="w-8 h-8 text-amber-500" strokeWidth={2} />
+                    </div>
+                    <p className="text-sm font-extrabold text-slate-800">Nenhum desafio ativo no momento</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Escolha uma sugestão rápida abaixo para lançar o próximo desafio da comunidade:
+                    </p>
+                  </div>
+
+                  {/* Quick Challenge Suggestions */}
+                  <div className="space-y-2 pt-1">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-700 px-1 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" />
+                      <span>Sugestões Rápidas de Desafio</span>
+                    </p>
+
+                    {[
+                      {
+                        badge: '⚡',
+                        label: 'Sprint de 1.000 palavras em 3 dias',
+                        sub: 'Meta curta para destravar o ritmo criativo',
+                        title: 'Sprint Relâmpago de 1.000 Palavras',
+                        desc: 'Meta rápida de 1.000 palavras em 3 dias para destravar a escrita ao lado da comunidade!',
+                        type: 'word_count' as const,
+                        target: 1000,
+                        duration: 3
+                      },
+                      {
+                        badge: '🔥',
+                        label: 'Maratona de Fim de Semana • 3.000 palavras',
+                        sub: 'Foco intenso para avançar capítulos inteiros',
+                        title: 'Maratona Literária de Fim de Semana',
+                        desc: 'Desafio coletivo de 3.000 palavras em 3 dias para avançar capítulos com foco total!',
+                        type: 'word_count' as const,
+                        target: 3000,
+                        duration: 3
+                      },
+                      {
+                        badge: '📅',
+                        label: 'Hábito Inabalável • 7 dias seguidos',
+                        sub: 'Escreva todos os dias por uma semana',
+                        title: 'Ofensiva Literária de 7 Dias',
+                        desc: 'Registre sessões de escrita todos os dias durante 7 dias consecutivos sem quebrar a corrente!',
+                        type: 'days_streak' as const,
+                        target: 7,
+                        duration: 7
+                      }
+                    ].map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          setCompError(null);
+                          setNewCompTitle(preset.title);
+                          setNewCompDesc(preset.desc);
+                          setNewCompType(preset.type);
+                          setNewCompTarget(preset.target);
+                          setNewCompDuration(preset.duration);
+                          setShowCreateComp(true);
+                        }}
+                        className="w-full text-left p-2.5 rounded-xl bg-white hover:bg-amber-50/80 border border-amber-200/70 hover:border-amber-300 transition-all flex items-center justify-between gap-2.5 cursor-pointer group/preset shadow-2xs"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/60 flex items-center justify-center text-sm flex-shrink-0">
+                            {preset.badge}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-xs font-extrabold text-slate-800 group-hover/preset:text-amber-900 truncate">
+                              {preset.label}
+                            </p>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              {preset.sub}
+                            </p>
+                          </div>
+                        </div>
+                        <ArrowRight className="w-3.5 h-3.5 text-amber-400 group-hover/preset:translate-x-0.5 transition-transform flex-shrink-0" />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -2608,6 +2802,39 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             </div>
           )}
 
+        </div>
+
+        {/* Fixed Sidebar Footer: Mini-Card de Status Social do Escritor */}
+        <div className="mt-auto p-3 border-t border-slate-100 bg-gradient-to-r from-slate-50/90 via-emerald-50/30 to-violet-50/30 flex-shrink-0">
+          <div className="p-2.5 rounded-2xl bg-white/90 border border-slate-200/80 shadow-2xs flex items-center gap-2.5">
+            <div className="relative flex-shrink-0">
+              {getUserAvatar(currentUser) ? (
+                <img
+                  src={getUserAvatar(currentUser)}
+                  alt={currentUser.name}
+                  className="w-9 h-9 rounded-xl object-cover border border-emerald-200 shadow-2xs"
+                />
+              ) : (
+                <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${getAvatarGradient(currentUser.name)} text-white flex items-center justify-center font-extrabold text-xs shadow-2xs`}>
+                  {currentUser.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" title="Online" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 truncate">
+                  🌟 Seu Status Social
+                </span>
+              </div>
+              <p className="text-[11px] font-bold text-slate-700 truncate mt-0.5">
+                {uniqueFriends.length} {uniqueFriends.length === 1 ? 'Amigo' : 'Amigos'} • {guilds.length} {guilds.length === 1 ? 'Guilda' : 'Guildas'}
+              </p>
+              <p className="text-[10px] text-slate-400 truncate">
+                Compartilhe sua jornada literária!
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
