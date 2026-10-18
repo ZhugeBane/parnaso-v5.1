@@ -171,6 +171,8 @@ export interface WritingSession {
 export interface UserSettings {
   dailyWordGoal: number;
   weeklyWordGoal: number;
+  dailyMinutesGoal?: number;
+  weeklyMinutesGoal?: number;
 }
 
 export interface PurchaseLink {

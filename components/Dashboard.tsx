@@ -17,14 +17,17 @@ import {
 import { ProjectWorkspace } from './ProjectWorkspace';
 import { RewardsShop } from './RewardsShop';
 import { AchievementsGallery } from './AchievementsGallery';
-import { BookOpen, Users, Sparkles } from 'lucide-react';
+import { BookOpen, Users, Sparkles, Clock, Hourglass } from 'lucide-react';
 import {
   wordsToDiamonds,
   wordsToScriptus,
   sessionToKronus,
   calculateBalances,
   evaluateStreakWithHestius,
-  getClaimedRewards
+  getClaimedRewards,
+  calculateSessionMinutes,
+  formatMinutesToHours,
+  formatMinutesShort
 } from '../services/rewardService';
 import { AuthorProfileModal } from './AuthorProfileModal';
 import { ScriptusIcon, KronusIcon, HestiusIcon, HestiusOrbs } from './ui/GamificationIcons';
@@ -175,8 +178,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const [qualityMetricFilter, setQualityMetricFilter] = useState<'all' | 'avaliacao' | 'estresse' | 'dificuldade' | 'autocorrecao'>('all');
 
   // Interactive Goals Inline Edit State
-  const [editingGoal, setEditingGoal] = useState<'daily' | 'weekly' | null>(null);
+  const [editingGoal, setEditingGoal] = useState<'daily' | 'weekly' | 'dailyTime' | 'weeklyTime' | null>(null);
   const [tempGoalInput, setTempGoalInput] = useState<string>('');
+
+  // Segmented Control View Mode: 'words' (Volume de Palavras) vs 'time' (Tempo de Produção / Kronus)
+  const [metricViewMode, setMetricViewMode] = useState<'words' | 'time'>('words');
 
   // Bar Chart Interactive Work Filter / Highlight
   const [highlightedWorkId, setHighlightedWorkId] = useState<string | null>(null);
@@ -190,13 +196,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   // Heatmap Hide Early Hours Toggle (default: true -> 08h-23h)
   const [hideEarlyHours, setHideEarlyHours] = useState<boolean>(true);
 
-  const handleSaveGoal = (type: 'daily' | 'weekly') => {
+  const handleSaveGoal = (type: 'daily' | 'weekly' | 'dailyTime' | 'weeklyTime') => {
     const val = parseInt(tempGoalInput, 10);
     if (!isNaN(val) && val > 0) {
       if (type === 'daily') {
         onUpdateSettings({ ...settings, dailyWordGoal: val });
-      } else {
+      } else if (type === 'weekly') {
         onUpdateSettings({ ...settings, weeklyWordGoal: val });
+      } else if (type === 'dailyTime') {
+        onUpdateSettings({ ...settings, dailyMinutesGoal: val });
+      } else if (type === 'weeklyTime') {
+        onUpdateSettings({ ...settings, weeklyMinutesGoal: val });
       }
     }
     setEditingGoal(null);
@@ -603,18 +613,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   // --- Statistics Logic ---
   const sortedSessions = [...filteredSessions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  // Group data for Stacked Bar Chart
+  // Group data for Stacked Bar Chart (supports Words or Time in minutes)
   const dateMap = new Map<string, any>();
 
   sortedSessions.forEach(s => {
     const dateStr = new Date(s.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-    const existing = dateMap.get(dateStr) || { date: dateStr };
+    const existing = dateMap.get(dateStr) || { date: dateStr, totalWords: 0, totalTime: 0 };
 
     // Resolve project to match BarChart dataKey (which is project.id)
     const proj = getProjectForSession(s, projects);
     const key = proj ? proj.id : 'general';
-    existing[key] = (existing[key] || 0) + s.wordCount;
-    existing.total = (existing.total || 0) + s.wordCount; // Keep track of total for tooltip if needed
+    const sMinutes = calculateSessionMinutes(s.startTime, s.endTime);
+    const valToAdd = metricViewMode === 'time' ? sMinutes : s.wordCount;
+
+    existing[key] = (existing[key] || 0) + valToAdd;
+    existing.total = (existing.total || 0) + valToAdd;
+    existing.totalWords = (existing.totalWords || 0) + s.wordCount;
+    existing.totalTime = (existing.totalTime || 0) + sMinutes;
 
     dateMap.set(dateStr, existing);
   });
@@ -828,19 +843,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   const writingInsights = analyzeWritingPatterns();
 
-  // Goals
+  // Goals (Words & Production Time)
   const today = new Date().toLocaleDateString('en-CA');
-  const wordsToday = workFilteredSessions
-    .filter(s => new Date(s.date).toLocaleDateString('en-CA') === today)
-    .reduce((acc, curr) => acc + curr.wordCount, 0);
-  const dailyProgress = Math.min(100, Math.round((wordsToday / settings.dailyWordGoal) * 100));
+  const todaySessions = workFilteredSessions.filter(s => new Date(s.date).toLocaleDateString('en-CA') === today);
+  const wordsToday = todaySessions.reduce((acc, curr) => acc + curr.wordCount, 0);
+  const minutesToday = todaySessions.reduce((acc, curr) => acc + calculateSessionMinutes(curr.startTime, curr.endTime), 0);
+
+  const dailyMinutesGoal = settings.dailyMinutesGoal || 30;
+  const dailyProgress = Math.min(100, Math.round((wordsToday / (settings.dailyWordGoal || 500)) * 100));
+  const dailyTimeProgress = Math.min(100, Math.round((minutesToday / dailyMinutesGoal) * 100));
 
   const oneWeekAgo = new Date();
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-  const wordsWeek = workFilteredSessions
-    .filter(s => new Date(s.date) >= oneWeekAgo)
-    .reduce((acc, curr) => acc + curr.wordCount, 0);
-  const weeklyProgress = Math.min(100, Math.round((wordsWeek / settings.weeklyWordGoal) * 100));
+  const weekSessions = workFilteredSessions.filter(s => new Date(s.date) >= oneWeekAgo);
+  const wordsWeek = weekSessions.reduce((acc, curr) => acc + curr.wordCount, 0);
+  const minutesWeek = weekSessions.reduce((acc, curr) => acc + calculateSessionMinutes(curr.startTime, curr.endTime), 0);
+
+  const weeklyMinutesGoal = settings.weeklyMinutesGoal || 180;
+  const weeklyProgress = Math.min(100, Math.round((wordsWeek / (settings.weeklyWordGoal || 2500)) * 100));
+  const weeklyTimeProgress = Math.min(100, Math.round((minutesWeek / weeklyMinutesGoal) * 100));
+
+  // Total Production Time (Filtered and Averages)
+  const totalMinutes = filteredSessions.reduce((acc, s) => acc + calculateSessionMinutes(s.startTime, s.endTime), 0);
+  const avgSessionMinutes = filteredSessions.length > 0 ? Math.round(totalMinutes / filteredSessions.length) : 0;
+  const avgPaceWpm = totalMinutes > 0 ? Math.round(totalWords / totalMinutes) : (totalWords > 0 && filteredSessions.length > 0 ? Math.round(totalWords / (filteredSessions.length * 30)) : 0);
 
   // Project Specific Goal
   const activeProject = useMemo(() => {
@@ -879,6 +905,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       const checkDate = new Date(year, month, i).toLocaleDateString('en-CA');
       const daySessions = filteredSessions.filter(s => new Date(s.date).toLocaleDateString('en-CA') === checkDate);
       const totalWords = daySessions.reduce((acc, s) => acc + s.wordCount, 0);
+      const totalMinutes = daySessions.reduce((acc, s) => acc + calculateSessionMinutes(s.startTime, s.endTime), 0);
       const avgRating = daySessions.length > 0 
         ? (daySessions.reduce((acc, s) => acc + s.sessionRating, 0) / daySessions.length).toFixed(1)
         : null;
@@ -888,6 +915,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         hasSession: daySessions.length > 0,
         sessions: daySessions,
         totalWords,
+        totalMinutes,
         avgRating,
       });
     }
@@ -983,7 +1011,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   // --- Heatmap Data Processing ---
   const heatmapData = useMemo(() => {
-    const dataMap = new Map<string, number>();
+    const dataMap = new Map<string, { wordCount: number; minutes: number }>();
 
     filteredSessions.forEach(session => {
       const date = new Date(session.date);
@@ -994,15 +1022,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       if (hourMatch) {
         const hour = parseInt(hourMatch[1], 10);
         const key = `${day}-${hour}`;
-        dataMap.set(key, (dataMap.get(key) || 0) + session.wordCount);
+        const prev = dataMap.get(key) || { wordCount: 0, minutes: 0 };
+        const sMins = calculateSessionMinutes(session.startTime, session.endTime);
+        dataMap.set(key, {
+          wordCount: prev.wordCount + (session.wordCount || 0),
+          minutes: prev.minutes + sMins
+        });
       }
     });
 
     // Convert map to array format
-    const result: { day: number; hour: number; wordCount: number }[] = [];
-    dataMap.forEach((wordCount, key) => {
+    const result: { day: number; hour: number; wordCount: number; minutes: number }[] = [];
+    dataMap.forEach((val, key) => {
       const [day, hour] = key.split('-').map(Number);
-      result.push({ day, hour, wordCount });
+      result.push({ day, hour, wordCount: val.wordCount, minutes: val.minutes });
     });
 
     return result;
@@ -1020,6 +1053,52 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           ? 'Moderado ⚖️'
           : 'Intenso ⚡';
 
+    if (metricViewMode === 'time') {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <Card className="border-l-4 border-amber-500 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+            <Stat
+              label={t('dashboard.totalProductionTime') || 'Tempo Total Produzido'}
+              value={formatMinutesToHours(totalMinutes)}
+              colorClass="text-amber-600"
+              subtitle={`Total acumulado no período (${totalWords.toLocaleString('pt-BR')} pal.)`}
+            />
+          </Card>
+          <Card className="border-l-4 border-orange-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+            <Stat
+              label={t('dashboard.avgSessionDuration') || 'Duração Média / Sessão'}
+              value={avgSessionMinutes}
+              subValue="min"
+              colorClass="text-orange-600"
+              subtitle="Média de dedicação por registro"
+            />
+          </Card>
+          <Card className="border-l-4 border-teal-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+            <Stat
+              label={t('dashboard.avgPace') || 'Ritmo Médio'}
+              value={avgPaceWpm}
+              subValue="pal/min"
+              colorClass="text-teal-600"
+              subtitle={`${filteredSessions.length} ${filteredSessions.length === 1 ? 'sessão analisada' : 'sessões analisadas'}`}
+            />
+          </Card>
+          <Card className="border-l-4 border-purple-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+            <Stat
+              label="Total de Sessões"
+              value={filteredSessions.length}
+              subValue="sessões"
+              colorClass="text-purple-600"
+              subtitle={
+                filteredSessions.length > 0
+                  ? `${filteredSessions.filter(s => s.sessionRating >= 4).length} com nota alta (4+ ⭐)`
+                  : 'Nenhuma sessão no período'
+              }
+            />
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <Card className="border-l-4 border-teal-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
@@ -1030,7 +1109,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             subtitle={
               activeProject && activeProject.targetWordCount
                 ? `${t('dashboard.goal')}: ${activeProject.targetWordCount.toLocaleString('pt-BR')} (${projectProgress}%)`
-                : `${filteredSessions.length} ${filteredSessions.length === 1 ? 'sessão analisada' : 'sessões analisadas'}`
+                : `⏱️ ${formatMinutesToHours(totalMinutes)} dedicadas • ${filteredSessions.length} ${filteredSessions.length === 1 ? 'sessão' : 'sessões'}`
             }
           />
         </Card>
@@ -1040,18 +1119,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             value={avgWords.toLocaleString('pt-BR')}
             subValue={t('dashboard.words')}
             colorClass="text-purple-600"
-            subtitle="Produção média por registro"
+            subtitle={`⏱️ ~${avgSessionMinutes} min / sessão`}
           />
         </Card>
         <Card className="border-l-4 border-amber-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
           <Stat
-            label="Total de Sessões"
-            value={filteredSessions.length}
-            subValue="sessões"
+            label="Ritmo Médio"
+            value={avgPaceWpm}
+            subValue="pal/min"
             colorClass="text-amber-500"
             subtitle={
               filteredSessions.length > 0
-                ? `${filteredSessions.filter(s => s.sessionRating >= 4).length} com nota alta (4+ ⭐)`
+                ? `${filteredSessions.filter(s => s.sessionRating >= 4).length} sessões com nota 4+ ⭐`
                 : 'Nenhuma sessão no período'
             }
           />
@@ -1084,8 +1163,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         {hasLeftCol && (
           <div className={`${hasRightCol ? 'lg:col-span-2' : 'col-span-1'} space-y-8`}>
             {showWordProd && (
-              <Card title={t('dashboard.wordProduction')} subtitle={t('dashboard.wordProductionSubtitle')}>
-                <div className="mb-4 flex gap-2">
+              <Card
+                title={metricViewMode === 'time' ? (t('dashboard.timeProduction') || 'Evolução da Produção (Tempo)') : t('dashboard.wordProduction')}
+                subtitle={metricViewMode === 'time' ? (t('dashboard.timeProductionSubtitle') || 'Acompanhe as horas e minutos dedicados por dia/sessão') : t('dashboard.wordProductionSubtitle')}
+              >
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div className="bg-slate-100 rounded-lg p-1 flex text-xs font-medium">
                     <button onClick={() => setDateFilter('7days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '7days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.weekly')}</button>
                     <button onClick={() => setDateFilter('30days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '30days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.monthly')}</button>
@@ -1093,13 +1175,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     <button onClick={() => setDateFilter('1year')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '1year' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.yearly')}</button>
                     <button onClick={() => setDateFilter('all')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === 'all' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.all')}</button>
                   </div>
+
+                  {/* Dual-Pill Metric Selector inside Card */}
+                  <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setMetricViewMode('words')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                        metricViewMode === 'words' ? 'bg-white text-emerald-700 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <span>📝</span>
+                      <span>Palavras</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMetricViewMode('time')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                        metricViewMode === 'time' ? 'bg-amber-500 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-amber-700'
+                      }`}
+                    >
+                      <Hourglass className="w-3 h-3" />
+                      <span>Tempo</span>
+                    </button>
+                  </div>
                 </div>
                 <div className="h-72 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={wordsOverTime} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                       <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} dy={10} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: '#94a3b8', fontSize: 12 }}
+                        tickFormatter={(v) => metricViewMode === 'time' ? `${v}m` : v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v}`}
+                      />
                       <RechartsTooltip
                         cursor={{ fill: '#f8fafc', opacity: 0.8 }}
                         contentStyle={{
@@ -1107,6 +1218,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                           border: 'none',
                           boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
                           padding: '12px'
+                        }}
+                        formatter={(value: any, name: any) => {
+                          const num = Number(value) || 0;
+                          if (metricViewMode === 'time') {
+                            return [formatMinutesToHours(num), name];
+                          }
+                          return [`${num.toLocaleString('pt-BR')} palavras`, name];
                         }}
                       />
                       {/* General/No-Project Bar */}
@@ -1620,14 +1738,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         {/* Rich Popover Tooltip for active writing days */}
                         {d.hasSession && (
                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2.5 bg-slate-900/95 backdrop-blur-xs text-white rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none z-30 shadow-xl border border-slate-700 text-left">
-                            <div className="flex items-center justify-between text-xs font-bold text-slate-200 border-b border-slate-700/80 pb-1 mb-1.5">
+                            <div className="flex items-center justify-between text-xs font-bold text-slate-200 border-b border-slate-700/80 pb-1 mb-1.5 flex-wrap gap-1">
                               <span>📅 Dia {d.day}</span>
-                              <span className="text-teal-300 font-extrabold">{d.totalWords.toLocaleString('pt-BR')} pal.</span>
+                              <div className="flex items-center gap-1.5 text-[11px]">
+                                <span className="text-teal-300 font-extrabold">{d.totalWords.toLocaleString('pt-BR')} pal.</span>
+                                <span className="text-slate-500">•</span>
+                                <span className="text-amber-300 font-extrabold">⏱️ {d.totalMinutes} min</span>
+                              </div>
                             </div>
                             <div className="space-y-1 text-[11px]">
                               {d.sessions.map((s, sIdx) => {
                                 const sProj = getProjectForSession(s, projects);
                                 const isPrivateWork = sProj && (sProj.showInAutomonitoring === false || customDiscreetIds.includes(sProj.id));
+                                const sDuration = calculateSessionMinutes(s.startTime, s.endTime);
                                 const calendarProjName = !sProj
                                   ? 'Geral'
                                   : isPrivacyMode
@@ -1637,11 +1760,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                                     : sProj.name;
                                 return (
                                   <div key={s.id || sIdx} className="flex items-center justify-between text-slate-300">
-                                    <span className="flex items-center gap-1.5 truncate max-w-[110px]">
+                                    <span className="flex items-center gap-1.5 truncate max-w-[100px]">
                                       <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: sProj?.color || '#94a3b8' }}></span>
                                       <span className="truncate">{calendarProjName}</span>
                                     </span>
-                                    <span className="text-slate-400 font-mono text-[10px]">{s.wordCount} pal. • ⭐{s.sessionRating}/5</span>
+                                    <span className="text-slate-400 font-mono text-[10px]">{s.wordCount} pal. • ⏱️{sDuration}m • ⭐{s.sessionRating}/5</span>
                                   </div>
                                 );
                               })}
@@ -1771,6 +1894,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.date')}</th>
                 <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.project')}</th>
                 <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.totalWords')}</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.productionTime') || 'TEMPO DE PRODUÇÃO'}</th>
                 <th scope="col" className="px-4 py-3 font-medium">{t('dashboard.rating')}</th>
                 <th scope="col" className="px-4 py-3 font-medium text-right">Ação</th>
               </tr>
@@ -1780,6 +1904,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 const proj = getProjectForSession(session, projects);
                 const isPrivateProj = proj && (proj.showInAutomonitoring === false || customDiscreetIds.includes(proj.id));
                 const autoIdx = proj ? projectsInAutomonitoring.findIndex(p => p.id === proj.id) : -1;
+                const sessionMins = calculateSessionMinutes(session.startTime, session.endTime);
                 return (
                   <tr
                     key={session.id}
@@ -1812,6 +1937,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       ) : <span className="text-slate-400 italic">{t('dashboard.general_project')}</span>}
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-800">{session.wordCount.toLocaleString('pt-BR')}</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200/80">
+                        <Hourglass className="w-3 h-3 text-amber-500" />
+                        <span>{formatMinutesShort(sessionMins)}</span>
+                      </span>
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${session.sessionRating >= 4 ? 'bg-emerald-100 text-emerald-700' :
                         session.sessionRating >= 3 ? 'bg-amber-100 text-amber-700' :
@@ -1849,7 +1980,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               })}
               {sortedSessions.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400">{t('dashboard.noRecords')}</td>
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">{t('dashboard.noRecords')}</td>
                 </tr>
               )}
             </tbody>
@@ -2074,7 +2205,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Segmented Control: Palavras vs Tempo */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setMetricViewMode('words')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  metricViewMode === 'words'
+                    ? 'bg-white text-emerald-700 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Visualizar automonitoramento por Volume de Palavras"
+              >
+                <span>📝</span>
+                <span className="hidden sm:inline">Visão por</span>
+                <span>Palavras</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMetricViewMode('time')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  metricViewMode === 'time'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'text-slate-500 hover:text-amber-700'
+                }`}
+                title="Visualizar automonitoramento por Tempo de Produção (Kronus)"
+              >
+                <Hourglass className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Visão por</span>
+                <span>Tempo</span>
+              </button>
+            </div>
+
             {/* Print / Privacy Mode Toggle */}
             <button
               type="button"
@@ -2276,32 +2439,47 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           <Card className="group relative hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <div className="flex justify-between items-center mb-2">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-700">{t('dashboard.dailyGoal')}</span>
-                {wordsToday >= settings.dailyWordGoal && (
-                  <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-700 border border-teal-200">
-                    Meta Batida! 🎉
-                  </span>
+                <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                  <span>{metricViewMode === 'time' ? '⏱️' : '📝'}</span>
+                  <span>{metricViewMode === 'time' ? (t('dashboard.dailyTimeGoal') || 'Meta Diária de Tempo') : t('dashboard.dailyGoal')}</span>
+                </span>
+                {metricViewMode === 'time' ? (
+                  minutesToday >= dailyMinutesGoal && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                      Meta Batida! ⏱️🎉
+                    </span>
+                  )
+                ) : (
+                  wordsToday >= settings.dailyWordGoal && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-700 border border-teal-200">
+                      Meta Batida! 🎉
+                    </span>
+                  )
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {editingGoal === 'daily' ? (
+                {editingGoal === (metricViewMode === 'time' ? 'dailyTime' : 'daily') ? (
                   <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="number"
                       min="1"
-                      className="w-20 px-2 py-0.5 text-xs font-semibold border border-teal-400 rounded-md focus:outline-none focus:ring-1 focus:ring-teal-500"
+                      className={`w-20 px-2 py-0.5 text-xs font-semibold border rounded-md focus:outline-none focus:ring-1 ${
+                        metricViewMode === 'time' ? 'border-amber-400 focus:ring-amber-500' : 'border-teal-400 focus:ring-teal-500'
+                      }`}
                       value={tempGoalInput}
                       onChange={(e) => setTempGoalInput(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleSaveGoal('daily');
+                        if (e.key === 'Enter') handleSaveGoal(metricViewMode === 'time' ? 'dailyTime' : 'daily');
                         if (e.key === 'Escape') setEditingGoal(null);
                       }}
                       autoFocus
                     />
                     <button
                       type="button"
-                      onClick={() => handleSaveGoal('daily')}
-                      className="p-1 bg-teal-500 text-white rounded hover:bg-teal-600 transition cursor-pointer"
+                      onClick={() => handleSaveGoal(metricViewMode === 'time' ? 'dailyTime' : 'daily')}
+                      className={`p-1 text-white rounded transition cursor-pointer ${
+                        metricViewMode === 'time' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-teal-500 hover:bg-teal-600'
+                      }`}
                       title="Salvar"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -2321,18 +2499,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   </div>
                 ) : (
                   <>
-                    <span className="text-sm text-slate-500 font-medium">
-                      {wordsToday.toLocaleString('pt-BR')} / {settings.dailyWordGoal.toLocaleString('pt-BR')} {t('dashboard.words')}
+                    <span className="text-sm font-bold text-slate-700">
+                      {metricViewMode === 'time'
+                        ? `${minutesToday} min / ${dailyMinutesGoal} min`
+                        : `${wordsToday.toLocaleString('pt-BR')} / ${settings.dailyWordGoal.toLocaleString('pt-BR')} ${t('dashboard.words')}`}
                     </span>
                     {!readOnly && (
                       <button
                         type="button"
                         onClick={() => {
-                          setEditingGoal('daily');
-                          setTempGoalInput(String(settings.dailyWordGoal));
+                          if (metricViewMode === 'time') {
+                            setEditingGoal('dailyTime');
+                            setTempGoalInput(String(dailyMinutesGoal));
+                          } else {
+                            setEditingGoal('daily');
+                            setTempGoalInput(String(settings.dailyWordGoal));
+                          }
                         }}
                         className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-teal-600 hover:bg-slate-100 rounded-md cursor-pointer"
-                        title="Editar Meta Diária"
+                        title={metricViewMode === 'time' ? 'Editar Meta Diária de Tempo' : 'Editar Meta Diária de Palavras'}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -2346,12 +2531,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
               <div
                 className={`h-3 rounded-full transition-all duration-1000 ${
-                  wordsToday >= settings.dailyWordGoal
-                    ? 'bg-teal-400 shadow-[0_0_12px_rgba(45,212,191,0.7)] ring-1 ring-teal-400/50'
-                    : 'bg-teal-400'
+                  metricViewMode === 'time'
+                    ? minutesToday >= dailyMinutesGoal
+                      ? 'bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.7)] ring-1 ring-amber-400/50'
+                      : 'bg-amber-400'
+                    : wordsToday >= settings.dailyWordGoal
+                      ? 'bg-teal-400 shadow-[0_0_12px_rgba(45,212,191,0.7)] ring-1 ring-teal-400/50'
+                      : 'bg-teal-400'
                 }`}
-                style={{ width: `${dailyProgress}%` }}
+                style={{ width: `${metricViewMode === 'time' ? dailyTimeProgress : dailyProgress}%` }}
               ></div>
+            </div>
+            {/* Secondary complementary metric */}
+            <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium mt-1.5 pt-1 border-t border-slate-100">
+              {metricViewMode === 'time' ? (
+                <>
+                  <span>📝 Volume: {wordsToday.toLocaleString('pt-BR')} / {settings.dailyWordGoal.toLocaleString('pt-BR')} pal.</span>
+                  <span className="font-semibold text-slate-500">{dailyProgress}% da meta de palavras</span>
+                </>
+              ) : (
+                <>
+                  <span>⏱️ Tempo: {minutesToday} min / {dailyMinutesGoal} min</span>
+                  <span className="font-semibold text-slate-500">{dailyTimeProgress}% da meta de tempo</span>
+                </>
+              )}
             </div>
           </Card>
 
@@ -2359,32 +2562,47 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           <Card className="group relative hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <div className="flex justify-between items-center mb-2">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-700">{t('dashboard.weeklyGoal')}</span>
-                {wordsWeek >= settings.weeklyWordGoal && (
-                  <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
-                    Meta Batida! 🎉
-                  </span>
+                <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                  <span>{metricViewMode === 'time' ? '⏱️' : '📝'}</span>
+                  <span>{metricViewMode === 'time' ? (t('dashboard.weeklyTimeGoal') || 'Meta Semanal de Tempo') : t('dashboard.weeklyGoal')}</span>
+                </span>
+                {metricViewMode === 'time' ? (
+                  minutesWeek >= weeklyMinutesGoal && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                      Meta Batida! ⏱️🎉
+                    </span>
+                  )
+                ) : (
+                  wordsWeek >= settings.weeklyWordGoal && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                      Meta Batida! 🎉
+                    </span>
+                  )
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {editingGoal === 'weekly' ? (
+                {editingGoal === (metricViewMode === 'time' ? 'weeklyTime' : 'weekly') ? (
                   <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="number"
                       min="1"
-                      className="w-20 px-2 py-0.5 text-xs font-semibold border border-emerald-400 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      className={`w-20 px-2 py-0.5 text-xs font-semibold border rounded-md focus:outline-none focus:ring-1 ${
+                        metricViewMode === 'time' ? 'border-amber-400 focus:ring-amber-500' : 'border-emerald-400 focus:ring-emerald-500'
+                      }`}
                       value={tempGoalInput}
                       onChange={(e) => setTempGoalInput(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleSaveGoal('weekly');
+                        if (e.key === 'Enter') handleSaveGoal(metricViewMode === 'time' ? 'weeklyTime' : 'weekly');
                         if (e.key === 'Escape') setEditingGoal(null);
                       }}
                       autoFocus
                     />
                     <button
                       type="button"
-                      onClick={() => handleSaveGoal('weekly')}
-                      className="p-1 bg-emerald-500 text-white rounded hover:bg-emerald-600 transition cursor-pointer"
+                      onClick={() => handleSaveGoal(metricViewMode === 'time' ? 'weeklyTime' : 'weekly')}
+                      className={`p-1 text-white rounded transition cursor-pointer ${
+                        metricViewMode === 'time' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'
+                      }`}
                       title="Salvar"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -2404,18 +2622,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   </div>
                 ) : (
                   <>
-                    <span className="text-sm text-slate-500 font-medium">
-                      {wordsWeek.toLocaleString('pt-BR')} / {settings.weeklyWordGoal.toLocaleString('pt-BR')} {t('dashboard.words')}
+                    <span className="text-sm font-bold text-slate-700">
+                      {metricViewMode === 'time'
+                        ? `${formatMinutesToHours(minutesWeek)} / ${formatMinutesToHours(weeklyMinutesGoal)}`
+                        : `${wordsWeek.toLocaleString('pt-BR')} / ${settings.weeklyWordGoal.toLocaleString('pt-BR')} ${t('dashboard.words')}`}
                     </span>
                     {!readOnly && (
                       <button
                         type="button"
                         onClick={() => {
-                          setEditingGoal('weekly');
-                          setTempGoalInput(String(settings.weeklyWordGoal));
+                          if (metricViewMode === 'time') {
+                            setEditingGoal('weeklyTime');
+                            setTempGoalInput(String(weeklyMinutesGoal));
+                          } else {
+                            setEditingGoal('weekly');
+                            setTempGoalInput(String(settings.weeklyWordGoal));
+                          }
                         }}
                         className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 rounded-md cursor-pointer"
-                        title="Editar Meta Semanal"
+                        title={metricViewMode === 'time' ? 'Editar Meta Semanal de Tempo' : 'Editar Meta Semanal de Palavras'}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -2429,12 +2654,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
               <div
                 className={`h-3 rounded-full transition-all duration-1000 ${
-                  wordsWeek >= settings.weeklyWordGoal
-                    ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.7)] ring-1 ring-emerald-400/50'
-                    : 'bg-emerald-400'
+                  metricViewMode === 'time'
+                    ? minutesWeek >= weeklyMinutesGoal
+                      ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.7)] ring-1 ring-amber-500/50'
+                      : 'bg-amber-500'
+                    : wordsWeek >= settings.weeklyWordGoal
+                      ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.7)] ring-1 ring-emerald-400/50'
+                      : 'bg-emerald-400'
                 }`}
-                style={{ width: `${weeklyProgress}%` }}
+                style={{ width: `${metricViewMode === 'time' ? weeklyTimeProgress : weeklyProgress}%` }}
               ></div>
+            </div>
+            {/* Secondary complementary metric */}
+            <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium mt-1.5 pt-1 border-t border-slate-100">
+              {metricViewMode === 'time' ? (
+                <>
+                  <span>📝 Volume: {wordsWeek.toLocaleString('pt-BR')} / {settings.weeklyWordGoal.toLocaleString('pt-BR')} pal.</span>
+                  <span className="font-semibold text-slate-500">{weeklyProgress}% da meta de palavras</span>
+                </>
+              ) : (
+                <>
+                  <span>⏱️ Tempo: {formatMinutesToHours(minutesWeek)} / {formatMinutesToHours(weeklyMinutesGoal)}</span>
+                  <span className="font-semibold text-slate-500">{weeklyTimeProgress}% da meta de tempo</span>
+                </>
+              )}
             </div>
           </Card>
         </div>
@@ -2876,6 +3119,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             {filteredAndSortedProjects.map(project => {
               const projSessions = sessions.filter(s => isSessionInProject(s, project, projects));
               const projWords = projSessions.reduce((a, b) => a + b.wordCount, 0);
+              const projMinutes = projSessions.reduce((a, b) => a + calculateSessionMinutes(b.startTime, b.endTime), 0);
               const projKronus = projSessions.reduce((a, b) => a + sessionToKronus(b.startTime, b.endTime), 0);
               const projScriptus = Math.floor(projWords / 2);
               const percent = project.targetWordCount ? Math.min(100, Math.round((projWords / project.targetWordCount) * 100)) : 0;
@@ -3047,12 +3291,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     <div className="mt-5">
                       <div className="flex justify-between items-baseline text-xs text-slate-500 mb-1.5">
                         <span className="font-semibold text-slate-600">{t('dashboard.progress')}</span>
-                        <span className="font-medium text-slate-700">
+                        <span className="font-medium text-slate-700 flex items-center gap-1.5 flex-wrap justify-end">
                           {project.targetWordCount ? (
                             <>
                               <span className="font-bold text-slate-900">{projWords.toLocaleString('pt-BR')}</span>
                               <span className="text-slate-400"> / {project.targetWordCount.toLocaleString('pt-BR')} pal.</span>
-                              <span className="ml-1.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-100 text-slate-600">
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-100 text-slate-600">
                                 {percent}%
                               </span>
                             </>
@@ -3067,13 +3311,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                                     e.stopPropagation();
                                     handleOpenEditProject(project);
                                   }}
-                                  className="ml-2 text-[10px] font-semibold text-teal-600 hover:underline cursor-pointer"
+                                  className="text-[10px] font-semibold text-teal-600 hover:underline cursor-pointer"
                                 >
                                   + Meta
                                 </button>
                               )}
                             </>
                           )}
+                          <span className="text-slate-300">•</span>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/60">
+                            <Hourglass className="w-3 h-3 text-amber-500" />
+                            <span>{formatMinutesToHours(projMinutes)}</span>
+                          </span>
                         </span>
                       </div>
 
@@ -3267,23 +3516,46 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             </div>
 
             <div className="space-y-4 mb-8">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.dailyWordGoal')}</label>
-                <input
-                  type="number"
-                  value={tempSettings.dailyWordGoal}
-                  onChange={(e) => setTempSettings({ ...tempSettings, dailyWordGoal: parseInt(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.dailyWordGoal')}</label>
+                  <input
+                    type="number"
+                    value={tempSettings.dailyWordGoal}
+                    onChange={(e) => setTempSettings({ ...tempSettings, dailyWordGoal: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.dailyTimeGoalMin') || 'Meta Diária de Tempo (minutos)'}</label>
+                  <input
+                    type="number"
+                    value={tempSettings.dailyMinutesGoal || 30}
+                    onChange={(e) => setTempSettings({ ...tempSettings, dailyMinutesGoal: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.weeklyWordGoal')}</label>
-                <input
-                  type="number"
-                  value={tempSettings.weeklyWordGoal}
-                  onChange={(e) => setTempSettings({ ...tempSettings, weeklyWordGoal: parseInt(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-                />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.weeklyWordGoal')}</label>
+                  <input
+                    type="number"
+                    value={tempSettings.weeklyWordGoal}
+                    onChange={(e) => setTempSettings({ ...tempSettings, weeklyWordGoal: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.weeklyTimeGoalMin') || 'Meta Semanal de Tempo (minutos)'}</label>
+                  <input
+                    type="number"
+                    value={tempSettings.weeklyMinutesGoal || 180}
+                    onChange={(e) => setTempSettings({ ...tempSettings, weeklyMinutesGoal: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                  />
+                </div>
               </div>
             </div>
 

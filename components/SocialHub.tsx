@@ -72,6 +72,7 @@ import { getAllUsers, isUserCurrentlyOnline, updateUserPresence } from '../servi
 import { sanitizeText, toSafePublicUser } from '../utils/cryptoUtils';
 import { Users, Shield, MessageSquare, Trophy, Search, UserPlus, ArrowRight, Sparkles, Flame, Zap, Calendar } from 'lucide-react';
 import { AuthorProfileModal } from './AuthorProfileModal';
+import { calculateSessionMinutes, formatMinutesShort } from '../services/rewardService';
 
 interface SocialHubProps {
   currentUser: User;
@@ -122,6 +123,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [memberStats, setMemberStats] = useState<Record<string, number>>({}); // UserID -> Total Words
   const [guildPeriodFilter, setGuildPeriodFilter] = useState<'monthly' | 'weekly' | 'yearly' | 'all'>('monthly');
   const [selectedGuildMonthOffset, setSelectedGuildMonthOffset] = useState<number>(0);
+  const [currentUserSessions, setCurrentUserSessions] = useState<WritingSession[]>([]);
   const [showCreateGuild, setShowCreateGuild] = useState(false);
   const [newGuildName, setNewGuildName] = useState('');
   const [newGroupDesc, setNewGroupDesc] = useState('');
@@ -332,6 +334,39 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     if (memberStatsObj?.total !== undefined && memberStatsObj.total > 0) return memberStatsObj.total;
     if (guildToUse?.memberWordStats?.[memberId] !== undefined && guildToUse.memberWordStats[memberId] > 0) return guildToUse.memberWordStats[memberId];
     return memberStats[memberId] || 0;
+  };
+
+  const getMemberMinutesForPeriod = (
+    memberId: string,
+    period: 'monthly' | 'weekly' | 'yearly' | 'all',
+    monthOffset: number = 0,
+    words: number
+  ): number => {
+    if (memberId === currentUser.id && currentUserSessions.length > 0) {
+      let filtered = currentUserSessions;
+      const now = new Date();
+      if (period === 'monthly') {
+        const year = now.getFullYear();
+        const month = now.getMonth() + monthOffset;
+        const targetDate = new Date(year, month, 1);
+        const targetYear = targetDate.getFullYear();
+        const targetMonth = targetDate.getMonth();
+        filtered = currentUserSessions.filter(s => {
+          const d = new Date(s.date);
+          return d.getFullYear() === targetYear && d.getMonth() === targetMonth;
+        });
+      } else if (period === 'weekly') {
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+        filtered = currentUserSessions.filter(s => new Date(s.date) >= oneWeekAgo);
+      } else if (period === 'yearly') {
+        const currentYear = now.getFullYear();
+        filtered = currentUserSessions.filter(s => new Date(s.date).getFullYear() === currentYear);
+      }
+      const sumMins = filtered.reduce((acc, s) => acc + calculateSessionMinutes(s.startTime, s.endTime), 0);
+      if (sumMins > 0) return sumMins;
+    }
+    return words > 0 ? Math.max(1, Math.round(words / 20)) : 0;
   };
 
   const cleanupPeerConnection = (peerId: string) => {
@@ -689,6 +724,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
           let total = 0;
           if (memberId === currentUser.id) {
             const userSessions = await getSessions(memberId);
+            setCurrentUserSessions(userSessions);
             total = userSessions
               .filter(s => new Date(s.date).getTime() >= resetTime)
               .reduce((acc, s) => acc + s.wordCount, 0);
@@ -4039,6 +4075,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             const mName = getUserName(memberId);
                             const mPhoto = getUserPhotoURL(memberId);
                             const mWords = getMemberWords(memberId);
+                            const mMinutes = getMemberMinutesForPeriod(memberId, guildPeriodFilter, selectedGuildMonthOffset, mWords);
                             const mPercent = totalGuildWords > 0
                               ? Math.min(100, Math.round((mWords / totalGuildWords) * 100))
                               : 0;
@@ -4140,6 +4177,11 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                       <div className="flex items-center gap-2 flex-shrink-0">
                                         <span className="text-xs font-black text-indigo-600">
                                           {mWords.toLocaleString('pt-BR')} <span className="text-[10px] font-semibold text-slate-400">{t('social.guilds.words')}</span>
+                                        </span>
+                                        <span className="text-slate-300">•</span>
+                                        <span className="text-xs font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200/70 inline-flex items-center gap-1">
+                                          <span>⏱️</span>
+                                          <span>{formatMinutesShort(mMinutes)}</span>
                                         </span>
                                         <span className="text-[10px] font-bold text-slate-400 bg-white px-1.5 py-0.5 rounded-md border border-slate-200/70">
                                           {mPercent}%

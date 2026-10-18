@@ -79,6 +79,26 @@ export const calculateTotalKronus = (sessions: WritingSession[]): number => {
   return sessions.reduce((acc, s) => acc + sessionToKronus(s.startTime, s.endTime), 0);
 };
 
+export const formatMinutesToHours = (minutes: number): string => {
+  const safeMinutes = Math.max(0, Math.round(minutes || 0));
+  if (safeMinutes === 0) return '0 min';
+  const hours = Math.floor(safeMinutes / 60);
+  const remainingMinutes = safeMinutes % 60;
+  if (hours === 0) return `${remainingMinutes} min`;
+  if (remainingMinutes === 0) return `${hours}h`;
+  return `${hours}h ${remainingMinutes}min`;
+};
+
+export const formatMinutesShort = (minutes: number): string => {
+  const safeMinutes = Math.max(0, Math.round(minutes || 0));
+  if (safeMinutes === 0) return '0 min';
+  const hours = Math.floor(safeMinutes / 60);
+  const remainingMinutes = safeMinutes % 60;
+  if (hours === 0) return `${remainingMinutes} min`;
+  if (remainingMinutes === 0) return `${hours}h`;
+  return `${hours}h ${String(remainingMinutes).padStart(2, '0')}m`;
+};
+
 // ==========================================
 // 3. HESTIUS (Guardião da Chama / Bloqueio de Ofensiva)
 // Regra: Máximo 3 cargas (0/3 a 3/3).

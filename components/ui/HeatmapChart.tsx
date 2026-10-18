@@ -1,10 +1,11 @@
 import React from 'react';
 import { useLanguage } from '../../i18n/LanguageContext';
 
-interface HeatmapData {
+export interface HeatmapData {
     day: number; // 0-6 (Sunday-Saturday)
     hour: number; // 0-23
     wordCount: number;
+    minutes?: number;
 }
 
 interface HeatmapChartProps {
@@ -27,14 +28,18 @@ export const HeatmapChart: React.FC<HeatmapChartProps> = ({ data, hideEarlyHours
     ];
 
     // Create a map for quick lookup
-    const dataMap = new Map<string, number>();
+    const dataMap = new Map<string, { wordCount: number; minutes: number }>();
     data.forEach(item => {
         const key = `${item.day}-${item.hour}`;
-        dataMap.set(key, (dataMap.get(key) || 0) + item.wordCount);
+        const prev = dataMap.get(key) || { wordCount: 0, minutes: 0 };
+        dataMap.set(key, {
+            wordCount: prev.wordCount + item.wordCount,
+            minutes: prev.minutes + (item.minutes || 0)
+        });
     });
 
     // Find max word count for color scaling
-    const maxWordCount = Math.max(...Array.from(dataMap.values()), 1);
+    const maxWordCount = Math.max(...Array.from(dataMap.values()).map(v => v.wordCount), 1);
 
     // Get color intensity based on word count
     const getColor = (wordCount: number) => {
@@ -87,7 +92,9 @@ export const HeatmapChart: React.FC<HeatmapChartProps> = ({ data, hideEarlyHours
                             {/* Day cells */}
                             {Array.from({ length: 7 }, (_, day) => {
                                 const key = `${day}-${hour}`;
-                                const wordCount = dataMap.get(key) || 0;
+                                const cellData = dataMap.get(key) || { wordCount: 0, minutes: 0 };
+                                const wordCount = cellData.wordCount;
+                                const minutes = cellData.minutes;
                                 const colorClass = getColor(wordCount);
 
                                 return (
@@ -108,10 +115,17 @@ export const HeatmapChart: React.FC<HeatmapChartProps> = ({ data, hideEarlyHours
                                                     <span>⏰</span>
                                                     <span>{formatHour(hour)} às {formatHour((hour + 1) % 24)}</span>
                                                 </div>
-                                                <div className="flex items-center gap-1.5 text-xs font-semibold border-t border-slate-700/80 pt-1">
-                                                    <span className="w-2 h-2 rounded-full bg-teal-400"></span>
-                                                    <span className="text-teal-300 font-bold">{wordCount.toLocaleString('pt-BR')}</span>
-                                                    <span className="text-slate-300">{t('dashboard.words')}</span>
+                                                <div className="flex items-center gap-2 text-xs font-semibold border-t border-slate-700/80 pt-1 flex-wrap">
+                                                    <span className="flex items-center gap-1">
+                                                        <span className="w-2 h-2 rounded-full bg-teal-400"></span>
+                                                        <span className="text-teal-300 font-bold">{wordCount.toLocaleString('pt-BR')}</span>
+                                                        <span className="text-slate-300">{t('dashboard.words')}</span>
+                                                    </span>
+                                                    <span className="text-slate-500">•</span>
+                                                    <span className="text-amber-300 font-bold flex items-center gap-1">
+                                                        <span>⏱️</span>
+                                                        <span>{minutes > 0 ? `${minutes} min` : `${Math.round(wordCount / 20)} min`} de produção</span>
+                                                    </span>
                                                 </div>
                                                 <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-slate-900/95"></div>
                                             </div>

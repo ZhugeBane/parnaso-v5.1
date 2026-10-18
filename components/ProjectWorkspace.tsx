@@ -4,7 +4,7 @@ import { ConceptMapCanvas } from './ConceptMapCanvas';
 import { CharactersFolder } from './CharactersFolder';
 import { ProjectComments } from './ProjectComments';
 import { ScriptusIcon, KronusIcon } from './ui/GamificationIcons';
-import { sessionToKronus } from '../services/rewardService';
+import { sessionToKronus, calculateSessionMinutes, formatMinutesToHours } from '../services/rewardService';
 
 interface ProjectWorkspaceProps {
   project: Project;
@@ -30,6 +30,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   const projSessions = sessions
     .filter(s => s.projectId === project.id || (s.projectId && s.projectId.trim().toLowerCase() === project.name.trim().toLowerCase()));
   const projWords = projSessions.reduce((a, b) => a + b.wordCount, 0);
+  const projMinutes = projSessions.reduce((a, b) => a + calculateSessionMinutes(b.startTime, b.endTime), 0);
   const projKronus = projSessions.reduce((a, b) => a + sessionToKronus(b.startTime, b.endTime), 0);
   const projScriptus = Math.floor(projWords / 2);
   const percent = project.targetWordCount ? Math.min(100, Math.round((projWords / project.targetWordCount) * 100)) : 0;
@@ -105,8 +106,11 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                 />
               </div>
             ) : null}
-            <div className="flex justify-between text-[11px] text-slate-400 mt-1">
-              <span>{sessions.filter(s => s.projectId === project.id).length} sessões</span>
+            <div className="flex justify-between items-center text-[11px] text-slate-500 mt-2 flex-wrap gap-1">
+              <span>{projSessions.length} sessões</span>
+              <span className="font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60 inline-flex items-center gap-1">
+                ⏱️ {formatMinutesToHours(projMinutes)} dedicadas
+              </span>
               {project.targetWordCount ? <span>{percent}% da meta</span> : null}
             </div>
 
