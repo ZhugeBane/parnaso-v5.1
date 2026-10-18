@@ -273,7 +273,9 @@ export interface Guild {
   adminId: string; // Owner
   adminIds?: string[]; // Additional administrators
   members: string[];
+  invitedUsers?: string[]; // Pending invitations sent to users
   pendingMemberIds?: string[]; // Pending membership requests awaiting Admin approval
+  parnasusMedals?: number; // Total Parnasus Medals of Honor earned (1 medal per 100k lifetime words)
   statsResetDate?: string; // Date to filter member word counts
   challenges?: GuildChallenge[];
   agoraParticipants?: AgoraParticipant[];

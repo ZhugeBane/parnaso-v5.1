@@ -576,9 +576,11 @@ const syncGuildDirectoryEntry = async (guild: Guild) => {
       adminId: guild.adminId,
       adminIds: guild.adminIds || [guild.adminId],
       members: guild.members || [],
+      invitedUsers: guild.invitedUsers || [],
       pendingMemberIds: guild.pendingMemberIds || [],
       challenges: guild.challenges || [],
       agoraParticipants: guild.agoraParticipants || [],
+      parnasusMedals: guild.parnasusMedals || 0,
       statsResetDate: guild.statsResetDate || null,
       createdAt: guild.createdAt || new Date().toISOString()
     }, { merge: true });
@@ -599,7 +601,9 @@ export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
         ...data,
         id: d.id,
         members: data.members || [],
-        pendingMemberIds: data.pendingMemberIds || []
+        invitedUsers: data.invitedUsers || [],
+        pendingMemberIds: data.pendingMemberIds || [],
+        parnasusMedals: data.parnasusMedals || 0
       };
       guildMap.set(g.id, g);
       syncGuildDirectoryEntry(g);
@@ -626,9 +630,11 @@ export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
             adminId: data.adminId,
             adminIds: data.adminIds || [data.adminId],
             members: data.members || [],
+            invitedUsers: Array.isArray(data.invitedUsers) ? data.invitedUsers : [],
             pendingMemberIds: Array.isArray(data.pendingMemberIds) ? data.pendingMemberIds : [],
             challenges: data.challenges || [],
             agoraParticipants: Array.isArray(data.agoraParticipants) ? data.agoraParticipants : [],
+            parnasusMedals: data.parnasusMedals || 0,
             statsResetDate: data.statsResetDate || undefined,
             createdAt: data.createdAt
           });
@@ -639,6 +645,7 @@ export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
             ? existing.pendingMemberIds
             : (Array.isArray(data.pendingMemberIds) ? data.pendingMemberIds : []);
           const cleanPending = rawPending.filter((id: string) => !mergedMembers.includes(id));
+          const mergedInvited = Array.from(new Set([...(existing.invitedUsers || []), ...(Array.isArray(data.invitedUsers) ? data.invitedUsers : [])]));
 
           const existingChallenges = existing.challenges || [];
           const dirChallenges = data.challenges || [];
@@ -649,8 +656,10 @@ export const getUserGuilds = async (userId: string): Promise<Guild[]> => {
           guildMap.set(gId, {
             ...existing,
             members: mergedMembers,
+            invitedUsers: mergedInvited,
             pendingMemberIds: cleanPending,
-            challenges: Array.from(challengeMap.values())
+            challenges: Array.from(challengeMap.values()),
+            parnasusMedals: existing.parnasusMedals || data.parnasusMedals || 0
           });
         }
       }
@@ -682,7 +691,9 @@ export const getAllGuilds = async (currentUserId?: string): Promise<Guild[]> => 
         ...data,
         id: d.id,
         members: data.members || [],
-        pendingMemberIds: data.pendingMemberIds || []
+        invitedUsers: data.invitedUsers || [],
+        pendingMemberIds: data.pendingMemberIds || [],
+        parnasusMedals: data.parnasusMedals || 0
       };
       guildMap.set(g.id, g);
       syncGuildDirectoryEntry(g);
@@ -709,9 +720,11 @@ export const getAllGuilds = async (currentUserId?: string): Promise<Guild[]> => 
             adminId: data.adminId,
             adminIds: data.adminIds || [data.adminId],
             members: data.members || [],
+            invitedUsers: Array.isArray(data.invitedUsers) ? data.invitedUsers : [],
             pendingMemberIds: Array.isArray(data.pendingMemberIds) ? data.pendingMemberIds : [],
             challenges: data.challenges || [],
             agoraParticipants: Array.isArray(data.agoraParticipants) ? data.agoraParticipants : [],
+            parnasusMedals: data.parnasusMedals || 0,
             statsResetDate: data.statsResetDate || undefined,
             createdAt: data.createdAt
           });
@@ -721,10 +734,14 @@ export const getAllGuilds = async (currentUserId?: string): Promise<Guild[]> => 
             ? existing.pendingMemberIds
             : (Array.isArray(data.pendingMemberIds) ? data.pendingMemberIds : []);
           const cleanPending = rawPending.filter((id: string) => !mergedMembers.includes(id));
+          const mergedInvited = Array.from(new Set([...(existing.invitedUsers || []), ...(Array.isArray(data.invitedUsers) ? data.invitedUsers : [])]));
+
           guildMap.set(gId, {
             ...existing,
             members: mergedMembers,
-            pendingMemberIds: cleanPending
+            invitedUsers: mergedInvited,
+            pendingMemberIds: cleanPending,
+            parnasusMedals: existing.parnasusMedals || data.parnasusMedals || 0
           });
         }
       }
@@ -860,7 +877,8 @@ export const createGuild = async (
   const safeName = sanitizeText(name, 80);
   if (!safeName) throw new Error('Nome da guilda inválido.');
   const safeDescription = sanitizeText(description || '', 500);
-  const uniqueMembers = Array.from(new Set([adminId, ...(memberIds || [])]));
+  // Invited friends do NOT immediately become active members; only creator starts as active member
+  const invitedUsers = Array.from(new Set(memberIds.filter(id => id && id !== adminId)));
   const createdAt = new Date().toISOString();
   const guildData = {
     name: safeName,
@@ -869,15 +887,136 @@ export const createGuild = async (
     description: safeDescription,
     emblemBase64: emblemBase64 || '',
     emblemUrl: emblemBase64 || '',
-    members: uniqueMembers,
+    members: [adminId],
+    invitedUsers,
     pendingMemberIds: [],
     challenges: [],
     agoraParticipants: [],
+    parnasusMedals: 0,
     createdAt
   };
   const docRef = await addDoc(collection(db, 'groups'), guildData);
   await syncGuildDirectoryEntry({ id: docRef.id, ...guildData });
   return docRef;
+};
+
+/**
+ * Invites a user to a guild. Adds targetUserId to invitedUsers array.
+ */
+export const inviteUserToGuild = async (guildId: string, targetUserId: string): Promise<void> => {
+  let updatedGuild: Guild | null = null;
+  try {
+    const guildRef = doc(db, 'groups', guildId);
+    const snap = await getDoc(guildRef);
+    if (snap.exists()) {
+      const data = snap.data() as Guild;
+      if ((data.members || []).includes(targetUserId)) {
+        throw new Error('Este escritor já faz parte da guilda.');
+      }
+      const invitedUsers = Array.from(new Set([...(data.invitedUsers || []), targetUserId]));
+      await updateDoc(guildRef, { invitedUsers });
+      updatedGuild = { ...data, id: guildId, invitedUsers };
+    }
+  } catch (err: any) {
+    if (err.message === 'Este escritor já faz parte da guilda.') throw err;
+  }
+
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    const dirSnap = await getDoc(dirRef);
+    if (dirSnap.exists()) {
+      const dirData = dirSnap.data() as any;
+      const invitedUsers = Array.from(new Set([...(dirData.invitedUsers || []), targetUserId]));
+      await updateDoc(dirRef, { invitedUsers });
+      if (!updatedGuild) {
+        updatedGuild = { ...dirData, id: guildId, invitedUsers };
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  if (updatedGuild) {
+    await syncGuildDirectoryEntry(updatedGuild);
+  }
+};
+
+/**
+ * Accepts a guild invitation. Moves userId from invitedUsers to members.
+ */
+export const acceptGuildInvite = async (guildId: string, userId: string): Promise<void> => {
+  let updatedGuild: Guild | null = null;
+  try {
+    const guildRef = doc(db, 'groups', guildId);
+    const snap = await getDoc(guildRef);
+    if (snap.exists()) {
+      const data = snap.data() as Guild;
+      const members = Array.from(new Set([...(data.members || []), userId]));
+      const invitedUsers = (data.invitedUsers || []).filter(id => id !== userId);
+      await updateDoc(guildRef, { members, invitedUsers });
+      updatedGuild = { ...data, id: guildId, members, invitedUsers };
+    }
+  } catch {
+    // Fallback below
+  }
+
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    const dirSnap = await getDoc(dirRef);
+    if (dirSnap.exists()) {
+      const dirData = dirSnap.data() as any;
+      const members = Array.from(new Set([...(dirData.members || []), userId]));
+      const invitedUsers = (dirData.invitedUsers || []).filter((id: string) => id !== userId);
+      await updateDoc(dirRef, { members, invitedUsers });
+      if (!updatedGuild) {
+        updatedGuild = { ...dirData, id: guildId, members, invitedUsers };
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  if (updatedGuild) {
+    await syncGuildDirectoryEntry(updatedGuild);
+  }
+};
+
+/**
+ * Rejects a guild invitation. Removes userId from invitedUsers.
+ */
+export const rejectGuildInvite = async (guildId: string, userId: string): Promise<void> => {
+  let updatedGuild: Guild | null = null;
+  try {
+    const guildRef = doc(db, 'groups', guildId);
+    const snap = await getDoc(guildRef);
+    if (snap.exists()) {
+      const data = snap.data() as Guild;
+      const invitedUsers = (data.invitedUsers || []).filter(id => id !== userId);
+      await updateDoc(guildRef, { invitedUsers });
+      updatedGuild = { ...data, id: guildId, invitedUsers };
+    }
+  } catch {
+    // Ignore
+  }
+
+  try {
+    const dirRef = doc(db, 'forum_threads', `guild_dir_${guildId}`);
+    const dirSnap = await getDoc(dirRef);
+    if (dirSnap.exists()) {
+      const dirData = dirSnap.data() as any;
+      const invitedUsers = (dirData.invitedUsers || []).filter((id: string) => id !== userId);
+      await updateDoc(dirRef, { invitedUsers });
+      if (!updatedGuild) {
+        updatedGuild = { ...dirData, id: guildId, invitedUsers };
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  if (updatedGuild) {
+    await syncGuildDirectoryEntry(updatedGuild);
+  }
 };
 
 // Legacy alias
@@ -1537,15 +1676,18 @@ export const subscribeToDirectMessages = (
 
   const handleSnapshot = (snapshot: any) => {
     if (isUnsubscribed) return;
-    const msgs = snapshot.docs.map((d: any) => {
+    const msgMap = new Map<string, Message>();
+    snapshot.docs.forEach((d: any) => {
       const data = d.data() as Message;
-      return {
+      msgMap.set(d.id, {
         ...data,
         id: d.id,
         content: sanitizeText(data.content, 1000)
-      };
+      });
     });
-    msgs.sort((a: Message, b: Message) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const msgs = Array.from(msgMap.values()).sort(
+      (a: Message, b: Message) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
     onUpdate(msgs);
   };
 
@@ -1561,20 +1703,9 @@ export const subscribeToDirectMessages = (
     }
   );
 
-  const qChats = query(collection(db, 'chats'), where('chatId', '==', chatId));
-  const unsubChats = onSnapshot(
-    qChats,
-    (snapshot) => {
-      if (isUnsubscribed || snapshot.empty) return;
-      getConversation(userId1, userId2).then(onUpdate).catch(() => {});
-    },
-    () => {}
-  );
-
   return () => {
     isUnsubscribed = true;
     unsubMessages();
-    unsubChats();
   };
 };
 

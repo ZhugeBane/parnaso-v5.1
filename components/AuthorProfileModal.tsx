@@ -825,75 +825,81 @@ export const AuthorProfileModal: React.FC<AuthorProfileModalProps> = ({
 
         {/* MODAL: ADICIONAR / EDITAR OBRA */}
         {isBookModalOpen && (
-          <div className="fixed inset-0 z-60 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-fade-in">
-            <div className="relative w-full max-w-xl bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
-              {/* Modal Header */}
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="w-full max-w-2xl max-h-[90vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200">
+              {/* Cabeçalho Fixo no Topo */}
               <div className="px-6 py-4 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-lg">📖</span>
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
-                    {editingBookId ? 'Editar Obra Literária' : '+ Adicionar Obra à Vitrine'}
+                  <span className="text-xl">📖</span>
+                  <h3 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-tight">
+                    {editingBookId ? 'Editar Obra Literária' : 'Adicionar Obra à Vitrine'}
                   </h3>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsBookModalOpen(false)}
-                  className="w-7 h-7 rounded-full bg-white hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors cursor-pointer border border-slate-200"
+                  className="w-8 h-8 rounded-full bg-white hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors cursor-pointer border border-slate-200"
+                  title="Fechar"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Modal Body Form */}
-              <form onSubmit={handleSaveBook} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
-                {bookError && (
-                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold">
-                    {bookError}
-                  </div>
-                )}
-
-                {/* Cover Upload (Vertical 2:3 ratio) */}
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1.5">
-                    Capa do Livro (Vertical 2:3)
-                  </label>
-                  <div className="flex items-center gap-4">
-                    <div className="w-20 h-28 rounded-lg overflow-hidden border-2 border-dashed border-slate-300 bg-slate-50 flex items-center justify-center flex-shrink-0 shadow-2xs relative group">
-                      {bookCoverBase64 ? (
-                        <>
-                          <img
-                            src={bookCoverBase64}
-                            alt="Prévia da Capa"
-                            className="w-full h-full object-cover"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setBookCoverBase64('')}
-                            className="absolute inset-0 bg-slate-900/60 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[10px] font-bold cursor-pointer"
-                          >
-                            Remover
-                          </button>
-                        </>
-                      ) : (
-                        <div className="text-center p-2 text-slate-400">
-                          <Camera className="w-5 h-5 mx-auto opacity-50 mb-1" />
-                          <span className="text-[9px] block font-bold">Sem capa</span>
-                        </div>
-                      )}
+              {/* Formulário com Corpo Rolável e Rodapé Fixo */}
+              <form onSubmit={handleSaveBook} className="flex flex-col flex-1 overflow-hidden">
+                {/* Corpo com Rolagem Suave */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                  {bookError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold">
+                      {bookError}
                     </div>
+                  )}
 
-                    <div className="space-y-1.5 flex-1">
-                      <button
-                        type="button"
+                  {/* Grid em duas colunas responsivas */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Coluna da Esquerda (1/3): Capa do Livro */}
+                    <div className="md:col-span-1 flex flex-col items-center">
+                      <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-2 self-start md:self-center">
+                        Capa do Livro
+                      </label>
+
+                      <div
                         onClick={() => bookCoverInputRef.current?.click()}
-                        className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold border border-slate-200 transition-colors cursor-pointer flex items-center gap-1.5"
+                        className="aspect-[2/3] w-full max-w-[160px] mx-auto rounded-lg border-2 border-dashed border-slate-300 hover:border-violet-500 bg-slate-50 flex flex-col items-center justify-center text-center p-3 cursor-pointer relative overflow-hidden group shadow-xs transition-colors"
                       >
-                        <Camera className="w-3.5 h-3.5" />
-                        <span>{bookCoverBase64 ? 'Substituir Capa' : 'Enviar Capa do Livro'}</span>
-                      </button>
-                      <p className="text-[11px] text-slate-400 leading-tight">
-                        PNG ou JPEG. Redimensionada automaticamente para proporção vertical padrão (300x450px).
-                      </p>
+                        {bookCoverBase64 ? (
+                          <>
+                            <img
+                              src={bookCoverBase64}
+                              alt="Prévia da Capa"
+                              className="w-full h-full object-cover rounded"
+                            />
+                            <div className="absolute inset-0 bg-slate-900/60 text-white opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 p-2">
+                              <Camera className="w-5 h-5 text-violet-300" />
+                              <span className="text-[11px] font-bold">Trocar Capa</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center text-slate-400 group-hover:text-violet-600 transition-colors">
+                            <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-violet-50 flex items-center justify-center mb-2">
+                              <Camera className="w-5 h-5 text-slate-400 group-hover:text-violet-600" />
+                            </div>
+                            <span className="text-xs font-black text-slate-700 group-hover:text-violet-700">Enviar Capa</span>
+                            <span className="text-[10px] text-slate-400 mt-1">Formato vertical 2:3</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {bookCoverBase64 && (
+                        <button
+                          type="button"
+                          onClick={() => setBookCoverBase64('')}
+                          className="mt-2 text-[11px] text-rose-500 hover:text-rose-700 font-bold transition-colors cursor-pointer"
+                        >
+                          Remover capa
+                        </button>
+                      )}
+
                       <input
                         type="file"
                         ref={bookCoverInputRef}
@@ -901,105 +907,122 @@ export const AuthorProfileModal: React.FC<AuthorProfileModalProps> = ({
                         className="hidden"
                         onChange={handleCoverUpload}
                       />
+                      <p className="text-[10px] text-slate-400 text-center mt-2 leading-tight">
+                        PNG ou JPEG (ajustado automaticamente para 300x450px)
+                      </p>
+                    </div>
+
+                    {/* Coluna da Direita (2/3): Título, Sinopse e Links */}
+                    <div className="md:col-span-2 space-y-4">
+                      {/* Título da Obra */}
+                      <div>
+                        <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1">
+                          Título da Obra <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={120}
+                          value={bookTitle}
+                          onChange={e => setBookTitle(e.target.value)}
+                          placeholder="Ex: O Enigma da Meia-Noite"
+                          className="w-full text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:border-violet-500 focus:bg-white transition-all text-slate-800 placeholder:text-slate-400"
+                          required
+                        />
+                      </div>
+
+                      {/* Sinopse / Pitch da Obra */}
+                      <div>
+                        <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1">
+                          Sinopse / Pitch da Obra
+                        </label>
+                        <textarea
+                          rows={4}
+                          maxLength={2000}
+                          value={bookSynopsis}
+                          onChange={e => setBookSynopsis(e.target.value)}
+                          placeholder="Escreva a sinopse atraente que desperte a curiosidade do leitor..."
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:border-violet-500 focus:bg-white transition-all text-slate-800 placeholder:text-slate-400 resize-none leading-relaxed"
+                        />
+                      </div>
+
+                      {/* Lista Dinâmica de Links de Compra */}
+                      <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-black uppercase tracking-wider text-slate-700">
+                            Onde Comprar / Ler
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleAddBookLink}
+                            className="text-xs font-extrabold text-violet-600 hover:text-violet-800 flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ Adicionar Loja / Link</span>
+                          </button>
+                        </div>
+
+                        <div className="space-y-2">
+                          {bookLinks.map((linkItem, idx) => (
+                            <div key={linkItem.id} className="flex items-center gap-2">
+                              <input
+                                list={`stores-${idx}`}
+                                type="text"
+                                maxLength={50}
+                                value={linkItem.storeName}
+                                onChange={e => handleUpdateBookLink(idx, 'storeName', e.target.value)}
+                                placeholder="Plataforma"
+                                className="w-28 sm:w-32 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 outline-none focus:border-violet-500"
+                              />
+                              <datalist id={`stores-${idx}`}>
+                                <option value="Amazon" />
+                                <option value="Uiclap" />
+                                <option value="Submarino" />
+                                <option value="Kindle" />
+                                <option value="Skoob" />
+                                <option value="Outro" />
+                              </datalist>
+
+                              <input
+                                type="url"
+                                value={linkItem.url}
+                                onChange={e => handleUpdateBookLink(idx, 'url', e.target.value)}
+                                placeholder="https://..."
+                                className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:border-violet-500 min-w-0"
+                              />
+
+                              {bookLinks.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveBookLink(idx)}
+                                  className="p-2 text-slate-400 hover:text-rose-600 rounded-xl hover:bg-rose-50 transition-colors cursor-pointer flex-shrink-0"
+                                  title="Remover link"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Book Title */}
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1">
-                    Título da Obra <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={120}
-                    value={bookTitle}
-                    onChange={e => setBookTitle(e.target.value)}
-                    placeholder="Ex: O Enigma da Meia-Noite"
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:border-indigo-500"
-                    required
-                  />
-                </div>
-
-                {/* Synopsis */}
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1">
-                    Sinopse / Descrição da Obra
-                  </label>
-                  <textarea
-                    rows={4}
-                    maxLength={2000}
-                    value={bookSynopsis}
-                    onChange={e => setBookSynopsis(e.target.value)}
-                    placeholder="Escreva a sinopse atraente que desperte a curiosidade do leitor..."
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-indigo-500 resize-none"
-                  />
-                </div>
-
-                {/* Multiple Purchase Links */}
-                <div className="space-y-2.5 pt-2 border-t border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-black uppercase tracking-wider text-slate-700">
-                      Links Onde Comprar / Ler
-                    </label>
-                    <button
-                      type="button"
-                      onClick={handleAddBookLink}
-                      className="text-xs font-extrabold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>+ Adicionar outro link</span>
-                    </button>
-                  </div>
-
-                  <div className="space-y-2">
-                    {bookLinks.map((linkItem, idx) => (
-                      <div key={linkItem.id} className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          maxLength={50}
-                          value={linkItem.storeName}
-                          onChange={e => handleUpdateBookLink(idx, 'storeName', e.target.value)}
-                          placeholder="Loja (ex: Amazon)"
-                          className="w-32 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
-                        />
-                        <input
-                          type="url"
-                          value={linkItem.url}
-                          onChange={e => handleUpdateBookLink(idx, 'url', e.target.value)}
-                          placeholder="https://..."
-                          className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
-                        />
-                        {bookLinks.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveBookLink(idx)}
-                            className="p-2 text-slate-400 hover:text-rose-600 rounded-xl hover:bg-rose-50 transition-colors cursor-pointer"
-                            title="Remover link"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Footer Buttons */}
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                {/* Rodapé Fixo na Base */}
+                <div className="px-6 py-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-end gap-3 flex-shrink-0">
                   <button
                     type="button"
                     onClick={() => setIsBookModalOpen(false)}
-                    className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
+                    className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:text-slate-800 rounded-xl hover:bg-slate-200/70 transition-colors cursor-pointer"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
                     disabled={isSavingBook}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-6 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs font-black shadow-md shadow-violet-500/20 transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                   >
-                    {isSavingBook ? 'Salvando Obra...' : '✓ Salvar Obra na Vitrine'}
+                    <span>{isSavingBook ? 'Salvando Obra...' : '✓ Salvar Obra'}</span>
                   </button>
                 </div>
               </form>

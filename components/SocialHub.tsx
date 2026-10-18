@@ -1,7 +1,7 @@
 
 
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User, Message, Guild, GuildForumThread, GuildForumReply, Competition, WritingSession, ForumThread, ForumReply, AgoraParticipant } from '../types';
 import {
   getFriendsList,
@@ -23,6 +23,9 @@ import {
   cancelJoinGuildRequest,
   approveGuildMember,
   rejectGuildMember,
+  inviteUserToGuild,
+  acceptGuildInvite,
+  rejectGuildInvite,
   createGuild,
   getUserGroups,
   createGroup,
@@ -204,6 +207,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [sentDirectSpark, setSentDirectSpark] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLInputElement>(null);
+  const isSendingMessageRef = useRef<boolean>(false);
+  const [showInviteGuildModal, setShowInviteGuildModal] = useState<boolean>(false);
   const [viewingAuthorUser, setViewingAuthorUser] = useState<User | null>(null);
 
   const handleOpenAuthorProfile = (e: React.MouseEvent, targetUserOrId: User | string) => {
@@ -231,6 +236,14 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const activeGuild: Guild | null = selectedChat?.type === 'group'
     ? (guilds.find(g => g.id === selectedChat.target.id) || allGuilds.find(g => g.id === selectedChat.target.id) || (selectedChat.target as Guild))
     : null;
+
+  // Pending Guild Invitations for currentUser
+  const pendingGuildInvites = useMemo(() => {
+    return allGuilds.filter(g =>
+      (g.invitedUsers || []).includes(currentUser.id) &&
+      !(g.members || []).includes(currentUser.id)
+    );
+  }, [allGuilds, currentUser.id]);
 
   const getTargetMonthKey = (offset: number = 0): { key: string; label: string } => {
     const d = new Date();
@@ -947,27 +960,14 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   // --- Handlers: Chat ---
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSendingMessageRef.current) return;
     const cleanMsg = sanitizeText(newMessage, 1000);
     if (!cleanMsg || !selectedChat) return;
 
+    isSendingMessageRef.current = true;
     const msgText = cleanMsg;
     setNewMessage('');
     setShowChatEmojiPicker(false);
-
-    // Atualização otimista imediata na interface
-    const tempId = `temp_${Date.now()}`;
-    const optimisticMsg: Message = {
-      id: tempId,
-      senderId: currentUser.id,
-      receiverId: selectedChat.type === 'direct' ? (selectedChat.target as User).id : undefined,
-      groupId: selectedChat.type === 'group' ? selectedChat.target.id : undefined,
-      chatId: selectedChat.type === 'direct' ? getDirectChatId(currentUser.id, (selectedChat.target as User).id) : undefined,
-      content: msgText,
-      timestamp: new Date().toISOString(),
-      read: false
-    };
-    setMessages(prev => [...prev, optimisticMsg]);
-    scrollToBottom();
 
     try {
       setIsActionSubmitting(true);
@@ -978,11 +978,95 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
         const guild = activeGuild || (selectedChat.target as Guild);
         await sendGroupMessage(currentUser.id, guild.id, msgText);
       }
+      scrollToBottom();
     } catch (err: any) {
       console.error('Erro ao enviar mensagem:', err);
-      // Remove mensagem otimista em caso de erro na rede/permissão
-      setMessages(prev => prev.filter(m => m.id !== tempId));
       alert('Não foi possível entregar sua mensagem no momento. Tente novamente.');
+    } finally {
+      setIsActionSubmitting(false);
+      isSendingMessageRef.current = false;
+    }
+  };
+
+  const handleAcceptGuildInvite = async (guildId: string) => {
+    try {
+      setIsActionSubmitting(true);
+      await acceptGuildInvite(guildId, currentUser.id);
+      setAllGuilds(prev => prev.map(g => {
+        if (g.id === guildId) {
+          const members = Array.from(new Set([...(g.members || []), currentUser.id]));
+          const invitedUsers = (g.invitedUsers || []).filter(id => id !== currentUser.id);
+          return { ...g, members, invitedUsers };
+        }
+        return g;
+      }));
+      setGuilds(prev => {
+        const target = allGuilds.find(g => g.id === guildId);
+        if (target && !prev.some(g => g.id === guildId)) {
+          return [...prev, { ...target, members: Array.from(new Set([...(target.members || []), currentUser.id])) }];
+        }
+        return prev;
+      });
+      await refreshData();
+      const updated = allGuilds.find(g => g.id === guildId);
+      if (updated) {
+        setSelectedChat({
+          type: 'group',
+          target: { ...updated, members: Array.from(new Set([...(updated.members || []), currentUser.id])) }
+        });
+        setGuildSubTab('home');
+      }
+    } catch (err: any) {
+      console.error('Erro ao aceitar convite da guilda:', err);
+      alert('Não foi possível aceitar o convite da guilda.');
+    } finally {
+      setIsActionSubmitting(false);
+    }
+  };
+
+  const handleRejectGuildInvite = async (guildId: string) => {
+    try {
+      setIsActionSubmitting(true);
+      await rejectGuildInvite(guildId, currentUser.id);
+      setAllGuilds(prev => prev.map(g => {
+        if (g.id === guildId) {
+          return {
+            ...g,
+            invitedUsers: (g.invitedUsers || []).filter(id => id !== currentUser.id)
+          };
+        }
+        return g;
+      }));
+      await refreshData();
+    } catch (err: any) {
+      console.error('Erro ao recusar convite da guilda:', err);
+    } finally {
+      setIsActionSubmitting(false);
+    }
+  };
+
+  const handleInviteFriendToGuild = async (guildId: string, friendUserId: string) => {
+    try {
+      setIsActionSubmitting(true);
+      await inviteUserToGuild(guildId, friendUserId);
+      setAllGuilds(prev => prev.map(g => {
+        if (g.id === guildId) {
+          const invitedUsers = Array.from(new Set([...(g.invitedUsers || []), friendUserId]));
+          return { ...g, invitedUsers };
+        }
+        return g;
+      }));
+      setGuilds(prev => prev.map(g => {
+        if (g.id === guildId) {
+          const invitedUsers = Array.from(new Set([...(g.invitedUsers || []), friendUserId]));
+          return { ...g, invitedUsers };
+        }
+        return g;
+      }));
+      alert('Convite de guilda enviado com sucesso!');
+    } catch (err: any) {
+      console.error('Erro ao convidar escritor:', err);
+      alert(err.message || 'Erro ao enviar convite.');
     } finally {
       setIsActionSubmitting(false);
     }
@@ -2480,6 +2564,72 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                 )}
               </div>
 
+              {/* 📩 Convites de Guilda Pendentes */}
+              {pendingGuildInvites.length > 0 && (
+                <div className="space-y-2.5 bg-gradient-to-r from-amber-50/90 via-orange-50/60 to-purple-50/80 p-3.5 rounded-2xl border border-amber-200/90 shadow-xs animate-fade-in">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-amber-900 uppercase tracking-tight">
+                      <span>📩</span>
+                      <span>Convites de Guilda Pendentes</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white shadow-2xs">
+                      {pendingGuildInvites.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {pendingGuildInvites.map(invGuild => {
+                      const leaderName = getUserName(invGuild.adminId);
+                      return (
+                        <div
+                          key={invGuild.id}
+                          className="p-3 bg-white rounded-xl border border-amber-200/70 shadow-2xs space-y-2.5"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {(invGuild.emblemBase64 || invGuild.emblemUrl) ? (
+                              <img
+                                src={invGuild.emblemBase64 || invGuild.emblemUrl}
+                                alt={invGuild.name}
+                                className="w-10 h-10 rounded-xl object-cover border border-amber-200 flex-shrink-0"
+                              />
+                            ) : (
+                              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${getAvatarGradient(invGuild.name)} text-white flex items-center justify-center font-bold text-xs flex-shrink-0`}>
+                                {invGuild.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-black text-slate-800 truncate">{invGuild.name}</p>
+                              <p className="text-[10px] text-slate-500 truncate">
+                                Convite de {leaderName || 'Clã Literário'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => handleAcceptGuildInvite(invGuild.id)}
+                              className="flex-1 py-1.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <span>✓</span>
+                              <span>Aceitar</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRejectGuildInvite(invGuild.id)}
+                              className="py-1.5 px-3 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer border border-slate-200/70"
+                            >
+                              <span>✕</span>
+                              <span>Recusar</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* My Guilds */}
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between px-1">
@@ -3335,20 +3485,32 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             {selectedChat.type === 'group' && guildSubTab === 'home' && activeGuild && isGuildMember(activeGuild) && (() => {
               const targetMonth = getTargetMonthKey(selectedGuildMonthOffset);
               const getMemberWords = (mId: string) => getMemberWordsForPeriod(mId, guildPeriodFilter, selectedGuildMonthOffset, activeGuild);
+              // Filtered words for current view/leaderboard/KPI 1
               const totalGuildWords = activeGuild.members.reduce(
                 (acc, mId) => acc + getMemberWords(mId),
+                0
+              );
+              // Lifetime total words across all members (never changes when switching filters)
+              const allTimeGuildWords = activeGuild.members.reduce(
+                (acc, mId) => acc + getMemberWordsForPeriod(mId, 'all', 0, activeGuild),
                 0
               );
               const onlineGuildMembersCount = activeGuild.members.filter(mId =>
                 mId === currentUser.id || checkUserOnline(allUsers.find(u => u.id === mId))
               ).length;
-              const rankInfo = getGuildRankInfo(totalGuildWords);
-              const collectiveGoalTarget = customGuildGoalTarget || rankInfo.defaultGoal;
+              // Guild Rank strictly calculated from allTimeGuildWords (never oscilates with filters)
+              const rankInfo = getGuildRankInfo(allTimeGuildWords);
+
+              // 100k Perpetual Cycles & Medalha de Honra Parnasus
+              const collectiveGoalTarget = 100000;
+              const cycleProgressWords = allTimeGuildWords % collectiveGoalTarget;
+              const parnasusMedals = Math.floor(allTimeGuildWords / collectiveGoalTarget) + (activeGuild.parnasusMedals || 0);
               const collectiveGoalPercent = Math.min(
                 100,
-                Math.round((totalGuildWords / Math.max(1, collectiveGoalTarget)) * 100)
+                Math.round((cycleProgressWords / collectiveGoalTarget) * 100)
               );
-              const wordsRemainingForGoal = Math.max(0, collectiveGoalTarget - totalGuildWords);
+              const wordsRemainingForNextMedal = Math.max(0, collectiveGoalTarget - cycleProgressWords);
+
               const sortedGuildMembers = [...activeGuild.members].sort(
                 (a, b) => getMemberWords(b) - getMemberWords(a)
               );
@@ -3430,6 +3592,16 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                               <span>{rankInfo.icon}</span>
                               <span>Nv. {rankInfo.level} • {rankInfo.title}</span>
                             </span>
+                            {/* Insígnia Dourada e Púrpura: Medalhas de Honra Parnasus */}
+                            <div
+                              className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-gradient-to-r from-amber-500/15 via-purple-500/20 to-amber-500/15 border border-amber-300 text-amber-900 shadow-2xs group relative cursor-help"
+                              title="Concedida a cada ciclo perpétuo de 100.000 palavras alcançado pelo clã"
+                            >
+                              <span className="text-sm">🏅</span>
+                              <span className="text-[11px] font-black tracking-tight">
+                                {parnasusMedals} {parnasusMedals === 1 ? 'Medalha' : 'Medalhas'} de Honra Parnasus
+                              </span>
+                            </div>
                           </div>
 
                           <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tight leading-tight">
@@ -3496,6 +3668,15 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             >
                               <span>⚔️</span>
                               <span>+ {t('social.guilds.proposeChallenge')}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setShowInviteGuildModal(true)}
+                              className="px-4 py-2.5 bg-white/90 hover:bg-white text-violet-700 border border-violet-200/90 font-bold text-xs rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                            >
+                              <span>✉️</span>
+                              <span>+ Convidar Escritores</span>
                             </button>
 
                             <button
@@ -3594,57 +3775,43 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         </div>
                       </div>
 
-                      {/* 2. BARRA DE "META COLETIVA DA GUILDA" (COOPERAÇÃO) */}
+                      {/* 2. BARRA DE "META COLETIVA DA GUILDA" (CICLOS PERPÉTUOS DE 100K) */}
                       <div className="relative z-10 mt-6 pt-5 border-t border-indigo-200/60">
                         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm">🤝</span>
+                            <span className="text-base">🏅</span>
                             <span className="text-xs font-black uppercase tracking-wider text-slate-800">
-                              Meta Coletiva da Guilda
+                              Meta Coletiva Perpétua (Ciclos de 100k)
                             </span>
-                            <span className="text-[11px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-600 text-white shadow-2xs">
+                            <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-gradient-to-r from-violet-600 to-amber-600 text-white shadow-2xs">
                               {collectiveGoalPercent}%
                             </span>
                           </div>
 
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] font-bold text-slate-500 mr-1">Marco:</span>
-                            {[25000, 50000, 100000].map(milestone => {
-                              const isActiveMilestone = collectiveGoalTarget === milestone;
-                              return (
-                                <button
-                                  key={milestone}
-                                  type="button"
-                                  onClick={() => setCustomGuildGoalTarget(milestone)}
-                                  className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer border ${
-                                    isActiveMilestone
-                                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                                      : 'bg-white/80 text-slate-600 border-slate-200 hover:border-indigo-300'
-                                  }`}
-                                >
-                                  {(milestone / 1000)}k
-                                </button>
-                              );
-                            })}
+                            <span className="text-[11px] font-extrabold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-lg flex items-center gap-1 shadow-2xs">
+                              <span>🏆</span>
+                              <span>{parnasusMedals} {parnasusMedals === 1 ? 'Medalha Conquistada' : 'Medalhas Conquistadas'}</span>
+                            </span>
                           </div>
                         </div>
 
                         <div className="w-full h-3.5 bg-white/90 rounded-full overflow-hidden p-0.5 border border-indigo-200/70 shadow-inner">
                           <div
-                            className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600 transition-all duration-700 relative"
+                            className="h-full rounded-full bg-gradient-to-r from-violet-600 via-indigo-600 to-amber-500 transition-all duration-700 relative"
                             style={{ width: `${Math.max(2, collectiveGoalPercent)}%` }}
                           />
                         </div>
 
                         <div className="flex flex-wrap items-center justify-between gap-2 mt-2 text-[11px]">
                           <span className="font-bold text-slate-700">
-                            Progresso cooperativo: <strong className="text-indigo-700">{totalGuildWords.toLocaleString('pt-BR')}</strong> / {collectiveGoalTarget.toLocaleString('pt-BR')} {t('social.guilds.words')}
+                            Progresso do ciclo: <strong className="text-indigo-700">{cycleProgressWords.toLocaleString('pt-BR')}</strong> / 100.000 palavras para a próxima Medalha de Honra Parnasus
                           </span>
                           <span className="font-semibold text-slate-500">
-                            {wordsRemainingForGoal > 0 ? (
-                              <>🔥 Faltam <strong className="text-slate-700">{wordsRemainingForGoal.toLocaleString('pt-BR')}</strong> palavras para a guilda subir de patamar junta!</>
+                            {wordsRemainingForNextMedal > 0 ? (
+                              <>🔥 Faltam <strong className="text-amber-700">{wordsRemainingForNextMedal.toLocaleString('pt-BR')}</strong> palavras para o clã conquistar mais uma Medalha!</>
                             ) : (
-                              <span className="text-emerald-700 font-bold">🎉 Marco coletivo alcançado! Selecione o próximo patamar acima.</span>
+                              <span className="text-emerald-700 font-bold">🎉 Marco de 100.000 alcançado! Nova Medalha de Honra Parnasus concedida!</span>
                             )}
                           </span>
                         </div>
@@ -4944,6 +5111,14 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     maxLength={1000}
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        if (newMessage.trim() && !isActionSubmitting && !isCooldownActive && !isSendingMessageRef.current) {
+                          handleSendMessage(e);
+                        }
+                      }
+                    }}
                     placeholder={t('social.chat.typeMessage')}
                     className="flex-1 bg-transparent px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 outline-none min-w-0"
                   />
@@ -5613,6 +5788,104 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   🛡️ {t('social.guilds.foundButton')}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: INVITE FRIENDS TO GUILD */}
+      {showInviteGuildModal && activeGuild && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[85vh]">
+            <div className="bg-gradient-to-r from-violet-50 via-indigo-50/70 to-slate-50 px-6 py-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white flex items-center justify-center text-lg shadow-md shadow-violet-500/20">
+                  ✉️
+                </div>
+                <div>
+                  <h3 className="font-black text-base text-slate-800 tracking-tight leading-tight">
+                    Convidar Escritores
+                  </h3>
+                  <p className="text-xs text-slate-500">Convide seus amigos para ingressar no clã {activeGuild.name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowInviteGuildModal(false)}
+                className="w-8 h-8 rounded-xl bg-white/80 hover:bg-white text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-3 flex-1">
+              {friends.length === 0 ? (
+                <div className="text-center py-8 space-y-2 text-slate-400">
+                  <p className="text-sm font-bold">Você ainda não tem amigos adicionados.</p>
+                  <p className="text-xs">Faça amigos na aba "Buscar" ou "Fórum" para convidá-los!</p>
+                </div>
+              ) : (
+                friends.map(({ user }) => {
+                  const isMember = (activeGuild.members || []).includes(user.id);
+                  const isInvited = (activeGuild.invitedUsers || []).includes(user.id);
+                  const fAvatar = getUserAvatar(user);
+
+                  return (
+                    <div
+                      key={user.id}
+                      className="flex items-center justify-between p-3 rounded-2xl bg-slate-50/70 border border-slate-200/80 gap-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {fAvatar ? (
+                          <img src={fAvatar} alt={user.name} className="w-9 h-9 rounded-full object-cover border border-slate-200 flex-shrink-0" />
+                        ) : (
+                          <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarGradient(user.name)} text-white flex items-center justify-center text-xs font-black flex-shrink-0`}>
+                            {user.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-800 truncate">{user.name}</p>
+                          <p className="text-[10px] text-slate-400 truncate">
+                            {isMember ? 'Membro do clã' : isInvited ? 'Convite enviado' : 'Amigo'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div>
+                        {isMember ? (
+                          <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-xl">
+                            Já é membro
+                          </span>
+                        ) : isInvited ? (
+                          <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl">
+                            Convite pendente
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleInviteFriendToGuild(activeGuild.id, user.id)}
+                            disabled={isActionSubmitting}
+                            className="px-3.5 py-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold shadow-2xs transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                          >
+                            <span>+</span>
+                            <span>Convidar</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowInviteGuildModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>
