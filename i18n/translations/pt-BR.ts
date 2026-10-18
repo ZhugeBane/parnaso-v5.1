@@ -535,6 +535,26 @@ export const ptBR = {
             title: 'Fênix',
             description: 'Retorne a escrever após mais de 5 dias de pausa',
         },
+        monthly_constancia_20: {
+            title: 'Constância Lunar',
+            description: '20 dias com escrita registrados no mês',
+        },
+        semester_50000: {
+            title: 'Guardião da Pena',
+            description: '50.000 palavras escritas no semestre',
+        },
+        semester_sessions_60: {
+            title: 'Mestre do Processo',
+            description: '60 sessões registradas no semestre',
+        },
+        annual_100000: {
+            title: 'O Grande Livro',
+            description: '100.000 palavras escritas no ano',
+        },
+        annual_sessions_200: {
+            title: 'Lenda do Parnaso',
+            description: '200 sessões de escrita no ano',
+        },
     },
 
     // Pomodoro Timer

@@ -1,5 +1,5 @@
 
-import { User, PublishedWork } from '../types';
+import { User, PublishedWork, EquippedBadge, AchievementUnlockRecord } from '../types';
 import { auth, db } from '../lib/firebase';
 import {
   createUserWithEmailAndPassword,
@@ -45,6 +45,10 @@ const mapUser = (docData: any, uid: string, email: string): User => ({
   hestiusCount: typeof docData.hestiusCount === 'number' ? Math.max(0, Math.min(3, docData.hestiusCount)) : 1,
   hestiusLastRechargeDate: docData.hestiusLastRechargeDate || '',
   hestiusLastConsumedDate: docData.hestiusLastConsumedDate || '',
+
+  // Badges & Collectible Achievements
+  equippedBadges: Array.isArray(docData.equippedBadges) ? docData.equippedBadges.slice(0, 2) : [],
+  achievementHistory: Array.isArray(docData.achievementHistory) ? docData.achievementHistory : [],
 });
 
 export const updateUserPresence = async (userId: string, isOnline: boolean = true): Promise<void> => {
@@ -257,7 +261,12 @@ export const getAllUsers = async (): Promise<User[]> => {
         contactEmail: data.contactEmail || '',
         instagram: data.instagram || '',
         whatsapp: data.whatsapp || '',
-        publishedWorks: Array.isArray(data.publishedWorks) ? data.publishedWorks : []
+        publishedWorks: Array.isArray(data.publishedWorks) ? data.publishedWorks : [],
+
+        // Gamification & Badges
+        hestiusCount: typeof data.hestiusCount === 'number' ? Math.max(0, Math.min(3, data.hestiusCount)) : 1,
+        equippedBadges: Array.isArray(data.equippedBadges) ? data.equippedBadges.slice(0, 2) : [],
+        achievementHistory: Array.isArray(data.achievementHistory) ? data.achievementHistory : []
       };
     });
   } catch (e) {
@@ -423,6 +432,38 @@ export const updateUserHestius = async (
     });
   } catch (e) {
     console.warn('Erro ao atualizar Hestius no Firestore:', e);
+  }
+};
+
+export const updateUserEquippedBadges = async (
+  userId: string,
+  equippedBadges: EquippedBadge[]
+): Promise<void> => {
+  if (!userId) return;
+  const safeBadges = Array.isArray(equippedBadges) ? equippedBadges.slice(0, 2) : [];
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      equippedBadges: safeBadges
+    });
+  } catch (e) {
+    console.error('Erro ao atualizar insígnias equipadas no Firestore:', e);
+    throw e;
+  }
+};
+
+export const syncUserAchievements = async (
+  userId: string,
+  achievementHistory: AchievementUnlockRecord[]
+): Promise<void> => {
+  if (!userId) return;
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      achievementHistory: achievementHistory || []
+    });
+  } catch (e) {
+    console.warn('Erro ao sincronizar histórico de conquistas no Firestore:', e);
   }
 };
 

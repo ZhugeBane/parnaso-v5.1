@@ -469,6 +469,27 @@ export const AuthorProfileModal: React.FC<AuthorProfileModalProps> = ({
                   </div>
                 )}
 
+                {/* Equipped Badges (Up to 2) */}
+                {profileUser.equippedBadges && profileUser.equippedBadges.length > 0 && (
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                    {profileUser.equippedBadges.slice(0, 2).map((badge) => (
+                      <span
+                        key={badge.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black bg-white/95 text-purple-900 border border-purple-300 shadow-xs"
+                        title={`${badge.title} (${badge.rarity}): ${badge.description}`}
+                      >
+                        <span className="text-base">{badge.icon || '🏅'}</span>
+                        <span>{badge.title}</span>
+                        {badge.count && badge.count > 1 ? (
+                          <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-600 text-white font-extrabold">
+                            x{badge.count}
+                          </span>
+                        ) : null}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 {/* Contact & Social Pills */}
                 <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-2">
                   {/* Instagram Pill */}

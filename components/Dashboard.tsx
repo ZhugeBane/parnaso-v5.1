@@ -17,6 +17,7 @@ import {
 import { ProjectWorkspace } from './ProjectWorkspace';
 import { RewardsShop } from './RewardsShop';
 import { AchievementsGallery } from './AchievementsGallery';
+import { BookOpen, Users, Sparkles } from 'lucide-react';
 import {
   wordsToDiamonds,
   wordsToScriptus,
@@ -2463,6 +2464,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         sessions={sessions}
         projects={projects}
         totalWords={lifetimeTotalWords}
+        user={user}
+        onUpdateUser={(updated) => onUpdateUser?.(updated)}
       />
     );
   };
@@ -2546,6 +2549,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   <p className="text-slate-300 text-sm sm:text-base font-normal tracking-wide">
                     {t('dashboard.welcome')}, <strong onClick={() => !readOnly && setShowAuthorProfileModal(true)} className="font-extrabold text-teal-300 hover:underline cursor-pointer" title="Ver Meu Perfil de Autor & Vitrine">{user.name}.</strong> {t('dashboard.letsWrite')}
                   </p>
+
+                  {/* Equipped Badges in Header */}
+                  {user.equippedBadges && user.equippedBadges.length > 0 && (
+                    <div className="flex items-center gap-2 pt-1 flex-wrap">
+                      {user.equippedBadges.slice(0, 2).map((badge) => (
+                        <span
+                          key={badge.id}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-black bg-white/10 backdrop-blur-md border border-white/20 text-white shadow-xs hover:bg-white/20 transition-all cursor-default"
+                          title={`${badge.title} (${badge.rarity}): ${badge.description}`}
+                        >
+                          <span className="text-sm">{badge.icon || '🏅'}</span>
+                          <span className="truncate max-w-[130px]">{badge.title}</span>
+                          {badge.count && badge.count > 1 ? (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-500/80 text-white font-black">
+                              x{badge.count}
+                            </span>
+                          ) : null}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -2557,14 +2581,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
               {!readOnly && (
                 <>
-                  {/* Author Showcase Pill */}
+                  {/* Dedicated Author Showcase Button - High Contrast Primary CTA */}
                   <button
                     type="button"
                     onClick={() => setShowAuthorProfileModal(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold backdrop-blur-md bg-gradient-to-r from-emerald-600/30 to-teal-600/30 hover:from-emerald-600/50 hover:to-teal-600/50 border border-emerald-400/40 text-emerald-200 hover:text-white transition-all shadow-sm cursor-pointer"
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white shadow-md hover:shadow-lg hover:shadow-purple-500/25 border border-purple-400/40 hover:scale-105 active:scale-95 transition-all cursor-pointer"
                     title="Ver e editar Meu Perfil de Autor & Vitrine Literária"
                   >
-                    <span>📖</span>
+                    <BookOpen className="w-4 h-4 text-purple-200" />
                     <span>Meu Perfil</span>
                   </button>
 
@@ -2604,16 +2628,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     </div>
                   </div>
 
-                  {/* Social Hub Pill */}
+                  {/* Social Hub Button - High Contrast Vibrant CTA with Activity Dot */}
                   {onSocial && (
                     <button
+                      type="button"
                       onClick={onSocial}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold backdrop-blur-md bg-white/10 hover:bg-white/20 border border-white/15 text-white transition-all shadow-sm cursor-pointer"
+                      className="relative flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white shadow-md hover:shadow-lg hover:shadow-indigo-500/30 hover:scale-105 active:scale-95 transition-all cursor-pointer"
                       title={t('dashboard.communityAndChat')}
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-teal-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                      </svg>
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+                      </span>
+                      <Users className="w-4 h-4 text-white" />
                       <span>{t('dashboard.social')}</span>
                     </button>
                   )}

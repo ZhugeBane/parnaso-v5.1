@@ -225,6 +225,27 @@ export interface User {
   hestiusCount?: number; // 0 to 3 (max 3)
   hestiusLastRechargeDate?: string; // ISO or YYYY-MM-DD
   hestiusLastConsumedDate?: string; // ISO or YYYY-MM-DD
+
+  // Gamification: Badges & Achievements
+  equippedBadges?: EquippedBadge[]; // Up to 2 equipped badges
+  achievementHistory?: AchievementUnlockRecord[]; // Historical unlocked achievements
+}
+
+export interface EquippedBadge {
+  id: string;
+  title: string;
+  icon: string;
+  rarity: 'bronze' | 'silver' | 'gold' | 'diamond';
+  description?: string;
+  unlockedAt?: string;
+  count?: number; // Multiplier e.g. x2, x3
+}
+
+export interface AchievementUnlockRecord {
+  id: string;
+  unlockedAt: string; // ISO date
+  periodKey: string; // e.g. "2026-10"
+  count?: number;
 }
 
 export interface Friendship {

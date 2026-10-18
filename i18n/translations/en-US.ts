@@ -535,6 +535,26 @@ export const enUS = {
             title: 'Phoenix',
             description: 'Resume writing after a 5+ day break',
         },
+        monthly_constancia_20: {
+            title: 'Lunar Constancy',
+            description: '20 days written in a month',
+        },
+        semester_50000: {
+            title: 'Guardian of the Quill',
+            description: '50,000 words written in a semester',
+        },
+        semester_sessions_60: {
+            title: 'Process Master',
+            description: '60 writing sessions in a semester',
+        },
+        annual_100000: {
+            title: 'The Great Book',
+            description: '100,000 words written in a year',
+        },
+        annual_sessions_200: {
+            title: 'Legend of Parnassus',
+            description: '200 writing sessions in a year',
+        },
     },
 
     // Pomodoro Timer

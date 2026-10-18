@@ -232,6 +232,33 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     }
   };
 
+  const renderUserBadges = (targetUserOrId: User | string) => {
+    const targetUser: User | undefined = typeof targetUserOrId === 'string'
+      ? (allUsers.find(u => u.id === targetUserOrId) || (targetUserOrId === currentUser.id ? currentUser : undefined))
+      : targetUserOrId;
+
+    const badges = targetUser?.equippedBadges || [];
+    if (!badges || badges.length === 0) return null;
+
+    return (
+      <span className="inline-flex items-center gap-1 flex-wrap align-middle">
+        {badges.slice(0, 2).map((b) => (
+          <span
+            key={b.id}
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200/90 shadow-2xs"
+            title={`${b.title}: ${b.description}`}
+          >
+            <span>{b.icon || '🏅'}</span>
+            <span className="max-w-[75px] truncate hidden sm:inline">{b.title}</span>
+            {b.count && b.count > 1 ? (
+              <span className="text-[9px] font-black text-purple-600">x{b.count}</span>
+            ) : null}
+          </span>
+        ))}
+      </span>
+    );
+  };
+
   // Active guild dynamically synced from guilds or allGuilds array
   const activeGuild: Guild | null = selectedChat?.type === 'group'
     ? (guilds.find(g => g.id === selectedChat.target.id) || allGuilds.find(g => g.id === selectedChat.target.id) || (selectedChat.target as Guild))
@@ -1881,6 +1908,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                   >
                     {senderName}
                   </span>
+                  {renderUserBadges(msg.senderId)}
                   {isSenderGuildOwner && (
                     <span className="inline-flex items-center gap-0.5 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded-md bg-amber-50 text-amber-700 border border-amber-200/80">
                       👑 Líder
@@ -2873,8 +2901,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             </div>
                           )}
                           <div className="min-w-0">
-                            <p className="text-[11px] text-slate-500 truncate">
-                              {t('social.forum.by')} <strong className="font-bold text-slate-800 group-hover/thAuth:text-amber-700 group-hover/thAuth:underline">{authorName}</strong>
+                            <p className="text-[11px] text-slate-500 truncate flex items-center gap-1.5">
+                              <span>{t('social.forum.by')} <strong className="font-bold text-slate-800 group-hover/thAuth:text-amber-700 group-hover/thAuth:underline">{authorName}</strong></span>
+                              {renderUserBadges(thread.authorId)}
                             </p>
                           </div>
                         </div>
@@ -4105,6 +4134,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                             🛡️ {t('social.guilds.admin')}
                                           </span>
                                         )}
+                                        {renderUserBadges(memberId)}
                                       </div>
 
                                       <div className="flex items-center gap-2 flex-shrink-0">
@@ -4627,7 +4657,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                 )}
                               </div>
                               <div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <h4
                                     onClick={(e) => handleOpenAuthorProfile(e, selectedGuildThread.authorId)}
                                     className="font-extrabold text-slate-800 text-base leading-tight cursor-pointer hover:underline hover:text-indigo-700"
@@ -4638,6 +4668,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                   <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
                                     Autor
                                   </span>
+                                  {renderUserBadges(selectedGuildThread.authorId)}
                                 </div>
                                 <p className="text-xs text-slate-400 mt-0.5">
                                   {new Date(selectedGuildThread.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' })}
@@ -4696,6 +4727,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                                             Autor
                                           </span>
                                         )}
+                                        {renderUserBadges(reply.authorId)}
                                       </div>
                                       <span className="text-[11px] text-slate-400">
                                         {new Date(reply.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}
@@ -5207,18 +5239,19 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                         )}
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <h4
-                            onClick={(e) => handleOpenAuthorProfile(e, selectedThread.authorId)}
-                            className="font-extrabold text-slate-800 text-base leading-tight cursor-pointer hover:underline hover:text-teal-700"
-                            title={`Ver Perfil & Vitrine Literária de ${getUserName(selectedThread.authorId)}`}
-                          >
-                            {getUserName(selectedThread.authorId)}
-                          </h4>
-                          <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
-                            Autor
-                          </span>
-                        </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4
+                              onClick={(e) => handleOpenAuthorProfile(e, selectedThread.authorId)}
+                              className="font-extrabold text-slate-800 text-base leading-tight cursor-pointer hover:underline hover:text-teal-700"
+                              title={`Ver Perfil & Vitrine Literária de ${getUserName(selectedThread.authorId)}`}
+                            >
+                              {getUserName(selectedThread.authorId)}
+                            </h4>
+                            <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
+                              Autor
+                            </span>
+                            {renderUserBadges(selectedThread.authorId)}
+                          </div>
                         <p className="text-xs text-slate-400 mt-0.5">
                           Postado em {new Date(selectedThread.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' })}
                         </p>
@@ -5286,20 +5319,21 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                               )}
                             </div>
                             <div>
-                              <div className="flex items-center gap-2">
-                                <span
-                                  onClick={(e) => handleOpenAuthorProfile(e, reply.authorId)}
-                                  className="font-bold text-sm text-slate-800 cursor-pointer hover:underline hover:text-teal-700"
-                                  title={`Ver Perfil & Vitrine Literária de ${getUserName(reply.authorId)}`}
-                                >
-                                  {getUserName(reply.authorId)}
-                                </span>
-                                {isAuthor && (
-                                  <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
-                                    Autor
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span
+                                    onClick={(e) => handleOpenAuthorProfile(e, reply.authorId)}
+                                    className="font-bold text-sm text-slate-800 cursor-pointer hover:underline hover:text-teal-700"
+                                    title={`Ver Perfil & Vitrine Literária de ${getUserName(reply.authorId)}`}
+                                  >
+                                    {getUserName(reply.authorId)}
                                   </span>
-                                )}
-                              </div>
+                                  {isAuthor && (
+                                    <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
+                                      Autor
+                                    </span>
+                                  )}
+                                  {renderUserBadges(reply.authorId)}
+                                </div>
                               <span className="text-[11px] text-slate-400">
                                 {new Date(reply.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}
                               </span>

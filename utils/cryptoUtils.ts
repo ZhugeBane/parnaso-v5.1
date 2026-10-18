@@ -218,5 +218,9 @@ export function toSafePublicUser<T extends Record<string, any>>(raw: T, docId?: 
 
     // Gamification Hestius Shield
     hestiusCount: typeof raw.hestiusCount === 'number' ? Math.max(0, Math.min(3, raw.hestiusCount)) : 1,
+
+    // Gamification Badges & Achievements
+    equippedBadges: Array.isArray(raw.equippedBadges) ? raw.equippedBadges.slice(0, 2) : [],
+    achievementHistory: Array.isArray(raw.achievementHistory) ? raw.achievementHistory : [],
   };
 }
