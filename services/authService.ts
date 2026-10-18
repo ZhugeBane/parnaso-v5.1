@@ -22,7 +22,15 @@ const mapUser = (docData: any, uid: string, email: string): User => ({
   photoBase64: docData.photoBase64,
   photoURL: docData.photoBase64 || docData.photoURL,
   lastSeen: docData.lastSeen,
-  isOnline: docData.isOnline
+  isOnline: docData.isOnline,
+  wordCountWeekly: typeof docData.wordCountWeekly === 'number' ? docData.wordCountWeekly : 0,
+  wordCountMonthly: typeof docData.wordCountMonthly === 'number' ? docData.wordCountMonthly : 0,
+  wordCountYearly: typeof docData.wordCountYearly === 'number' ? docData.wordCountYearly : 0,
+  wordCountTotal: typeof docData.wordCountTotal === 'number' ? docData.wordCountTotal : 0,
+  monthlyHistory: docData.monthlyHistory || {},
+  yearlyHistory: docData.yearlyHistory || {},
+  dailyHistory: docData.dailyHistory || {},
+  statsUpdatedAt: docData.statsUpdatedAt
 });
 
 export const updateUserPresence = async (userId: string, isOnline: boolean = true): Promise<void> => {
@@ -219,7 +227,15 @@ export const getAllUsers = async (): Promise<User[]> => {
         photoBase64: data.photoBase64,
         photoURL: data.photoBase64 || data.photoURL,
         lastSeen: data.lastSeen,
-        isOnline: data.isOnline
+        isOnline: data.isOnline,
+        wordCountWeekly: typeof data.wordCountWeekly === 'number' ? data.wordCountWeekly : 0,
+        wordCountMonthly: typeof data.wordCountMonthly === 'number' ? data.wordCountMonthly : 0,
+        wordCountYearly: typeof data.wordCountYearly === 'number' ? data.wordCountYearly : 0,
+        wordCountTotal: typeof data.wordCountTotal === 'number' ? data.wordCountTotal : 0,
+        monthlyHistory: data.monthlyHistory || {},
+        yearlyHistory: data.yearlyHistory || {},
+        dailyHistory: data.dailyHistory || {},
+        statsUpdatedAt: data.statsUpdatedAt
       };
     });
   } catch (e) {

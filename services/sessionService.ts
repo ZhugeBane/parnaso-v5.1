@@ -131,9 +131,139 @@ export const saveSession = async (session: WritingSession, userId: string): Prom
       const docRef = await addDoc(collection(db, 'writing_sessions'), docData);
       console.log('[saveSession] ✅ Nova sessão salva e criptografada com sucesso! ID:', docRef.id);
     }
+
+    // Atualiza os contadores públicos agregados do usuário para guildas e comunidade
+    await syncUserPublicWordStats(userId);
   } catch (error: any) {
     console.error("[saveSession] ❌ ERRO ao salvar sessão:", error);
     throw error; // Re-lançar erro para não engolir
+  }
+};
+
+export interface UserWordStats {
+  wordCountWeekly: number;
+  wordCountMonthly: number;
+  wordCountYearly: number;
+  wordCountTotal: number;
+  monthlyHistory: Record<string, number>;
+  yearlyHistory: Record<string, number>;
+  dailyHistory: Record<string, number>;
+  statsUpdatedAt: string;
+}
+
+/**
+ * Agrega e sincroniza com segurança os contadores de palavras e histórico de períodos
+ * no documento público do usuário (coleção 'users') sem expor os textos das sessões.
+ */
+export const syncUserPublicWordStats = async (userId: string): Promise<UserWordStats> => {
+  try {
+    if (!userId) {
+      return {
+        wordCountWeekly: 0,
+        wordCountMonthly: 0,
+        wordCountYearly: 0,
+        wordCountTotal: 0,
+        monthlyHistory: {},
+        yearlyHistory: {},
+        dailyHistory: {},
+        statsUpdatedAt: new Date().toISOString()
+      };
+    }
+
+    const [userSessions, userProjects] = await Promise.all([
+      getSessions(userId),
+      getProjects(userId).catch(() => [])
+    ]);
+
+    // Obras ocultas do automonitoramento não somam para o total público/social
+    const hiddenProjectIds = new Set(
+      userProjects.filter(p => p.showInAutomonitoring === false).map(p => p.id)
+    );
+
+    const validSessions = userSessions.filter(s => !s.projectId || !hiddenProjectIds.has(s.projectId));
+
+    const now = new Date();
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const currentYearKey = String(now.getFullYear());
+
+    // Início da semana (Segunda-feira 00:00:00)
+    const startOfWeek = new Date(now);
+    const dayOfWeek = startOfWeek.getDay();
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    startOfWeek.setDate(startOfWeek.getDate() + diffToMonday);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const monthlyHistory: Record<string, number> = {};
+    const yearlyHistory: Record<string, number> = {};
+    const dailyHistory: Record<string, number> = {};
+    let wordCountTotal = 0;
+    let wordCountWeekly = 0;
+
+    for (const session of validSessions) {
+      const words = Math.max(0, session.wordCount || 0);
+      wordCountTotal += words;
+
+      const sDate = new Date(session.date);
+      if (isNaN(sDate.getTime())) continue;
+
+      const mKey = `${sDate.getFullYear()}-${String(sDate.getMonth() + 1).padStart(2, '0')}`;
+      const yKey = String(sDate.getFullYear());
+      const dKey = sDate.toISOString().slice(0, 10);
+
+      monthlyHistory[mKey] = (monthlyHistory[mKey] || 0) + words;
+      yearlyHistory[yKey] = (yearlyHistory[yKey] || 0) + words;
+      dailyHistory[dKey] = (dailyHistory[dKey] || 0) + words;
+
+      if (sDate.getTime() >= startOfWeek.getTime()) {
+        wordCountWeekly += words;
+      }
+    }
+
+    const wordCountMonthly = monthlyHistory[currentMonthKey] || 0;
+    const wordCountYearly = yearlyHistory[currentYearKey] || 0;
+    const statsUpdatedAt = new Date().toISOString();
+
+    const statsPayload: UserWordStats = {
+      wordCountWeekly,
+      wordCountMonthly,
+      wordCountYearly,
+      wordCountTotal,
+      monthlyHistory,
+      yearlyHistory,
+      dailyHistory,
+      statsUpdatedAt
+    };
+
+    try {
+      const userRef = doc(db, 'users', userId);
+      await setDoc(userRef, statsPayload, { merge: true });
+    } catch (userErr) {
+      console.warn('[syncUserPublicWordStats] Aviso ao salvar estatísticas em users:', userErr);
+    }
+
+    return statsPayload;
+  } catch (err) {
+    console.error('[syncUserPublicWordStats] Erro ao sincronizar estatísticas de palavras:', err);
+    return {
+      wordCountWeekly: 0,
+      wordCountMonthly: 0,
+      wordCountYearly: 0,
+      wordCountTotal: 0,
+      monthlyHistory: {},
+      yearlyHistory: {},
+      dailyHistory: {},
+      statsUpdatedAt: new Date().toISOString()
+    };
+  }
+};
+
+export const deleteSession = async (sessionId: string, userId: string): Promise<void> => {
+  try {
+    await deleteDoc(doc(db, 'writing_sessions', sessionId));
+    await syncUserPublicWordStats(userId);
+  } catch (error) {
+    console.error("[deleteSession] Erro ao excluir sessão:", error);
+    throw error;
   }
 };
 

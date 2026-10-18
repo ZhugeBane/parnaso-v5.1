@@ -185,6 +185,16 @@ export interface User {
   photoBase64?: string; // 200x200 JPEG Base64
   lastSeen?: string; // ISO timestamp of last activity
   isOnline?: boolean; // Real-time online flag
+
+  // Public Aggregated Word Counts & History (for Guild & Community stats)
+  wordCountWeekly?: number;
+  wordCountMonthly?: number;
+  wordCountYearly?: number;
+  wordCountTotal?: number;
+  monthlyHistory?: Record<string, number>; // e.g. { "2026-09": 12500, "2026-10": 17015 }
+  yearlyHistory?: Record<string, number>; // e.g. { "2025": 45000, "2026": 17015 }
+  dailyHistory?: Record<string, number>; // e.g. { "2026-10-17": 500, "2026-10-18": 1200 }
+  statsUpdatedAt?: string;
 }
 
 export interface Friendship {
@@ -215,6 +225,15 @@ export interface AgoraSignalMessage {
   createdAt: string;
 }
 
+export interface GuildMemberPeriodData {
+  weekly?: number;
+  monthly?: number;
+  yearly?: number;
+  total?: number;
+  monthlyHistory?: Record<string, number>;
+  yearlyHistory?: Record<string, number>;
+}
+
 export interface Guild {
   id: string;
   name: string;
@@ -228,6 +247,8 @@ export interface Guild {
   statsResetDate?: string; // Date to filter member word counts
   challenges?: GuildChallenge[];
   agoraParticipants?: AgoraParticipant[];
+  memberWordStats?: Record<string, number>; // Cached total words per member
+  memberPeriodStats?: Record<string, any>; // e.g. { [memberId]: GuildMemberPeriodData } or period maps
   createdAt: string;
 }
 
@@ -267,6 +288,7 @@ export interface Message {
   senderId: string;
   receiverId?: string; // Optional if group message
   groupId?: string;    // Optional if direct message
+  chatId?: string;     // Deterministic [uid1, uid2].sort().join('_')
   content: string;
   timestamp: string;
   read: boolean; // Only relevant for DMs usually

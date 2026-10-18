@@ -10,7 +10,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { SocialHub } from './components/SocialHub'; // CONNECTED SOCIAL HUB
 import { HelpPage } from './components/HelpPage';
 import { WritingSession, UserSettings, INITIAL_SETTINGS, Project, User } from './types';
-import { getSessions, saveSession, getSettings, saveSettings, getProjects, saveProject, deleteProject, clearAllData } from './services/sessionService';
+import { getSessions, saveSession, getSettings, saveSettings, getProjects, saveProject, deleteProject, clearAllData, syncUserPublicWordStats } from './services/sessionService';
 import { getCurrentUser, logout, updateUserPresence } from './services/authService';
 import { LanguageProvider } from './i18n/LanguageContext';
 
@@ -89,6 +89,8 @@ function App() {
       setSessions(fetchedSessions);
       setProjects(fetchedProjects);
       setSettings(fetchedSettings);
+      // Sincroniza estatísticas públicas agregadas para as guildas
+      syncUserPublicWordStats(userId).catch(() => {});
     } catch (e) {
       console.error("Failed to load user data", e);
     } finally {

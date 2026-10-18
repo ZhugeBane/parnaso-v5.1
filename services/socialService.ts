@@ -26,7 +26,8 @@ import {
   deleteDoc,
   orderBy,
   getDoc,
-  setDoc
+  setDoc,
+  onSnapshot
 } from 'firebase/firestore';
 import { getAllUsers } from './authService';
 import { sanitizeText, sanitizeMetricNumber, toSafePublicUser } from '../utils/cryptoUtils';
@@ -1394,24 +1395,187 @@ export const deleteGuildForumReply = async (replyId: string) => {
   await deleteDoc(doc(db, 'guild_replies', replyId));
 };
 
-// --- Messages ---
+// --- Messages (Direct & Group) ---
 
+/**
+ * Gera um ID de conversa determinístico e idêntico para ambos os amigos:
+ * [uid1, uid2].sort().join('_')
+ */
+export const getDirectChatId = (uid1: string, uid2: string): string => {
+  const id1 = String(uid1 || '').trim();
+  const id2 = String(uid2 || '').trim();
+  return [id1, id2].sort().join('_');
+};
+
+/**
+ * Envia mensagem direta entre amigos com chatId determinístico e gravação garantida no Firestore.
+ */
+export const sendMessage = async (senderId: string, receiverId: string, content: string): Promise<string> => {
+  const safeContent = sanitizeText(content, 1000);
+  if (!safeContent) return '';
+
+  const actualSenderId = auth.currentUser?.uid || senderId;
+  const chatId = getDirectChatId(actualSenderId, receiverId);
+  const timestamp = new Date().toISOString();
+
+  const payload = {
+    chatId,
+    participants: [actualSenderId, receiverId].sort(),
+    senderId: actualSenderId,
+    receiverId,
+    content: safeContent,
+    timestamp,
+    read: false
+  };
+
+  let createdId = '';
+
+  // Grava na coleção 'messages'
+  try {
+    const docRef = await addDoc(collection(db, 'messages'), payload);
+    createdId = docRef.id;
+  } catch (err: any) {
+    console.error('[sendMessage] Erro ao gravar mensagem em messages:', err);
+  }
+
+  // Gravação paralela/espelhada em 'chats' para compatibilidade total com regras de segurança existentes
+  try {
+    const chatDocRef = await addDoc(collection(db, 'chats'), payload);
+    if (!createdId) createdId = chatDocRef.id;
+  } catch (chatErr) {
+    console.warn('[sendMessage] Gravação espelho em chats:', chatErr);
+  }
+
+  return createdId;
+};
+
+// Alias explícito conforme solicitado no requisito
+export const sendDirectMessage = sendMessage;
+
+/**
+ * Busca todas as mensagens da conversa direta entre dois usuários.
+ */
 export const getConversation = async (userId1: string, userId2: string): Promise<Message[]> => {
-  const snapshot = await getDocs(collection(db, 'messages'));
-  const msgs = snapshot.docs
-    .map(d => {
+  const chatId = getDirectChatId(userId1, userId2);
+  const msgMap = new Map<string, Message>();
+
+  // 1. Consulta em 'messages' filtrando por chatId
+  try {
+    const q = query(collection(db, 'messages'), where('chatId', '==', chatId));
+    const snapshot = await getDocs(q);
+    snapshot.docs.forEach(d => {
+      const data = d.data() as Message;
+      msgMap.set(d.id, {
+        ...data,
+        id: d.id,
+        content: sanitizeText(data.content, 1000)
+      });
+    });
+  } catch (e: any) {
+    console.warn('[getConversation] Consulta por chatId falhou (índice ou regras), testando fallbacks:', e?.message);
+  }
+
+  // 2. Consulta espelhada em 'chats'
+  try {
+    const qChats = query(collection(db, 'chats'), where('chatId', '==', chatId));
+    const snapshotChats = await getDocs(qChats);
+    snapshotChats.docs.forEach(d => {
+      const data = d.data() as Message;
+      if (!msgMap.has(d.id)) {
+        msgMap.set(d.id, {
+          ...data,
+          id: d.id,
+          content: sanitizeText(data.content, 1000)
+        });
+      }
+    });
+  } catch {
+    // Ignore
+  }
+
+  // 3. Fallback para mensagens legadas (salvas antes da introdução do campo chatId)
+  try {
+    const myUid = auth.currentUser?.uid || userId1;
+    const [sentSnap, recSnap] = await Promise.all([
+      getDocs(query(collection(db, 'messages'), where('senderId', '==', myUid))).catch(() => ({ docs: [] })),
+      getDocs(query(collection(db, 'messages'), where('receiverId', '==', myUid))).catch(() => ({ docs: [] }))
+    ]);
+
+    [...sentSnap.docs, ...recSnap.docs].forEach(d => {
+      const data = d.data() as Message;
+      if (
+        (data.senderId === userId1 && data.receiverId === userId2) ||
+        (data.senderId === userId2 && data.receiverId === userId1)
+      ) {
+        msgMap.set(d.id, {
+          ...data,
+          id: d.id,
+          content: sanitizeText(data.content, 1000)
+        });
+      }
+    });
+  } catch (legacyErr) {
+    console.warn('[getConversation] Fallback de mensagens legadas:', legacyErr);
+  }
+
+  return Array.from(msgMap.values()).sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+};
+
+/**
+ * Listener em tempo real (onSnapshot) para mensagens diretas entre dois amigos.
+ */
+export const subscribeToDirectMessages = (
+  userId1: string,
+  userId2: string,
+  onUpdate: (msgs: Message[]) => void,
+  onError?: (err: any) => void
+): (() => void) => {
+  const chatId = getDirectChatId(userId1, userId2);
+  let isUnsubscribed = false;
+
+  const handleSnapshot = (snapshot: any) => {
+    if (isUnsubscribed) return;
+    const msgs = snapshot.docs.map((d: any) => {
       const data = d.data() as Message;
       return {
         ...data,
         id: d.id,
         content: sanitizeText(data.content, 1000)
       };
-    })
-    .filter(msg =>
-      (msg.senderId === userId1 && msg.receiverId === userId2) ||
-      (msg.senderId === userId2 && msg.receiverId === userId1)
-    );
-  return msgs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    });
+    msgs.sort((a: Message, b: Message) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    onUpdate(msgs);
+  };
+
+  const q = query(collection(db, 'messages'), where('chatId', '==', chatId));
+  const unsubMessages = onSnapshot(
+    q,
+    handleSnapshot,
+    (err) => {
+      console.error('[subscribeToDirectMessages] Erro no listener onSnapshot (verifique índices Firestore):', err);
+      if (onError) onError(err);
+      // Fallback: carrega via getConversation
+      getConversation(userId1, userId2).then(onUpdate).catch(() => {});
+    }
+  );
+
+  const qChats = query(collection(db, 'chats'), where('chatId', '==', chatId));
+  const unsubChats = onSnapshot(
+    qChats,
+    (snapshot) => {
+      if (isUnsubscribed || snapshot.empty) return;
+      getConversation(userId1, userId2).then(onUpdate).catch(() => {});
+    },
+    () => {}
+  );
+
+  return () => {
+    isUnsubscribed = true;
+    unsubMessages();
+    unsubChats();
+  };
 };
 
 export const getGroupMessages = async (groupId: string): Promise<Message[]> => {
@@ -1428,23 +1592,40 @@ export const getGroupMessages = async (groupId: string): Promise<Message[]> => {
   return msgs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 
-export const sendMessage = async (senderId: string, receiverId: string, content: string) => {
-  const safeContent = sanitizeText(content, 1000);
-  if (!safeContent) return;
-  await addDoc(collection(db, 'messages'), {
-    senderId,
-    receiverId,
-    content: safeContent,
-    timestamp: new Date().toISOString(),
-    read: false
-  });
+export const subscribeToGroupMessages = (
+  groupId: string,
+  onUpdate: (msgs: Message[]) => void,
+  onError?: (err: any) => void
+): (() => void) => {
+  const q = query(collection(db, 'messages'), where('groupId', '==', groupId));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const msgs = snapshot.docs.map(d => {
+        const data = d.data() as Message;
+        return {
+          ...data,
+          id: d.id,
+          content: sanitizeText(data.content, 1000)
+        };
+      });
+      msgs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      onUpdate(msgs);
+    },
+    (err) => {
+      console.error('[subscribeToGroupMessages] Erro no listener onSnapshot do chat da guilda:', err);
+      if (onError) onError(err);
+      getGroupMessages(groupId).then(onUpdate).catch(() => {});
+    }
+  );
 };
 
 export const sendGroupMessage = async (senderId: string, groupId: string, content: string) => {
   const safeContent = sanitizeText(content, 1000);
   if (!safeContent) return;
+  const actualSenderId = auth.currentUser?.uid || senderId;
   await addDoc(collection(db, 'messages'), {
-    senderId,
+    senderId: actualSenderId,
     groupId,
     content: safeContent,
     timestamp: new Date().toISOString(),
@@ -1453,7 +1634,33 @@ export const sendGroupMessage = async (senderId: string, groupId: string, conten
 };
 
 export const markAsRead = async (_senderId: string, _receiverId: string) => {
-  // No-op for MVP optimization
+  // No-op
+};
+
+/**
+ * Sincroniza a produção de palavras do membro diretamente no documento da guilda.
+ */
+export const syncGuildMemberStatsToGuild = async (
+  guildId: string,
+  memberId: string,
+  totalWords: number,
+  monthlyWords?: number
+): Promise<void> => {
+  try {
+    const safeTotal = Math.max(0, sanitizeMetricNumber(totalWords, 0, 100000000, 0));
+    const safeMonthly = monthlyWords !== undefined ? Math.max(0, sanitizeMetricNumber(monthlyWords, 0, 100000000, 0)) : 0;
+
+    const patch: any = {};
+    patch[`memberWordStats.${memberId}`] = safeTotal;
+    patch[`memberPeriodStats.monthly.${memberId}`] = safeMonthly;
+
+    await updateDoc(doc(db, 'groups', guildId), patch);
+    try {
+      await updateDoc(doc(db, 'forum_threads', `guild_dir_${guildId}`), patch);
+    } catch {}
+  } catch (err) {
+    // Non-critical background sync
+  }
 };
 
 // --- FORUM ---

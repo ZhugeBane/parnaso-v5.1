@@ -55,12 +55,16 @@ import {
   leaveGuildAgora,
   getGuildAgoraParticipants,
   sendAgoraSignal,
-  pollAgoraSignals
+  pollAgoraSignals,
+  subscribeToDirectMessages,
+  subscribeToGroupMessages,
+  getDirectChatId,
+  syncGuildMemberStatsToGuild
 } from '../services/socialService';
 import { compressImage, resizeImageToBase64 } from '../utils/imageProcessor';
 import { ImagePicker } from './ui/ImagePicker';
 import { useLanguage } from '../i18n/LanguageContext';
-import { getSessions } from '../services/sessionService';
+import { getSessions, syncUserPublicWordStats } from '../services/sessionService';
 import { getAllUsers, isUserCurrentlyOnline, updateUserPresence } from '../services/authService';
 import { sanitizeText, toSafePublicUser } from '../utils/cryptoUtils';
 import { Users, Shield, MessageSquare, Trophy, Search, UserPlus, ArrowRight, Sparkles, Flame, Zap, Calendar } from 'lucide-react';
@@ -112,6 +116,8 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const [allGuilds, setAllGuilds] = useState<Guild[]>([]);
   const [guildSearchTerm, setGuildSearchTerm] = useState('');
   const [memberStats, setMemberStats] = useState<Record<string, number>>({}); // UserID -> Total Words
+  const [guildPeriodFilter, setGuildPeriodFilter] = useState<'monthly' | 'weekly' | 'yearly' | 'all'>('monthly');
+  const [selectedGuildMonthOffset, setSelectedGuildMonthOffset] = useState<number>(0);
   const [showCreateGuild, setShowCreateGuild] = useState(false);
   const [newGuildName, setNewGuildName] = useState('');
   const [newGroupDesc, setNewGroupDesc] = useState('');
@@ -202,6 +208,68 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
   const activeGuild: Guild | null = selectedChat?.type === 'group'
     ? (guilds.find(g => g.id === selectedChat.target.id) || allGuilds.find(g => g.id === selectedChat.target.id) || (selectedChat.target as Guild))
     : null;
+
+  const getTargetMonthKey = (offset: number = 0): { key: string; label: string } => {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + offset);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const key = `${year}-${month}`;
+    const rawMonth = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    const label = rawMonth.charAt(0).toUpperCase() + rawMonth.slice(1);
+    return { key, label };
+  };
+
+  const getMemberWordsForPeriod = (
+    memberId: string,
+    period: 'monthly' | 'weekly' | 'yearly' | 'all',
+    monthOffset: number = 0,
+    targetGuild?: Guild | null
+  ): number => {
+    const guildToUse = targetGuild || activeGuild;
+    const user = allUsers.find(u => u.id === memberId) || (memberId === currentUser.id ? currentUser : null);
+    const targetMonth = getTargetMonthKey(monthOffset);
+    const memberStatsObj: any = guildToUse?.memberPeriodStats?.[memberId];
+    const periodGroupStats: any = guildToUse?.memberPeriodStats?.[period]?.[memberId];
+
+    if (period === 'monthly') {
+      if (monthOffset === 0) {
+        if (user?.wordCountMonthly !== undefined && user.wordCountMonthly > 0) return user.wordCountMonthly;
+        if (user?.monthlyHistory?.[targetMonth.key] !== undefined && user.monthlyHistory[targetMonth.key] > 0) return user.monthlyHistory[targetMonth.key];
+        if (memberStatsObj?.monthly !== undefined && memberStatsObj.monthly > 0) return memberStatsObj.monthly;
+        if (typeof periodGroupStats === 'number' && periodGroupStats > 0) return periodGroupStats;
+        if (memberStatsObj?.monthlyHistory?.[targetMonth.key] !== undefined && memberStatsObj.monthlyHistory[targetMonth.key] > 0) return memberStatsObj.monthlyHistory[targetMonth.key];
+        return memberStats[memberId] || 0;
+      } else {
+        if (user?.monthlyHistory?.[targetMonth.key] !== undefined) return user.monthlyHistory[targetMonth.key];
+        if (memberStatsObj?.monthlyHistory?.[targetMonth.key] !== undefined) return memberStatsObj.monthlyHistory[targetMonth.key];
+        return 0;
+      }
+    }
+
+    if (period === 'weekly') {
+      if (user?.wordCountWeekly !== undefined && user.wordCountWeekly > 0) return user.wordCountWeekly;
+      if (memberStatsObj?.weekly !== undefined && memberStatsObj.weekly > 0) return memberStatsObj.weekly;
+      if (typeof periodGroupStats === 'number' && periodGroupStats > 0) return periodGroupStats;
+      return memberStats[memberId] || 0;
+    }
+
+    if (period === 'yearly') {
+      const currentYear = String(new Date().getFullYear());
+      if (user?.wordCountYearly !== undefined && user.wordCountYearly > 0) return user.wordCountYearly;
+      if (user?.yearlyHistory?.[currentYear] !== undefined && user.yearlyHistory[currentYear] > 0) return user.yearlyHistory[currentYear];
+      if (memberStatsObj?.yearly !== undefined && memberStatsObj.yearly > 0) return memberStatsObj.yearly;
+      if (typeof periodGroupStats === 'number' && periodGroupStats > 0) return periodGroupStats;
+      return memberStats[memberId] || 0;
+    }
+
+    // 'all' / Total
+    if (user?.wordCountTotal !== undefined && user.wordCountTotal > 0) return user.wordCountTotal;
+    if (memberStatsObj?.total !== undefined && memberStatsObj.total > 0) return memberStatsObj.total;
+    if (guildToUse?.memberWordStats?.[memberId] !== undefined && guildToUse.memberWordStats[memberId] > 0) return guildToUse.memberWordStats[memberId];
+    return memberStats[memberId] || 0;
+  };
 
   const cleanupPeerConnection = (peerId: string) => {
     const pc = peerConnectionsRef.current.get(peerId);
@@ -542,19 +610,44 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
       setThreads(threadsRes);
       setCompetitions(compsRes);
 
+      // Sincroniza estatísticas públicas agregadas do usuário atual
+      syncUserPublicWordStats(currentUser.id).catch(() => {});
+
       // Calculate guild member stats
       const uniqueMemberIds = Array.from(new Set(userGuildsRes.flatMap(g => g.members)));
       const newMemberStats: Record<string, number> = {};
 
       for (const memberId of uniqueMemberIds) {
         try {
-          const userSessions = await getSessions(memberId);
+          const userObj = usersRes.find(u => u.id === memberId) || (memberId === currentUser.id ? currentUser : null);
           const guildWithMember = userGuildsRes.find(g => g.members.includes(memberId));
           const resetTime = guildWithMember?.statsResetDate ? new Date(guildWithMember.statsResetDate).getTime() : 0;
 
-          const total = userSessions
-            .filter(s => new Date(s.date).getTime() >= resetTime)
-            .reduce((acc, s) => acc + s.wordCount, 0);
+          let total = 0;
+          if (memberId === currentUser.id) {
+            const userSessions = await getSessions(memberId);
+            total = userSessions
+              .filter(s => new Date(s.date).getTime() >= resetTime)
+              .reduce((acc, s) => acc + s.wordCount, 0);
+
+            // Sincroniza contagem do currentUser no documento da guilda para todos os outros membros verem
+            if (guildWithMember) {
+              syncGuildMemberStatsToGuild(guildWithMember.id, currentUser.id, total, userObj?.wordCountMonthly).catch(() => {});
+            }
+          } else {
+            // Para outros membros da guilda, usa os contadores públicos agregados ou os stats salvos na guilda
+            total = userObj?.wordCountTotal || guildWithMember?.memberWordStats?.[memberId] || 0;
+            if (!total) {
+              try {
+                const userSessions = await getSessions(memberId);
+                total = userSessions
+                  .filter(s => new Date(s.date).getTime() >= resetTime)
+                  .reduce((acc, s) => acc + s.wordCount, 0);
+              } catch {
+                total = 0;
+              }
+            }
+          }
           newMemberStats[memberId] = total;
         } catch (err) {
           newMemberStats[memberId] = memberStats[memberId] || 0;
@@ -628,25 +721,62 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     }
   };
 
-  // --- Effect: Select Chat ---
+  // --- Effect: Select Chat com onSnapshot em Tempo Real ---
   useEffect(() => {
-    if (selectedChat) {
-      const loadChat = async () => {
-        if (selectedChat.type === 'direct') {
-          const user = selectedChat.target as User;
-          const convo = await getConversation(currentUser.id, user.id);
-          setMessages(convo);
-          markAsRead(user.id, currentUser.id);
-        } else {
-          const guild = selectedChat.target as Guild;
-          const convo = await getGroupMessages(guild.id);
-          setMessages(convo);
-        }
+    if (!selectedChat) return;
+
+    let unsubscribe: (() => void) | undefined;
+
+    if (selectedChat.type === 'direct') {
+      const user = selectedChat.target as User;
+      // Carga inicial imediata
+      getConversation(currentUser.id, user.id).then(convo => {
+        setMessages(convo);
         scrollToBottom();
-      };
-      loadChat();
+      }).catch(err => {
+        console.warn('Erro ao carregar mensagens diretas iniciais:', err);
+      });
+      markAsRead(user.id, currentUser.id).catch(() => {});
+
+      // Inscrição com listener onSnapshot
+      unsubscribe = subscribeToDirectMessages(
+        currentUser.id,
+        user.id,
+        (updatedMsgs) => {
+          setMessages(updatedMsgs);
+          scrollToBottom();
+        },
+        (err) => {
+          console.error('[SocialHub] Erro no listener do chat direto:', err);
+        }
+      );
+    } else {
+      const guild = activeGuild || (selectedChat.target as Guild);
+      // Carga inicial imediata
+      getGroupMessages(guild.id).then(convo => {
+        setMessages(convo);
+        scrollToBottom();
+      }).catch(err => {
+        console.warn('Erro ao carregar mensagens do grupo iniciais:', err);
+      });
+
+      // Inscrição com listener onSnapshot
+      unsubscribe = subscribeToGroupMessages(
+        guild.id,
+        (updatedMsgs) => {
+          setMessages(updatedMsgs);
+          scrollToBottom();
+        },
+        (err) => {
+          console.error('[SocialHub] Erro no listener da guilda:', err);
+        }
+      );
     }
-  }, [selectedChat]);
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [selectedChat?.type, selectedChat?.target?.id]);
 
   // --- Effect: Select Thread ---
   useEffect(() => {
@@ -796,21 +926,40 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
     e.preventDefault();
     const cleanMsg = sanitizeText(newMessage, 1000);
     if (!cleanMsg || !selectedChat) return;
-    if (!canPerformSocialAction()) return;
+
+    const msgText = cleanMsg;
+    setNewMessage('');
+    setShowChatEmojiPicker(false);
+
+    // Atualização otimista imediata na interface
+    const tempId = `temp_${Date.now()}`;
+    const optimisticMsg: Message = {
+      id: tempId,
+      senderId: currentUser.id,
+      receiverId: selectedChat.type === 'direct' ? (selectedChat.target as User).id : undefined,
+      groupId: selectedChat.type === 'group' ? selectedChat.target.id : undefined,
+      chatId: selectedChat.type === 'direct' ? getDirectChatId(currentUser.id, (selectedChat.target as User).id) : undefined,
+      content: msgText,
+      timestamp: new Date().toISOString(),
+      read: false
+    };
+    setMessages(prev => [...prev, optimisticMsg]);
+    scrollToBottom();
 
     try {
       setIsActionSubmitting(true);
       if (selectedChat.type === 'direct') {
         const user = selectedChat.target as User;
-        await sendMessage(currentUser.id, user.id, cleanMsg);
-        setMessages(await getConversation(currentUser.id, user.id));
+        await sendMessage(currentUser.id, user.id, msgText);
       } else {
         const guild = activeGuild || (selectedChat.target as Guild);
-        await sendGroupMessage(currentUser.id, guild.id, cleanMsg);
-        setMessages(await getGroupMessages(guild.id));
+        await sendGroupMessage(currentUser.id, guild.id, msgText);
       }
-      setNewMessage('');
-      setShowChatEmojiPicker(false);
+    } catch (err: any) {
+      console.error('Erro ao enviar mensagem:', err);
+      // Remove mensagem otimista em caso de erro na rede/permissão
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+      alert('Não foi possível entregar sua mensagem no momento. Tente novamente.');
     } finally {
       setIsActionSubmitting(false);
     }
@@ -3053,8 +3202,10 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
             )}
 
             {selectedChat.type === 'group' && guildSubTab === 'home' && activeGuild && isGuildMember(activeGuild) && (() => {
+              const targetMonth = getTargetMonthKey(selectedGuildMonthOffset);
+              const getMemberWords = (mId: string) => getMemberWordsForPeriod(mId, guildPeriodFilter, selectedGuildMonthOffset, activeGuild);
               const totalGuildWords = activeGuild.members.reduce(
-                (acc, mId) => acc + (memberStats[mId] || 0),
+                (acc, mId) => acc + getMemberWords(mId),
                 0
               );
               const onlineGuildMembersCount = activeGuild.members.filter(mId =>
@@ -3068,7 +3219,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
               );
               const wordsRemainingForGoal = Math.max(0, collectiveGoalTarget - totalGuildWords);
               const sortedGuildMembers = [...activeGuild.members].sort(
-                (a, b) => (memberStats[b] || 0) - (memberStats[a] || 0)
+                (a, b) => getMemberWords(b) - getMemberWords(a)
               );
               const pendingAppsCount = activeGuild.pendingMemberIds?.length || 0;
 
@@ -3270,7 +3421,9 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                             </div>
                             <div className="min-w-0 text-left">
                               <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 truncate">
-                                Total da Guilda
+                                {guildPeriodFilter === 'monthly' ? `Total do Mês (${targetMonth.label})` :
+                                 guildPeriodFilter === 'weekly' ? 'Total da Semana' :
+                                 guildPeriodFilter === 'yearly' ? 'Total do Ano' : 'Total Acumulado'}
                               </p>
                               <p className="text-sm sm:text-base font-black text-slate-800 truncate">
                                 {totalGuildWords.toLocaleString('pt-BR')} <span className="text-[10px] font-semibold text-indigo-600">{t('social.guilds.words')}</span>
@@ -3456,17 +3609,101 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
 
                       {/* 4. LEADERBOARD: PRODUÇÃO DOS MEMBROS RICA E MOTIVADORA */}
                       <div className="lg:col-span-2 space-y-4">
-                        <div className="flex items-center justify-between px-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-2">
                           <div className="flex items-center gap-2">
                             <span className="text-base">🏆</span>
                             <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm">
                               {t('social.guilds.memberProduction')}
                             </h3>
                           </div>
-                          {activeGuild.statsResetDate && (
+                          {activeGuild.statsResetDate && guildPeriodFilter === 'all' && (
                             <span className="text-[10px] text-slate-400 font-bold italic">
                               {t('social.guilds.since')} {new Date(activeGuild.statsResetDate!).toLocaleDateString()}
                             </span>
+                          )}
+                        </div>
+
+                        {/* NOVO SELETOR DE PERÍODO TEMPORAL */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                          {/* Pills de Período */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => { setGuildPeriodFilter('monthly'); setSelectedGuildMonthOffset(0); }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                guildPeriodFilter === 'monthly'
+                                  ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              <span>📅</span>
+                              <span>Mensal (Padrão)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setGuildPeriodFilter('weekly')}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                guildPeriodFilter === 'weekly'
+                                  ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              <span>⚡</span>
+                              <span>Semanal</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setGuildPeriodFilter('yearly')}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                guildPeriodFilter === 'yearly'
+                                  ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              <span>🏛️</span>
+                              <span>Anual</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setGuildPeriodFilter('all')}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                guildPeriodFilter === 'all'
+                                  ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              <span>♾️</span>
+                              <span>Todos</span>
+                            </button>
+                          </div>
+
+                          {/* Stepper de Mês (apenas no modo Mensal) */}
+                          {guildPeriodFilter === 'monthly' && (
+                            <div className="flex items-center gap-2 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200/70">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedGuildMonthOffset(prev => prev - 1)}
+                                className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-slate-200 text-slate-600 text-xs font-bold transition-colors cursor-pointer"
+                                title="Mês anterior"
+                              >
+                                ‹
+                              </button>
+                              <span className="text-xs font-extrabold text-slate-800 min-w-[120px] text-center">
+                                {targetMonth.label}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={selectedGuildMonthOffset >= 0}
+                                onClick={() => setSelectedGuildMonthOffset(prev => Math.min(0, prev + 1))}
+                                className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-slate-200 text-slate-600 text-xs font-bold transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="Próximo mês"
+                              >
+                                ›
+                              </button>
+                            </div>
                           )}
                         </div>
 
@@ -3474,7 +3711,7 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                           {sortedGuildMembers.map((memberId, index) => {
                             const mName = getUserName(memberId);
                             const mPhoto = getUserPhotoURL(memberId);
-                            const mWords = memberStats[memberId] || 0;
+                            const mWords = getMemberWords(memberId);
                             const mPercent = totalGuildWords > 0
                               ? Math.min(100, Math.round((mWords / totalGuildWords) * 100))
                               : 0;
@@ -3848,18 +4085,19 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                       {activeGuild.members.slice(0, 6).map(memberId => {
                         const photo = getUserPhotoURL(memberId);
                         const name = getUserName(memberId);
+                        const memberWords = getMemberWordsForPeriod(memberId, guildPeriodFilter, selectedGuildMonthOffset, activeGuild);
                         return photo ? (
                           <img
                             key={memberId}
                             src={photo}
                             alt={name}
-                            title={`${name}: ${(memberStats[memberId] || 0).toLocaleString('pt-BR')} palavras`}
+                            title={`${name}: ${memberWords.toLocaleString('pt-BR')} palavras`}
                             className="w-6 h-6 rounded-full object-cover ring-2 ring-white shadow-2xs"
                           />
                         ) : (
                           <div
                             key={memberId}
-                            title={`${name}: ${(memberStats[memberId] || 0).toLocaleString('pt-BR')} palavras`}
+                            title={`${name}: ${memberWords.toLocaleString('pt-BR')} palavras`}
                             className={`w-6 h-6 rounded-full bg-gradient-to-br ${getAvatarGradient(name)} text-white flex items-center justify-center text-[10px] font-black ring-2 ring-white shadow-2xs`}
                           >
                             {name.charAt(0).toUpperCase()}
@@ -3874,44 +4112,139 @@ export const SocialHub: React.FC<SocialHubProps> = ({ currentUser, onExit }) => 
                     </div>
 
                     {/* Right: Total Words Pill & Toggle Button */}
-                    <button
-                      type="button"
-                      onClick={() => setShowGuildChatProduction(prev => !prev)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-[11px] font-extrabold transition-all cursor-pointer flex-shrink-0 shadow-2xs"
-                    >
-                      <span>✍️ {Math.round(Object.values(memberStats).reduce((a, b) => a + b, 0)).toLocaleString('pt-BR')} Palavras Totais</span>
-                      <span className="text-indigo-400">•</span>
-                      <span className="underline decoration-indigo-300">
-                        {showGuildChatProduction ? 'Ocultar Produção ▴' : 'Ver Produção ▾'}
-                      </span>
-                    </button>
+                    {(() => {
+                      const chatTargetMonth = getTargetMonthKey(selectedGuildMonthOffset);
+                      const chatTotalWords = activeGuild.members.reduce(
+                        (acc, mId) => acc + getMemberWordsForPeriod(mId, guildPeriodFilter, selectedGuildMonthOffset, activeGuild),
+                        0
+                      );
+                      const periodLabel = guildPeriodFilter === 'monthly'
+                        ? `Mês (${chatTargetMonth.label})`
+                        : guildPeriodFilter === 'weekly'
+                        ? 'Semana'
+                        : guildPeriodFilter === 'yearly'
+                        ? 'Ano'
+                        : 'Total';
+
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setShowGuildChatProduction(prev => !prev)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-[11px] font-extrabold transition-all cursor-pointer flex-shrink-0 shadow-2xs"
+                        >
+                          <span>✍️ {chatTotalWords.toLocaleString('pt-BR')} palavras ({periodLabel})</span>
+                          <span className="text-indigo-400">•</span>
+                          <span className="underline decoration-indigo-300">
+                            {showGuildChatProduction ? 'Ocultar Produção ▴' : 'Ver Produção ▾'}
+                          </span>
+                        </button>
+                      );
+                    })()}
                   </div>
 
-                  {/* Expanded Member Production Cards */}
+                  {/* Expanded Member Production Cards with Period Filters */}
                   {showGuildChatProduction && (
-                    <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 animate-fade-in">
-                      {activeGuild.members.map(memberId => {
-                        const mName = getUserName(memberId);
-                        const mPhoto = getUserPhotoURL(memberId);
-                        const mWords = Math.round(memberStats[memberId] || 0);
-                        return (
-                          <div key={memberId} className="flex items-center gap-2 p-2 rounded-xl bg-slate-50/90 border border-slate-200/70 shadow-2xs">
-                            <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs ring-2 ring-white overflow-hidden flex-shrink-0">
-                              {mPhoto ? (
-                                <img src={mPhoto} alt={mName} className="w-full h-full object-cover" />
-                              ) : (
-                                mName.charAt(0).toUpperCase()
-                              )}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-[11px] font-bold text-slate-700 truncate">{mName}</p>
-                              <p className="text-[10px] font-extrabold text-indigo-600">
-                                {mWords.toLocaleString('pt-BR')} <span className="text-slate-400 font-normal">{t('social.guilds.words')}</span>
-                              </p>
-                            </div>
+                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-3 animate-fade-in">
+                      {/* Period Filter Selector in Chat */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200/70">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => { setGuildPeriodFilter('monthly'); setSelectedGuildMonthOffset(0); }}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              guildPeriodFilter === 'monthly'
+                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200'
+                            }`}
+                          >
+                            📅 Mensal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setGuildPeriodFilter('weekly')}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              guildPeriodFilter === 'weekly'
+                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200'
+                            }`}
+                          >
+                            ⚡ Semanal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setGuildPeriodFilter('yearly')}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              guildPeriodFilter === 'yearly'
+                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200'
+                            }`}
+                          >
+                            🏛️ Anual
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setGuildPeriodFilter('all')}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              guildPeriodFilter === 'all'
+                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200'
+                            }`}
+                          >
+                            ♾️ Todos
+                          </button>
+                        </div>
+
+                        {guildPeriodFilter === 'monthly' && (
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedGuildMonthOffset(prev => prev - 1)}
+                              className="w-5 h-5 flex items-center justify-center rounded hover:bg-slate-200 text-slate-600 cursor-pointer"
+                              title="Mês anterior"
+                            >
+                              ‹
+                            </button>
+                            <span className="text-[11px] font-extrabold text-slate-800 px-1">
+                              {getTargetMonthKey(selectedGuildMonthOffset).label}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={selectedGuildMonthOffset >= 0}
+                              onClick={() => setSelectedGuildMonthOffset(prev => Math.min(0, prev + 1))}
+                              className="w-5 h-5 flex items-center justify-center rounded hover:bg-slate-200 text-slate-600 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Próximo mês"
+                            >
+                              ›
+                            </button>
                           </div>
-                        );
-                      })}
+                        )}
+                      </div>
+
+                      {/* Members Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+                        {activeGuild.members.map(memberId => {
+                          const mName = getUserName(memberId);
+                          const mPhoto = getUserPhotoURL(memberId);
+                          const mWords = Math.round(getMemberWordsForPeriod(memberId, guildPeriodFilter, selectedGuildMonthOffset, activeGuild));
+                          return (
+                            <div key={memberId} className="flex items-center gap-2 p-2 rounded-xl bg-slate-50/90 border border-slate-200/70 shadow-2xs">
+                              <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs ring-2 ring-white overflow-hidden flex-shrink-0">
+                                {mPhoto ? (
+                                  <img src={mPhoto} alt={mName} className="w-full h-full object-cover" />
+                                ) : (
+                                  mName.charAt(0).toUpperCase()
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-bold text-slate-700 truncate">{mName}</p>
+                                <p className="text-[10px] font-extrabold text-indigo-600">
+                                  {mWords.toLocaleString('pt-BR')} <span className="text-slate-400 font-normal">{t('social.guilds.words')}</span>
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>

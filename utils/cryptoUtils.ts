@@ -199,5 +199,13 @@ export function toSafePublicUser<T extends Record<string, any>>(raw: T, docId?: 
     isOnline: Boolean(raw.isOnline),
     lastSeen: raw.lastSeen || undefined,
     createdAt: raw.createdAt || undefined,
+    wordCountWeekly: typeof raw.wordCountWeekly === 'number' ? raw.wordCountWeekly : 0,
+    wordCountMonthly: typeof raw.wordCountMonthly === 'number' ? raw.wordCountMonthly : 0,
+    wordCountYearly: typeof raw.wordCountYearly === 'number' ? raw.wordCountYearly : 0,
+    wordCountTotal: typeof raw.wordCountTotal === 'number' ? raw.wordCountTotal : 0,
+    monthlyHistory: raw.monthlyHistory && typeof raw.monthlyHistory === 'object' ? raw.monthlyHistory : {},
+    yearlyHistory: raw.yearlyHistory && typeof raw.yearlyHistory === 'object' ? raw.yearlyHistory : {},
+    dailyHistory: raw.dailyHistory && typeof raw.dailyHistory === 'object' ? raw.dailyHistory : {},
+    statsUpdatedAt: raw.statsUpdatedAt || undefined,
   };
 }
