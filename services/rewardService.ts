@@ -129,7 +129,8 @@ export interface StreakEvaluationResult {
 export const evaluateStreakWithHestius = (
   sessions: WritingSession[],
   userHestius: number = 1,
-  alreadyProtectedDates: string[] = []
+  alreadyProtectedDates: string[] = [],
+  hestiusLastRechargeDate?: string
 ): StreakEvaluationResult => {
   const clampedHestius = Math.max(0, Math.min(HESTIUS_MAX, userHestius));
 
@@ -181,6 +182,9 @@ export const evaluateStreakWithHestius = (
     currentStreak++;
   }
 
+  // Timestamp da última recarga de Hestius (se houver)
+  const lastRechargeTime = hestiusLastRechargeDate ? new Date(hestiusLastRechargeDate).getTime() : 0;
+
   // Começa a verificar os dias anteriores a partir de ontem
   let loopDate = new Date(today);
   loopDate.setDate(loopDate.getDate() - 1);
@@ -198,13 +202,23 @@ export const evaluateStreakWithHestius = (
       protectedDates.push(key);
     } else {
       // Dia falhado e ainda não protegido!
-      if (availableHestius > 0) {
+      // Fim do dia falhado (23:59:59.999 no horário local)
+      const endOfMissedDay = new Date(loopDate);
+      endOfMissedDay.setHours(23, 59, 59, 999);
+
+      // Uma carga de Hestius só pode cobrir um dia se o usuário JÁ a possuía antes do fim daquele dia.
+      // Cargas recarregadas/compradas HOJE ou após o término do dia falhado pertencem ao presente/futuro
+      // e não devem ser canibalizadas retroativamente por dias passados que já haviam rompido a ofensiva!
+      const isRechargedAfterMissedDay = lastRechargeTime > 0 && lastRechargeTime > endOfMissedDay.getTime();
+      const canUseHestius = availableHestius > 0 && !isRechargedAfterMissedDay;
+
+      if (canUseHestius) {
         // Hestius tenta proteger esse dia
         availableHestius--;
         tentativeNewlyConsumed.push(key);
         // CRUCIAL: NÃO incrementa currentStreak! Preserva a corrente de escrita real sem inflar dias falsos.
       } else {
-        // Sem Hestius suficiente -> a corrente se rompe
+        // Sem Hestius suficiente ou carga adquirida a posteriori -> a corrente se rompe
         break;
       }
     }
@@ -730,6 +744,73 @@ export const claimReward = async (
   }
 
   return claim;
+};
+
+/**
+ * Recarrega +1 Hestius atomicamente (consumindo Scriptus ou Kronus)
+ * Atualiza claimedRewards, spentScriptus/spentKronus, hestiusCount e hestiusLastRechargeDate
+ * em uma ÚNICA chamada ao Firestore, prevenindo corridas de onSnapshot ou inconsistências entre dispositivos.
+ */
+export const rechargeUserHestius = async (
+  userId: string,
+  currentCount: number,
+  currency: 'scriptus' | 'kronus'
+): Promise<{ success: boolean; newCount: number; claim?: ClaimedReward; error?: string }> => {
+  if (!userId) return { success: false, newCount: currentCount, error: 'Usuário não autenticado.' };
+
+  const safeCurrent = Math.max(0, Math.min(HESTIUS_MAX, currentCount));
+  if (safeCurrent >= HESTIUS_MAX) {
+    return { success: false, newCount: safeCurrent, error: 'O Altar de Hestius já está na capacidade máxima (3/3).' };
+  }
+
+  const cost = currency === 'scriptus' ? HESTIUS_REFILL_SCRIPTUS_COST : HESTIUS_REFILL_KRONUS_COST;
+  const newCount = Math.min(HESTIUS_MAX, safeCurrent + 1);
+  const rechargeDate = new Date().toISOString();
+  const claimId = `claim_hestius_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+  const claim: ClaimedReward = {
+    id: claimId,
+    userId,
+    rewardId: `hestius-refill-${Date.now()}`,
+    rewardTitle: 'Recarga do Altar de Hestius (Guardião da Chama)',
+    cost,
+    costDiamonds: cost,
+    currency,
+    claimedAt: rechargeDate,
+    notes: 'Recarga de proteção do altar de ofensiva'
+  };
+
+  const currentClaims = await getClaimedRewards(userId);
+  const updatedClaims = [claim, ...currentClaims.filter(c => c.id !== claimId)];
+  localStorage.setItem(getLocalClaimsKey(userId), JSON.stringify(updatedClaims));
+
+  const newSpentScriptus = updatedClaims
+    .filter(c => !c.currency || c.currency === 'scriptus')
+    .reduce((acc, c) => acc + (c.cost || 0), 0);
+  const newSpentKronus = updatedClaims
+    .filter(c => c.currency === 'kronus')
+    .reduce((acc, c) => acc + (c.cost || 0), 0);
+
+  try {
+    const cleanData = cleanDataForFirestore(claim);
+    const userDocRef = doc(db, 'users', userId);
+
+    await Promise.all([
+      setDoc(doc(db, 'user_reward_claims', claimId), cleanData),
+      updateDoc(userDocRef, {
+        hestiusCount: newCount,
+        hestiusLastRechargeDate: rechargeDate,
+        claimedRewards: updatedClaims,
+        spentScriptus: newSpentScriptus,
+        spentKronus: newSpentKronus,
+        statsUpdatedAt: rechargeDate
+      })
+    ]);
+  } catch (e) {
+    console.warn('Erro ao salvar recarga atômica de Hestius no Firestore:', e);
+  }
+
+  return { success: true, newCount, claim };
 };
 
 export const deleteClaimedReward = async (userId: string, claimId: string): Promise<void> => {

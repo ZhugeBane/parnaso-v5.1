@@ -15,9 +15,9 @@ import {
   calculateBalances,
   HESTIUS_MAX,
   HESTIUS_REFILL_SCRIPTUS_COST,
-  HESTIUS_REFILL_KRONUS_COST
+  HESTIUS_REFILL_KRONUS_COST,
+  rechargeUserHestius
 } from '../services/rewardService';
-import { updateUserHestius } from '../services/authService';
 import { ScriptusIcon, KronusIcon, HestiusIcon, HestiusOrbs } from './ui/GamificationIcons';
 import { Card } from './ui/Card';
 import {
@@ -116,9 +116,18 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
     };
   }, [user.id]);
 
-  // Gamification Balances (Scriptus, Kronus, Hestius) com fallback determinístico
+  // Gamification Balances (Scriptus, Kronus, Hestius) com fallback determinístico e estado otimista
   const balances = calculateBalances(totalWords, sessions, claims, user.spentScriptus, user.spentKronus);
-  const currentHestius = Math.max(0, Math.min(HESTIUS_MAX, user.hestiusCount ?? 1));
+  const [localHestius, setLocalHestius] = useState<number>(() => Math.max(0, Math.min(HESTIUS_MAX, user.hestiusCount ?? 1)));
+
+  // Sincroniza quando o prop user.hestiusCount atualizar via Firestore (Single Source of Truth)
+  useEffect(() => {
+    if (typeof user.hestiusCount === 'number') {
+      setLocalHestius(Math.max(0, Math.min(HESTIUS_MAX, user.hestiusCount)));
+    }
+  }, [user.hestiusCount]);
+
+  const currentHestius = localHestius;
 
   // Open modal for new reward
   const handleOpenCreateModal = () => {
@@ -188,7 +197,7 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
 
   // Recharge Hestius from Shop
   const handleRechargeHestius = async (currency: 'scriptus' | 'kronus') => {
-    if (currentHestius >= HESTIUS_MAX) {
+    if (localHestius >= HESTIUS_MAX) {
       alert(t('rewards.hestiusAlreadyMax'));
       return;
     }
@@ -201,34 +210,31 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
       return;
     }
 
+    // 1. Atualização otimista imediata na UI
+    const optimisticCount = Math.min(HESTIUS_MAX, localHestius + 1);
+    setLocalHestius(optimisticCount);
+
     try {
-      const claim = await claimReward(user.id, {
-        id: `hestius-refill-${Date.now()}`,
-        title: 'Recarga do Altar de Hestius (Guardião da Chama)',
-        cost,
-        currency,
-        icon: '🔥',
-        category: 'hestius',
-        description: 'Carga de proteção para manter a chama de sequência acesa'
-      }, 'Recarga de proteção do altar de ofensiva');
-
-      const newCount = Math.min(HESTIUS_MAX, currentHestius + 1);
-      const rechargeDate = new Date().toISOString();
-      await updateUserHestius(user.id, newCount, {
-        hestiusLastRechargeDate: rechargeDate
-      });
-
-      const updatedClaims = [claim, ...claims];
-      onUpdateUser?.({
-        hestiusCount: newCount,
-        hestiusLastRechargeDate: rechargeDate,
-        claimedRewards: updatedClaims
-      });
-
-      setClaims(updatedClaims);
-      setCelebrationReward(claim);
+      const result = await rechargeUserHestius(user.id, localHestius, currency);
+      if (result.success && result.claim) {
+        const updatedClaims = [result.claim, ...claims];
+        setClaims(updatedClaims);
+        setLocalHestius(result.newCount);
+        onUpdateUser?.({
+          hestiusCount: result.newCount,
+          hestiusLastRechargeDate: result.claim.claimedAt,
+          claimedRewards: updatedClaims
+        });
+        setCelebrationReward(result.claim);
+      } else {
+        // Rollback se falhar
+        setLocalHestius(localHestius);
+        if (result.error) alert(result.error);
+      }
     } catch (err) {
       console.error('Erro ao recarregar Hestius:', err);
+      setLocalHestius(localHestius);
+      alert('Erro ao processar recarga de Hestius. Verifique sua conexão.');
     }
   };
 

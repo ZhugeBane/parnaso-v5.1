@@ -103,7 +103,8 @@ function App() {
     const streakEval = evaluateStreakWithHestius(
       sessions,
       user.hestiusCount ?? 1,
-      user.hestiusProtectedDates || []
+      user.hestiusProtectedDates || [],
+      user.hestiusLastRechargeDate
     );
 
     if (streakEval.newlyConsumedDates && streakEval.newlyConsumedDates.length > 0) {
@@ -128,7 +129,7 @@ function App() {
         hestiusProtectedDates: updatedProtectedDates
       } : null);
     }
-  }, [user?.id, sessions]);
+  }, [user?.id, sessions, user?.hestiusCount, user?.hestiusProtectedDates, user?.hestiusLastRechargeDate]);
 
   const checkAuth = async () => {
     try {

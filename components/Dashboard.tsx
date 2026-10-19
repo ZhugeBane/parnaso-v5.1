@@ -7,7 +7,7 @@ import { SessionDetailsModal } from './SessionDetailsModal';
 import { LanguageSelector } from './ui/LanguageSelector';
 import { HeatmapChart } from './ui/HeatmapChart';
 import { useLanguage } from '../i18n/LanguageContext';
-import { updateUserProfilePicture, updateUserProfileBase64, updateUserHestius } from '../services/authService';
+import { updateUserProfilePicture, updateUserProfileBase64 } from '../services/authService';
 import { compressImage, resizeImageToBase64 } from '../utils/imageProcessor';
 import { ImagePicker } from './ui/ImagePicker';
 import {
@@ -734,29 +734,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     );
   }, [lifetimeTotalWords, sessions, claims, user.spentScriptus, user.spentKronus]);
 
-  // Streak calculation with Hestius Shield
+  // Streak calculation with Hestius Shield (Hábito de escrita global do autor com todas as sessões)
   const streakResult = useMemo(() => {
-    return evaluateStreakWithHestius(workFilteredSessions, user.hestiusCount ?? 1, user.hestiusProtectedDates || []);
-  }, [workFilteredSessions, user.hestiusCount, user.hestiusProtectedDates]);
+    return evaluateStreakWithHestius(
+      sessions,
+      user.hestiusCount ?? 1,
+      user.hestiusProtectedDates || [],
+      user.hestiusLastRechargeDate
+    );
+  }, [sessions, user.hestiusCount, user.hestiusProtectedDates, user.hestiusLastRechargeDate]);
   const currentStreak = streakResult.currentStreak;
   const effectiveHestiusCount = streakResult.effectiveHestius;
-
-  // Auto-persist newly consumed Hestius if evaluated in Dashboard
-  useEffect(() => {
-    if (streakResult.newlyConsumedDates && streakResult.newlyConsumedDates.length > 0 && user.id) {
-      const mergedProtected = Array.from(new Set([...(user.hestiusProtectedDates || []), ...streakResult.newlyConsumedDates]));
-      updateUserHestius(user.id, streakResult.effectiveHestius, {
-        hestiusProtectedDates: mergedProtected
-      }).then(() => {
-        if (onUpdateUser) {
-          onUpdateUser({
-            hestiusCount: streakResult.effectiveHestius,
-            hestiusProtectedDates: mergedProtected
-          });
-        }
-      }).catch(err => console.error("Erro ao persistir consumo de Hestius:", err));
-    }
-  }, [streakResult.newlyConsumedDates, streakResult.effectiveHestius, user.id, user.hestiusProtectedDates, onUpdateUser]);
 
 
   // --- Writing Pattern Analysis ---
