@@ -25,6 +25,7 @@ import {
   calculateBalances,
   evaluateStreakWithHestius,
   getClaimedRewards,
+  subscribeToClaimedRewards,
   calculateSessionMinutes,
   formatMinutesToHours,
   formatMinutesShort
@@ -160,14 +161,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const [dateFilter, setDateFilter] = useState<DateFilterType>('all');
   const [selectedSession, setSelectedSession] = useState<WritingSession | null>(null);
   const [showAuthorProfileModal, setShowAuthorProfileModal] = useState(false);
-  const [claims, setClaims] = useState<ClaimedReward[]>([]);
+  const [claims, setClaims] = useState<ClaimedReward[]>(user.claimedRewards || []);
 
+  // Sincroniza claims se o objeto user do Firestore atualizar
+  useEffect(() => {
+    if (user.claimedRewards && user.claimedRewards.length > 0) {
+      setClaims(user.claimedRewards);
+    }
+  }, [user.claimedRewards]);
+
+  // Listener em tempo real para resgates de recompensas (Desktop/Mobile sync)
   useEffect(() => {
     let isMounted = true;
-    getClaimedRewards(user.id).then(c => {
-      if (isMounted) setClaims(c);
-    }).catch(() => {});
-    return () => { isMounted = false; };
+    const unsubscribe = subscribeToClaimedRewards(user.id, (freshClaims) => {
+      if (isMounted && freshClaims) {
+        setClaims(freshClaims);
+      }
+    });
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [user.id, activeTab]);
 
   // Work Slidebar Selection ('all' | 'general' | projectId)
@@ -711,8 +725,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   // Gamification Balances (Scriptus, Kronus)
   const balances = useMemo(() => {
-    return calculateBalances(lifetimeTotalWords, sessions, claims);
-  }, [lifetimeTotalWords, sessions, claims]);
+    return calculateBalances(
+      lifetimeTotalWords,
+      sessions,
+      claims,
+      user.spentScriptus,
+      user.spentKronus
+    );
+  }, [lifetimeTotalWords, sessions, claims, user.spentScriptus, user.spentKronus]);
 
   // Streak calculation with Hestius Shield
   const streakResult = useMemo(() => {
@@ -2873,7 +2893,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                   {/* Triple Capsule with Glassmorphism: Scriptus, Kronus, Hestius */}
                   <div
                     onClick={() => { setActiveTab('rewards'); setSelectedProjectId(null); }}
-                    className={`flex items-center gap-1.5 p-1 rounded-2xl backdrop-blur-md border shadow-sm cursor-pointer transition-all ${
+                    className={`flex items-center justify-between sm:justify-start gap-1 sm:gap-1.5 p-1 rounded-2xl backdrop-blur-md border shadow-sm cursor-pointer transition-all w-full sm:w-auto ${
                       activeTab === 'rewards'
                         ? 'bg-purple-900/70 border-purple-400/60 ring-2 ring-purple-400/40 shadow-purple-500/25'
                         : 'bg-slate-900/50 hover:bg-slate-900/70 border-white/15 text-slate-200'
@@ -2881,22 +2901,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     title="Loja de Recompensas & Altar de Hestius"
                   >
                     {/* Scriptus Capsule */}
-                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/30 text-violet-200 transition-colors">
-                      <ScriptusIcon className="w-4 h-4 text-violet-300" />
+                    <div className="flex-1 sm:flex-initial flex items-center justify-center sm:justify-start gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/30 text-violet-200 transition-colors">
+                      <ScriptusIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-violet-300" />
                       <span className="font-extrabold text-xs tracking-wide text-violet-100">{balances.balanceScriptus.toLocaleString('pt-BR')}</span>
                       <span className="hidden md:inline text-[11px] font-semibold text-violet-300/80">Scriptus</span>
                     </div>
 
                     {/* Kronus Capsule */}
-                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/30 text-amber-200 transition-colors">
-                      <KronusIcon className="w-4 h-4 text-amber-300" />
+                    <div className="flex-1 sm:flex-initial flex items-center justify-center sm:justify-start gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/30 text-amber-200 transition-colors">
+                      <KronusIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300" />
                       <span className="font-extrabold text-xs tracking-wide text-amber-100">{balances.balanceKronus.toLocaleString('pt-BR')}</span>
                       <span className="hidden md:inline text-[11px] font-semibold text-amber-300/80">Kronus</span>
                     </div>
 
                     {/* Hestius Capsule with Orbs */}
-                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/30 text-rose-200 transition-colors">
-                      <HestiusIcon className="w-4 h-4 text-rose-300" />
+                    <div className="flex-1 sm:flex-initial flex items-center justify-center sm:justify-start gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/30 text-rose-200 transition-colors">
+                      <HestiusIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-300" />
                       <span className="font-extrabold text-xs tracking-wide text-rose-100">
                         {effectiveHestiusCount}/3
                       </span>

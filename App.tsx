@@ -10,9 +10,9 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { SocialHub } from './components/SocialHub'; // CONNECTED SOCIAL HUB
 import { HelpPage } from './components/HelpPage';
 import { WritingSession, UserSettings, INITIAL_SETTINGS, Project, User } from './types';
-import { getSessions, saveSession, getSettings, saveSettings, getProjects, saveProject, deleteProject, clearAllData, syncUserPublicWordStats } from './services/sessionService';
-import { getCurrentUser, logout, updateUserPresence, updateUserHestius } from './services/authService';
-import { evaluateStreakWithHestius, checkHestiusConsistencyRecharge } from './services/rewardService';
+import { getSessions, saveSession, getSettings, saveSettings, getProjects, saveProject, deleteProject, clearAllData, syncUserPublicWordStats, subscribeToSessions } from './services/sessionService';
+import { getCurrentUser, logout, updateUserPresence, updateUserHestius, subscribeToUser } from './services/authService';
+import { evaluateStreakWithHestius, checkHestiusConsistencyRecharge, syncAndMigrateLocalRewardsToFirestore } from './services/rewardService';
 import { LanguageProvider } from './i18n/LanguageContext';
 
 
@@ -65,6 +65,37 @@ function App() {
     };
   }, [user?.id]);
 
+  // 2. Real-time Cloud Synchronization (Single Source of Truth)
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Escuta alterações em tempo real no documento do usuário (saldos, Hestius, recompensas, etc.)
+    const unsubscribeUser = subscribeToUser(user.id, (freshUser) => {
+      if (freshUser) {
+        setUser(prev => {
+          if (!prev) return freshUser;
+          // Mescla garantindo que atualizações vindas de outros dispositivos (Desktop/Mobile) reflitam imediatamente
+          return {
+            ...prev,
+            ...freshUser
+          };
+        });
+      }
+    });
+
+    // Escuta alterações em tempo real nas sessões (adicionadas no celular ou no PC)
+    const unsubscribeSessions = subscribeToSessions(user.id, (freshSessions) => {
+      if (freshSessions) {
+        setSessions(freshSessions);
+      }
+    });
+
+    return () => {
+      unsubscribeUser();
+      unsubscribeSessions();
+    };
+  }, [user?.id]);
+
   // 3. Sincronização e consumo automático de Hestius se houver dias falhados protegidos
   useEffect(() => {
     if (!user || !sessions || sessions.length === 0) return;
@@ -104,6 +135,8 @@ function App() {
       const currentUser = await getCurrentUser();
       if (currentUser) {
         setUser(currentUser);
+        // Migração e consolidação automática Nuvem/Firestore
+        syncAndMigrateLocalRewardsToFirestore(currentUser.id).catch(() => {});
         await loadUserData(currentUser.id);
       }
     } catch (error) {
@@ -140,6 +173,7 @@ function App() {
       return;
     }
     setUser(loggedInUser);
+    syncAndMigrateLocalRewardsToFirestore(loggedInUser.id).catch(() => {});
     await loadUserData(loggedInUser.id);
     setView('dashboard');
   };

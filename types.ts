@@ -232,6 +232,14 @@ export interface User {
   // Gamification: Badges & Achievements
   equippedBadges?: EquippedBadge[]; // Up to 2 equipped badges
   achievementHistory?: AchievementUnlockRecord[]; // Historical unlocked achievements
+
+  // Gamification: Rewards, Claims & Cloud Currencies (Single Source of Truth)
+  customRewards?: UserReward[];
+  claimedRewards?: ClaimedReward[];
+  spentScriptus?: number;
+  spentKronus?: number;
+  scriptusBalance?: number;
+  kronusBalance?: number;
 }
 
 export interface EquippedBadge {
@@ -389,6 +397,7 @@ export interface UserReward {
   userId: string;
   title: string;
   cost: number; // in Scriptus (default) or Kronus
+  costDiamonds?: number; // Backward compatibility alias
   currency?: 'scriptus' | 'kronus'; // default 'scriptus'
   description?: string;
   icon?: string; // emoji or icon string
@@ -402,6 +411,7 @@ export interface ClaimedReward {
   rewardId: string;
   rewardTitle: string;
   cost: number;
+  costDiamonds?: number; // Backward compatibility alias
   currency?: 'scriptus' | 'kronus'; // default 'scriptus'
   claimedAt: string;
   notes?: string;

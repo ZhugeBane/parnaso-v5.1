@@ -8,6 +8,8 @@ import {
   getClaimedRewards,
   claimReward,
   deleteClaimedReward,
+  subscribeToUserRewards,
+  subscribeToClaimedRewards,
   wordsToScriptus,
   calculateTotalKronus,
   calculateBalances,
@@ -55,9 +57,9 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
   readOnly = false
 }) => {
   const { t } = useLanguage();
-  const [rewards, setRewards] = useState<UserReward[]>([]);
-  const [claims, setClaims] = useState<ClaimedReward[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rewards, setRewards] = useState<UserReward[]>(user.customRewards || []);
+  const [claims, setClaims] = useState<ClaimedReward[]>(user.claimedRewards || []);
+  const [loading, setLoading] = useState(false);
 
   const [activeSubTab, setActiveSubTab] = useState<'shop' | 'history'>('shop');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -77,35 +79,45 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
   const [formIcon, setFormIcon] = useState('🎁');
   const [formCategory, setFormCategory] = useState<'lazer' | 'comida' | 'compras' | 'descanso' | 'outro' | 'hestius'>('outro');
 
-  // Load rewards and claims on mount
+  // Sincroniza se o objeto user do Firestore atualizar
+  useEffect(() => {
+    if (user.customRewards && user.customRewards.length > 0) {
+      setRewards(user.customRewards);
+    }
+  }, [user.customRewards]);
+
+  useEffect(() => {
+    if (user.claimedRewards && user.claimedRewards.length > 0) {
+      setClaims(user.claimedRewards);
+    }
+  }, [user.claimedRewards]);
+
+  // Load rewards and claims on mount with real-time listeners
   useEffect(() => {
     let isMounted = true;
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        const [userRewards, userClaims] = await Promise.all([
-          getUserRewards(user.id),
-          getClaimedRewards(user.id)
-        ]);
-        if (isMounted) {
-          setRewards(userRewards);
-          setClaims(userClaims);
-        }
-      } catch (err) {
-        console.error('Erro ao carregar recompensas:', err);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
+    getUserRewards(user.id).then(r => {
+      if (isMounted && r.length > 0) setRewards(r);
+    });
+    getClaimedRewards(user.id).then(c => {
+      if (isMounted && c.length > 0) setClaims(c);
+    });
 
-    loadData();
+    const unsubRewards = subscribeToUserRewards(user.id, (freshRewards) => {
+      if (isMounted && freshRewards) setRewards(freshRewards);
+    });
+    const unsubClaims = subscribeToClaimedRewards(user.id, (freshClaims) => {
+      if (isMounted && freshClaims) setClaims(freshClaims);
+    });
+
     return () => {
       isMounted = false;
+      unsubRewards();
+      unsubClaims();
     };
   }, [user.id]);
 
-  // Gamification Balances (Scriptus, Kronus, Hestius)
-  const balances = calculateBalances(totalWords, sessions, claims);
+  // Gamification Balances (Scriptus, Kronus, Hestius) com fallback determinístico
+  const balances = calculateBalances(totalWords, sessions, claims, user.spentScriptus, user.spentKronus);
   const currentHestius = Math.max(0, Math.min(HESTIUS_MAX, user.hestiusCount ?? 1));
 
   // Open modal for new reward
@@ -191,7 +203,7 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
 
     try {
       const claim = await claimReward(user.id, {
-        id: 'hestius-refill',
+        id: `hestius-refill-${Date.now()}`,
         title: 'Recarga do Altar de Hestius (Guardião da Chama)',
         cost,
         currency,
@@ -201,10 +213,19 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
       }, 'Recarga de proteção do altar de ofensiva');
 
       const newCount = Math.min(HESTIUS_MAX, currentHestius + 1);
-      await updateUserHestius(user.id, newCount);
-      onUpdateUser?.({ hestiusCount: newCount });
+      const rechargeDate = new Date().toISOString();
+      await updateUserHestius(user.id, newCount, {
+        hestiusLastRechargeDate: rechargeDate
+      });
 
-      setClaims(prev => [claim, ...prev]);
+      const updatedClaims = [claim, ...claims];
+      onUpdateUser?.({
+        hestiusCount: newCount,
+        hestiusLastRechargeDate: rechargeDate,
+        claimedRewards: updatedClaims
+      });
+
+      setClaims(updatedClaims);
       setCelebrationReward(claim);
     } catch (err) {
       console.error('Erro ao recarregar Hestius:', err);
@@ -220,7 +241,9 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
 
     try {
       const claim = await claimReward(user.id, rewardToRedeem, redeemNotes);
-      setClaims(prev => [claim, ...prev]);
+      const updatedClaims = [claim, ...claims];
+      setClaims(updatedClaims);
+      onUpdateUser?.({ claimedRewards: updatedClaims });
       setCelebrationReward(claim);
       setRewardToRedeem(null);
       setRedeemNotes('');
@@ -235,7 +258,9 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
     if (window.confirm(confirmMsg)) {
       try {
         await deleteClaimedReward(user.id, claimId);
-        setClaims(prev => prev.filter(c => c.id !== claimId));
+        const filtered = claims.filter(c => c.id !== claimId);
+        setClaims(filtered);
+        onUpdateUser?.({ claimedRewards: filtered });
       } catch (err) {
         console.error('Erro ao excluir resgate:', err);
       }
@@ -251,77 +276,79 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Hero / Balance Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-purple-950 via-slate-900 to-indigo-950 text-white p-6 sm:p-8 shadow-xl border border-purple-500/20">
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-purple-950 via-slate-900 to-indigo-950 text-white p-5 sm:p-8 shadow-xl border border-purple-500/20">
         {/* Decorative sparkles background */}
         <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-purple-500/15 rounded-full blur-3xl pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="space-y-3 max-w-xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-500/20 border border-purple-400/30 text-purple-200 text-xs font-semibold backdrop-blur-sm">
-              <Sparkles className="w-4 h-4 text-purple-300 animate-pulse" />
+          <div className="space-y-2 sm:space-y-3 max-w-xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/20 border border-purple-400/30 text-purple-200 text-xs font-semibold backdrop-blur-sm">
+              <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-300 animate-pulse" />
               <span>{t('rewards.ruleBadge')}</span>
             </div>
 
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
+            <h2 className="text-xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
               <span>{t('rewards.title')}</span>
             </h2>
 
-            <p className="text-sm sm:text-base text-purple-200/90 leading-relaxed">
+            <p className="text-xs sm:text-base text-purple-200/90 leading-relaxed">
               {t('rewards.subtitle')}
             </p>
           </div>
 
-          {/* Balance Cards Strip */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 w-full lg:w-auto">
+          {/* Balance Cards Strip - 3 Column Compact on Mobile, Spaced on Desktop */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-4 w-full lg:w-auto">
             {/* Scriptus Balance */}
-            <div className="bg-gradient-to-br from-violet-900/40 to-purple-950/60 backdrop-blur-md border border-violet-400/30 p-4 rounded-2xl flex flex-col justify-center min-w-[160px] shadow-inner">
-              <span className="text-[11px] font-bold text-violet-200 uppercase tracking-wider flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-violet-400 animate-ping"></span>
-                <span>{t('rewards.scriptusBalance')}</span>
+            <div className="bg-gradient-to-br from-violet-900/40 to-purple-950/60 backdrop-blur-md border border-violet-400/30 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl flex flex-col justify-center shadow-inner">
+              <span className="text-[10px] sm:text-[11px] font-bold text-violet-200 uppercase tracking-wider flex items-center gap-1 sm:gap-1.5 truncate">
+                <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-violet-400 animate-ping"></span>
+                <span className="truncate">{t('rewards.scriptusBalance')}</span>
               </span>
-              <div className="flex items-baseline gap-1.5 mt-1">
-                <span className="text-3xl sm:text-4xl font-black text-white tracking-tight drop-shadow-sm">
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-sm">
                   {balances.balanceScriptus.toLocaleString('pt-BR')}
                 </span>
-                <ScriptusIcon className="w-5 h-5 text-violet-300" />
+                <ScriptusIcon className="w-4 h-4 sm:w-5 sm:h-5 text-violet-300 flex-shrink-0" />
               </div>
-              <span className="text-[11px] text-violet-300/80 mt-1">
+              <span className="hidden sm:block text-[11px] text-violet-300/80 mt-1 truncate">
                 ≈ {(balances.balanceScriptus * 2).toLocaleString('pt-BR')} {t('dashboard.words')}
               </span>
             </div>
 
             {/* Kronus Balance */}
-            <div className="bg-gradient-to-br from-amber-900/40 to-orange-950/60 backdrop-blur-md border border-amber-400/30 p-4 rounded-2xl flex flex-col justify-center min-w-[160px] shadow-inner">
-              <span className="text-[11px] font-bold text-amber-200 uppercase tracking-wider flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-                <span>{t('rewards.kronusBalance')}</span>
+            <div className="bg-gradient-to-br from-amber-900/40 to-orange-950/60 backdrop-blur-md border border-amber-400/30 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl flex flex-col justify-center shadow-inner">
+              <span className="text-[10px] sm:text-[11px] font-bold text-amber-200 uppercase tracking-wider flex items-center gap-1 sm:gap-1.5 truncate">
+                <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-amber-400 animate-ping"></span>
+                <span className="truncate">{t('rewards.kronusBalance')}</span>
               </span>
-              <div className="flex items-baseline gap-1.5 mt-1">
-                <span className="text-3xl sm:text-4xl font-black text-white tracking-tight drop-shadow-sm">
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-sm">
                   {balances.balanceKronus.toLocaleString('pt-BR')}
                 </span>
-                <KronusIcon className="w-5 h-5 text-amber-300" />
+                <KronusIcon className="w-4 h-4 sm:w-5 sm:h-5 text-amber-300 flex-shrink-0" />
               </div>
-              <span className="text-[11px] text-amber-300/80 mt-1">
-                ≈ {(balances.balanceKronus * 2).toLocaleString('pt-BR')} min de escrita
+              <span className="hidden sm:block text-[11px] text-amber-300/80 mt-1 truncate">
+                ≈ {(balances.balanceKronus * 2).toLocaleString('pt-BR')} min
               </span>
             </div>
 
             {/* Hestius Status */}
-            <div className="bg-gradient-to-br from-rose-900/40 to-red-950/60 backdrop-blur-md border border-rose-400/30 p-4 rounded-2xl flex flex-col justify-center min-w-[160px] shadow-inner">
-              <span className="text-[11px] font-bold text-rose-200 uppercase tracking-wider flex items-center gap-1.5">
-                <HestiusIcon className="w-3.5 h-3.5 text-rose-300" />
-                <span>{t('rewards.hestiusStatus')}</span>
+            <div className="bg-gradient-to-br from-rose-900/40 to-red-950/60 backdrop-blur-md border border-rose-400/30 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl flex flex-col justify-center shadow-inner">
+              <span className="text-[10px] sm:text-[11px] font-bold text-rose-200 uppercase tracking-wider flex items-center gap-1 sm:gap-1.5 truncate">
+                <HestiusIcon className="w-3.5 h-3.5 text-rose-300 flex-shrink-0" />
+                <span className="truncate">{t('rewards.hestiusStatus')}</span>
               </span>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-3xl sm:text-4xl font-black text-white tracking-tight drop-shadow-sm">
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <span className="text-xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-sm">
                   {currentHestius}/3
                 </span>
-                <HestiusOrbs count={currentHestius} size="sm" />
+                <div className="hidden sm:inline-flex">
+                  <HestiusOrbs count={currentHestius} size="sm" />
+                </div>
               </div>
-              <span className="text-[11px] text-rose-300/80 mt-1 font-semibold">
-                {currentHestius > 0 ? 'Proteção Ativa' : 'Altar Desprotegido'}
+              <span className="hidden sm:block text-[11px] text-rose-300/80 mt-1 font-semibold truncate">
+                {currentHestius > 0 ? 'Protegido' : 'Desprotegido'}
               </span>
             </div>
           </div>
@@ -585,7 +612,7 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
                               setRewardToRedeem(reward);
                               setRedeemNotes('');
                             }}
-                            className={`w-full py-3 px-4 rounded-2xl font-bold text-sm text-white shadow-md transition-all hover:scale-[1.02] flex items-center justify-center gap-2 cursor-pointer ${
+                            className={`w-full min-h-[48px] py-3 px-4 rounded-2xl font-bold text-sm text-white shadow-md transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2 cursor-pointer ${
                               isKronus
                                 ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 shadow-amber-500/25'
                                 : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-purple-500/25'
@@ -595,7 +622,7 @@ export const RewardsShop: React.FC<RewardsShopProps> = ({
                             <span>{t('rewards.redeem')}</span>
                           </button>
                         ) : (
-                          <div className="w-full py-2.5 px-3 rounded-2xl text-xs font-semibold bg-slate-100 text-slate-500 text-center border border-slate-200/80">
+                          <div className="w-full min-h-[44px] py-2.5 px-3 rounded-2xl text-xs font-semibold bg-slate-100 text-slate-500 flex items-center justify-center text-center border border-slate-200/80">
                             <span>
                               {t('rewards.insufficientBalance')
                                 .replace('{amount}', String(deficit))

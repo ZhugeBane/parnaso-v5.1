@@ -4,12 +4,14 @@ import {
   collection,
   addDoc,
   getDocs,
+  getDoc,
   query,
   where,
   doc,
   setDoc,
   deleteDoc,
-  updateDoc
+  updateDoc,
+  onSnapshot
 } from 'firebase/firestore';
 import { sanitizeMetricNumber, sanitizeText } from '../utils/cryptoUtils';
 
@@ -267,18 +269,24 @@ export const checkHestiusConsistencyRecharge = (
 export const calculateBalances = (
   totalWords: number,
   sessions: WritingSession[],
-  claims: ClaimedReward[]
+  claims: ClaimedReward[],
+  fallbackSpentScriptus?: number,
+  fallbackSpentKronus?: number
 ) => {
   const totalEarnedScriptus = wordsToScriptus(totalWords);
   const totalEarnedKronus = calculateTotalKronus(sessions);
 
-  const totalSpentScriptus = (claims || [])
+  const claimsSpentScriptus = (claims || [])
     .filter(c => !c.currency || c.currency === 'scriptus')
     .reduce((acc, c) => acc + (c.cost || 0), 0);
 
-  const totalSpentKronus = (claims || [])
+  const claimsSpentKronus = (claims || [])
     .filter(c => c.currency === 'kronus')
     .reduce((acc, c) => acc + (c.cost || 0), 0);
+
+  // Se o histórico de claims estiver carregando, utiliza os valores agregados salvos no doc do usuário no Firestore
+  const totalSpentScriptus = Math.max(claimsSpentScriptus, fallbackSpentScriptus || 0);
+  const totalSpentKronus = Math.max(claimsSpentKronus, fallbackSpentKronus || 0);
 
   const balanceScriptus = Math.max(0, totalEarnedScriptus - totalSpentScriptus);
   const balanceKronus = Math.max(0, totalEarnedKronus - totalSpentKronus);
@@ -341,7 +349,7 @@ export const DEFAULT_STARTER_REWARDS: Omit<UserReward, 'id' | 'userId' | 'create
 ];
 
 const cleanDataForFirestore = (obj: any): any => {
-  return Object.entries(obj).reduce((acc, [key, val]) => {
+  const clean = Object.entries(obj).reduce((acc, [key, val]) => {
     if (val !== undefined) {
       if (Array.isArray(val)) {
         acc[key] = val.map(item => (typeof item === 'object' && item !== null ? cleanDataForFirestore(item) : item));
@@ -353,8 +361,18 @@ const cleanDataForFirestore = (obj: any): any => {
     }
     return acc;
   }, {} as any);
+
+  // Garante conformidade retroativa com regras antigas do Firestore que validam costDiamonds
+  if (typeof clean.cost === 'number' && clean.costDiamonds === undefined) {
+    clean.costDiamonds = clean.cost;
+  }
+  return clean;
 };
 
+/**
+ * Obtém recompensas do usuário com prioridade total para a Nuvem (Firestore).
+ * Faz merge inteligente e migração automática de qualquer item legado em localStorage.
+ */
 export const getUserRewards = async (userId: string): Promise<UserReward[]> => {
   if (!userId) return [];
 
@@ -369,6 +387,13 @@ export const getUserRewards = async (userId: string): Promise<UserReward[]> => {
   }
 
   try {
+    // 1. Consulta documento do usuário no Firestore
+    const userDocRef = doc(db, 'users', userId);
+    const userDocSnap = await getDoc(userDocRef);
+    const userDocData = userDocSnap.exists() ? userDocSnap.data() : null;
+    const userDocRewards: UserReward[] = Array.isArray(userDocData?.customRewards) ? userDocData.customRewards : [];
+
+    // 2. Consulta coleção user_rewards no Firestore
     const q = query(
       collection(db, 'user_rewards'),
       where('userId', '==', userId)
@@ -379,7 +404,28 @@ export const getUserRewards = async (userId: string): Promise<UserReward[]> => {
       ...d.data()
     })) as UserReward[];
 
-    if (remoteRewards.length === 0 && cached.length === 0) {
+    // 3. Merge e deduplicação por ID
+    const rewardsMap = new Map<string, UserReward>();
+    remoteRewards.forEach(r => rewardsMap.set(r.id, r));
+    userDocRewards.forEach(r => {
+      if (!rewardsMap.has(r.id)) rewardsMap.set(r.id, r);
+    });
+
+    // 4. Auto-migração: itens do cache local que não existam no Firestore são enviados
+    let hasLocalMigration = false;
+    for (const localItem of cached) {
+      if (!rewardsMap.has(localItem.id)) {
+        rewardsMap.set(localItem.id, localItem);
+        hasLocalMigration = true;
+        // Salva na coleção
+        setDoc(doc(db, 'user_rewards', localItem.id), cleanDataForFirestore(localItem)).catch(() => {});
+      }
+    }
+
+    const mergedRewards = Array.from(rewardsMap.values());
+
+    // Se nenhum item foi encontrado em lugar algum, gera sementes iniciais
+    if (mergedRewards.length === 0) {
       const seeded: UserReward[] = [];
       const now = new Date().toISOString();
       for (const def of DEFAULT_STARTER_REWARDS) {
@@ -388,6 +434,7 @@ export const getUserRewards = async (userId: string): Promise<UserReward[]> => {
           userId,
           title: def.title,
           cost: def.cost,
+          costDiamonds: def.cost,
           currency: def.currency || 'scriptus',
           description: def.description,
           icon: def.icon,
@@ -396,20 +443,57 @@ export const getUserRewards = async (userId: string): Promise<UserReward[]> => {
         };
         seeded.push(item);
       }
+
       localStorage.setItem(getLocalRewardsKey(userId), JSON.stringify(seeded));
-      Promise.all(seeded.map(s => addDoc(collection(db, 'user_rewards'), cleanDataForFirestore(s)))).catch(() => {});
+      Promise.all([
+        ...seeded.map(s => setDoc(doc(db, 'user_rewards', s.id), cleanDataForFirestore(s))),
+        updateDoc(userDocRef, { customRewards: seeded }).catch(() => {})
+      ]).catch(() => {});
       return seeded;
     }
 
-    if (remoteRewards.length > 0) {
-      localStorage.setItem(getLocalRewardsKey(userId), JSON.stringify(remoteRewards));
-      return remoteRewards;
+    // Se houve migração ou novidade, atualiza o doc do usuário e o cache local
+    if (hasLocalMigration || userDocRewards.length !== mergedRewards.length) {
+      updateDoc(userDocRef, { customRewards: mergedRewards }).catch(() => {});
     }
+
+    localStorage.setItem(getLocalRewardsKey(userId), JSON.stringify(mergedRewards));
+    return mergedRewards;
   } catch (err) {
     console.warn('Erro ao buscar recompensas do Firestore, usando cache local:', err);
   }
 
   return cached;
+};
+
+/**
+ * Listener em tempo real para catálogo de recompensas
+ */
+export const subscribeToUserRewards = (
+  userId: string,
+  callback: (rewards: UserReward[]) => void
+): (() => void) => {
+  if (!userId) {
+    callback([]);
+    return () => {};
+  }
+
+  const q = query(collection(db, 'user_rewards'), where('userId', '==', userId));
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    const rewards = snapshot.docs.map(d => ({
+      id: d.id,
+      ...d.data()
+    })) as UserReward[];
+
+    if (rewards.length > 0) {
+      localStorage.setItem(getLocalRewardsKey(userId), JSON.stringify(rewards));
+      callback(rewards);
+    }
+  }, (err) => {
+    console.warn('Erro no listener em tempo real de recompensas:', err);
+  });
+
+  return unsubscribe;
 };
 
 export const saveUserReward = async (
@@ -425,6 +509,7 @@ export const saveUserReward = async (
     userId,
     title: sanitizeText(reward.title, 100) || 'Recompensa',
     cost: sanitizeMetricNumber(reward.cost, 1, 1000000, 10),
+    costDiamonds: sanitizeMetricNumber(reward.cost, 1, 1000000, 10),
     currency: reward.currency === 'kronus' ? 'kronus' : 'scriptus',
     description: sanitizeText(reward.description || '', 500),
     icon: reward.icon || '🎁',
@@ -434,16 +519,25 @@ export const saveUserReward = async (
 
   const current = await getUserRewards(userId);
   const updated = isNew
-    ? [fullReward, ...current]
+    ? [fullReward, ...current.filter(r => r.id !== id)]
     : current.map(r => (r.id === id ? fullReward : r));
+
   localStorage.setItem(getLocalRewardsKey(userId), JSON.stringify(updated));
 
   try {
     const cleanData = cleanDataForFirestore(fullReward);
     const docRef = doc(db, 'user_rewards', id);
-    await setDoc(docRef, cleanData, { merge: true });
+    const userDocRef = doc(db, 'users', userId);
+
+    await Promise.all([
+      setDoc(docRef, cleanData, { merge: true }),
+      updateDoc(userDocRef, {
+        customRewards: updated,
+        statsUpdatedAt: new Date().toISOString()
+      }).catch(err => console.warn('Erro ao atualizar customRewards no doc do usuário:', err))
+    ]);
   } catch (e) {
-    console.warn('Erro ao salvar recompensa no Firestore (armazenado localmente):', e);
+    console.warn('Erro ao salvar recompensa no Firestore:', e);
   }
 
   return fullReward;
@@ -455,12 +549,23 @@ export const deleteUserReward = async (userId: string, rewardId: string): Promis
   localStorage.setItem(getLocalRewardsKey(userId), JSON.stringify(filtered));
 
   try {
-    await deleteDoc(doc(db, 'user_rewards', rewardId));
+    const userDocRef = doc(db, 'users', userId);
+    await Promise.all([
+      deleteDoc(doc(db, 'user_rewards', rewardId)),
+      updateDoc(userDocRef, {
+        customRewards: filtered,
+        statsUpdatedAt: new Date().toISOString()
+      }).catch(() => {})
+    ]);
   } catch (e) {
     console.warn('Erro ao excluir recompensa no Firestore:', e);
   }
 };
 
+/**
+ * Obtém histórico de resgates com prioridade total para Nuvem (Firestore).
+ * Mantém spentScriptus e spentKronus calculados e sincronizados no doc do usuário.
+ */
 export const getClaimedRewards = async (userId: string): Promise<ClaimedReward[]> => {
   if (!userId) return [];
 
@@ -475,6 +580,15 @@ export const getClaimedRewards = async (userId: string): Promise<ClaimedReward[]
   }
 
   try {
+    // 1. Consulta doc do usuário no Firestore
+    const userDocRef = doc(db, 'users', userId);
+    const userDocSnap = await getDoc(userDocRef);
+    const userDocData = userDocSnap.exists() ? userDocSnap.data() : null;
+    const userDocClaims: ClaimedReward[] = Array.isArray(userDocData?.claimedRewards)
+      ? userDocData.claimedRewards
+      : (Array.isArray(userDocData?.rewardHistory) ? userDocData.rewardHistory : []);
+
+    // 2. Consulta coleção user_reward_claims no Firestore
     const q = query(
       collection(db, 'user_reward_claims'),
       where('userId', '==', userId)
@@ -485,11 +599,46 @@ export const getClaimedRewards = async (userId: string): Promise<ClaimedReward[]
       ...d.data()
     })) as ClaimedReward[];
 
-    if (remoteClaims.length > 0) {
-      remoteClaims.sort((a, b) => new Date(b.claimedAt).getTime() - new Date(a.claimedAt).getTime());
-      localStorage.setItem(getLocalClaimsKey(userId), JSON.stringify(remoteClaims));
-      return remoteClaims;
+    // 3. Merge e deduplicação por ID
+    const claimsMap = new Map<string, ClaimedReward>();
+    remoteClaims.forEach(c => claimsMap.set(c.id, c));
+    userDocClaims.forEach(c => {
+      if (!claimsMap.has(c.id)) claimsMap.set(c.id, c);
+    });
+
+    // 4. Auto-migração: resgates que existiam apenas em localStorage são salvos no Firestore
+    let hasLocalMigration = false;
+    for (const localClaim of cached) {
+      if (!claimsMap.has(localClaim.id)) {
+        claimsMap.set(localClaim.id, localClaim);
+        hasLocalMigration = true;
+        setDoc(doc(db, 'user_reward_claims', localClaim.id), cleanDataForFirestore(localClaim)).catch(() => {});
+      }
     }
+
+    const mergedClaims = Array.from(claimsMap.values());
+    mergedClaims.sort((a, b) => new Date(b.claimedAt).getTime() - new Date(a.claimedAt).getTime());
+
+    // 5. Calcula gastos consolidados de moedas
+    const spentScriptus = mergedClaims
+      .filter(c => !c.currency || c.currency === 'scriptus')
+      .reduce((acc, c) => acc + (c.cost || 0), 0);
+    const spentKronus = mergedClaims
+      .filter(c => c.currency === 'kronus')
+      .reduce((acc, c) => acc + (c.cost || 0), 0);
+
+    // 6. Atualiza doc do usuário no Firestore para garantir Single Source of Truth
+    if (hasLocalMigration || userDocClaims.length !== mergedClaims.length || userDocData?.spentScriptus !== spentScriptus) {
+      updateDoc(userDocRef, {
+        claimedRewards: mergedClaims,
+        spentScriptus,
+        spentKronus,
+        statsUpdatedAt: new Date().toISOString()
+      }).catch(err => console.warn('Erro ao atualizar claimedRewards no doc do usuário:', err));
+    }
+
+    localStorage.setItem(getLocalClaimsKey(userId), JSON.stringify(mergedClaims));
+    return mergedClaims;
   } catch (err) {
     console.warn('Erro ao buscar resgates do Firestore, usando cache:', err);
   }
@@ -497,6 +646,40 @@ export const getClaimedRewards = async (userId: string): Promise<ClaimedReward[]
   return cached.sort((a, b) => new Date(b.claimedAt).getTime() - new Date(a.claimedAt).getTime());
 };
 
+/**
+ * Listener em tempo real para resgates de recompensas
+ */
+export const subscribeToClaimedRewards = (
+  userId: string,
+  callback: (claims: ClaimedReward[]) => void
+): (() => void) => {
+  if (!userId) {
+    callback([]);
+    return () => {};
+  }
+
+  const q = query(collection(db, 'user_reward_claims'), where('userId', '==', userId));
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    const claims = snapshot.docs.map(d => ({
+      id: d.id,
+      ...d.data()
+    })) as ClaimedReward[];
+
+    claims.sort((a, b) => new Date(b.claimedAt).getTime() - new Date(a.claimedAt).getTime());
+    if (claims.length > 0) {
+      localStorage.setItem(getLocalClaimsKey(userId), JSON.stringify(claims));
+    }
+    callback(claims);
+  }, (err) => {
+    console.warn('Erro no listener em tempo real de resgates:', err);
+  });
+
+  return unsubscribe;
+};
+
+/**
+ * Resgata uma recompensa e atualiza Firestore em tempo real
+ */
 export const claimReward = async (
   userId: string,
   reward: UserReward | { id: string; title: string; cost: number; currency?: 'scriptus' | 'kronus' },
@@ -505,24 +688,43 @@ export const claimReward = async (
   const claimId = `claim_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const claimedAt = new Date().toISOString();
 
+  const cost = sanitizeMetricNumber(reward.cost, 1, 1000000, 10);
   const claim: ClaimedReward = {
     id: claimId,
     userId,
     rewardId: reward.id,
     rewardTitle: sanitizeText(reward.title, 100) || 'Recompensa',
-    cost: sanitizeMetricNumber(reward.cost, 1, 1000000, 10),
+    cost,
+    costDiamonds: cost,
     currency: reward.currency === 'kronus' ? 'kronus' : 'scriptus',
     claimedAt,
     notes: sanitizeText(notes || '', 500)
   };
 
   const currentClaims = await getClaimedRewards(userId);
-  const updatedClaims = [claim, ...currentClaims];
+  const updatedClaims = [claim, ...currentClaims.filter(c => c.id !== claimId)];
   localStorage.setItem(getLocalClaimsKey(userId), JSON.stringify(updatedClaims));
+
+  const newSpentScriptus = updatedClaims
+    .filter(c => !c.currency || c.currency === 'scriptus')
+    .reduce((acc, c) => acc + (c.cost || 0), 0);
+  const newSpentKronus = updatedClaims
+    .filter(c => c.currency === 'kronus')
+    .reduce((acc, c) => acc + (c.cost || 0), 0);
 
   try {
     const cleanData = cleanDataForFirestore(claim);
-    await setDoc(doc(db, 'user_reward_claims', claimId), cleanData);
+    const userDocRef = doc(db, 'users', userId);
+
+    await Promise.all([
+      setDoc(doc(db, 'user_reward_claims', claimId), cleanData),
+      updateDoc(userDocRef, {
+        claimedRewards: updatedClaims,
+        spentScriptus: newSpentScriptus,
+        spentKronus: newSpentKronus,
+        statsUpdatedAt: new Date().toISOString()
+      })
+    ]);
   } catch (e) {
     console.warn('Erro ao salvar resgate no Firestore (armazenado localmente):', e);
   }
@@ -535,9 +737,65 @@ export const deleteClaimedReward = async (userId: string, claimId: string): Prom
   const filtered = current.filter(c => c.id !== claimId);
   localStorage.setItem(getLocalClaimsKey(userId), JSON.stringify(filtered));
 
+  const newSpentScriptus = filtered
+    .filter(c => !c.currency || c.currency === 'scriptus')
+    .reduce((acc, c) => acc + (c.cost || 0), 0);
+  const newSpentKronus = filtered
+    .filter(c => c.currency === 'kronus')
+    .reduce((acc, c) => acc + (c.cost || 0), 0);
+
   try {
-    await deleteDoc(doc(db, 'user_reward_claims', claimId));
+    const userDocRef = doc(db, 'users', userId);
+    await Promise.all([
+      deleteDoc(doc(db, 'user_reward_claims', claimId)),
+      updateDoc(userDocRef, {
+        claimedRewards: filtered,
+        spentScriptus: newSpentScriptus,
+        spentKronus: newSpentKronus,
+        statsUpdatedAt: new Date().toISOString()
+      }).catch(() => {})
+    ]);
   } catch (e) {
     console.warn('Erro ao excluir resgate do Firestore:', e);
+  }
+};
+
+/**
+ * Rotina automática de migração e consolidação Nuvem (Firestore)
+ */
+export const syncAndMigrateLocalRewardsToFirestore = async (userId: string): Promise<void> => {
+  if (!userId) return;
+
+  try {
+    console.log('[RewardService] 🔄 Iniciando rotina de sincronização e migração em nuvem para:', userId);
+    const [rewards, claims] = await Promise.all([
+      getUserRewards(userId),
+      getClaimedRewards(userId)
+    ]);
+
+    const spentScriptus = claims
+      .filter(c => !c.currency || c.currency === 'scriptus')
+      .reduce((acc, c) => acc + (c.cost || 0), 0);
+    const spentKronus = claims
+      .filter(c => c.currency === 'kronus')
+      .reduce((acc, c) => acc + (c.cost || 0), 0);
+
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      customRewards: rewards,
+      claimedRewards: claims,
+      spentScriptus,
+      spentKronus,
+      statsUpdatedAt: new Date().toISOString()
+    }).catch(err => console.warn('Aviso ao sincronizar doc do usuário:', err));
+
+    console.log('[RewardService] ✅ Sincronização 100% em nuvem concluída:', {
+      rewards: rewards.length,
+      claims: claims.length,
+      spentScriptus,
+      spentKronus
+    });
+  } catch (err) {
+    console.warn('[RewardService] Erro ao executar sync de recompensas:', err);
   }
 };

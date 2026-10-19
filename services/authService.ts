@@ -9,7 +9,7 @@ import {
   onAuthStateChanged,
   sendPasswordResetEmail
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, collection, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { sanitizeText } from '../utils/cryptoUtils';
 
 // Helper to map Firestore doc to User type
@@ -50,6 +50,16 @@ const mapUser = (docData: any, uid: string, email: string): User => ({
   // Badges & Collectible Achievements
   equippedBadges: Array.isArray(docData.equippedBadges) ? docData.equippedBadges.slice(0, 2) : [],
   achievementHistory: Array.isArray(docData.achievementHistory) ? docData.achievementHistory : [],
+
+  // Gamification: Rewards, Claims & Currencies (Single Source of Truth)
+  customRewards: Array.isArray(docData.customRewards) ? docData.customRewards : [],
+  claimedRewards: Array.isArray(docData.claimedRewards)
+    ? docData.claimedRewards
+    : (Array.isArray(docData.rewardHistory) ? docData.rewardHistory : []),
+  spentScriptus: typeof docData.spentScriptus === 'number' ? docData.spentScriptus : 0,
+  spentKronus: typeof docData.spentKronus === 'number' ? docData.spentKronus : 0,
+  scriptusBalance: typeof docData.scriptusBalance === 'number' ? docData.scriptusBalance : undefined,
+  kronusBalance: typeof docData.kronusBalance === 'number' ? docData.kronusBalance : undefined,
 });
 
 export const updateUserPresence = async (userId: string, isOnline: boolean = true): Promise<void> => {
@@ -467,4 +477,34 @@ export const syncUserAchievements = async (
     console.warn('Erro ao sincronizar histórico de conquistas no Firestore:', e);
   }
 };
+
+/**
+ * Listener em tempo real (onSnapshot) para o documento do usuário.
+ * Mantém todos os dispositivos (Desktop, Mobile) 100% sincronizados.
+ */
+export const subscribeToUser = (
+  userId: string,
+  callback: (user: User | null) => void
+): (() => void) => {
+  if (!userId) {
+    callback(null);
+    return () => {};
+  }
+
+  const userDocRef = doc(db, 'users', userId);
+  const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      const mapped = mapUser(data, userId, data.email || '');
+      callback(mapped);
+    } else {
+      callback(null);
+    }
+  }, (error) => {
+    console.warn('Erro ao escutar dados do usuário em tempo real:', error);
+  });
+
+  return unsubscribe;
+};
+
 

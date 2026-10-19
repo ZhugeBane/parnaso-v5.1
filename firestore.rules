@@ -123,17 +123,20 @@ service cloud.firestore {
     match /user_rewards/{rewardId} {
       allow read: if isDocOwner() || isAdmin();
       allow create: if isCreatingOwnDoc() &&
-                    isValidNonNegativeNumber(request.resource.data.costDiamonds, 100000);
+                    ((request.resource.data.cost != null && isValidNonNegativeNumber(request.resource.data.cost, 1000000)) ||
+                     (request.resource.data.costDiamonds != null && isValidNonNegativeNumber(request.resource.data.costDiamonds, 1000000)));
       allow update: if isDocOwner() &&
                     request.resource.data.userId == request.auth.uid &&
-                    isValidNonNegativeNumber(request.resource.data.costDiamonds, 100000);
+                    ((request.resource.data.cost != null && isValidNonNegativeNumber(request.resource.data.cost, 1000000)) ||
+                     (request.resource.data.costDiamonds != null && isValidNonNegativeNumber(request.resource.data.costDiamonds, 1000000)));
       allow delete: if isDocOwner() || isAdmin();
     }
 
     match /user_reward_claims/{claimId} {
       allow read: if isDocOwner() || isAdmin();
       allow create: if isCreatingOwnDoc() &&
-                    isValidNonNegativeNumber(request.resource.data.costDiamonds, 100000);
+                    ((request.resource.data.cost != null && isValidNonNegativeNumber(request.resource.data.cost, 1000000)) ||
+                     (request.resource.data.costDiamonds != null && isValidNonNegativeNumber(request.resource.data.costDiamonds, 1000000)));
       allow update, delete: if isDocOwner() || isAdmin();
     }
 

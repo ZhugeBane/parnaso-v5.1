@@ -12,7 +12,8 @@ import {
   setDoc,
   getDoc,
   deleteDoc,
-  writeBatch
+  writeBatch,
+  onSnapshot
 } from 'firebase/firestore';
 import {
   encryptSessionText,
@@ -62,6 +63,56 @@ export const getSessions = async (userId: string): Promise<WritingSession[]> => 
     console.error("Error getting sessions:", error);
     return [];
   }
+};
+
+/**
+ * Listener em tempo real para sincronização instantânea de sessões entre Desktop e Mobile
+ */
+export const subscribeToSessions = (
+  userId: string,
+  callback: (sessions: WritingSession[]) => void
+): (() => void) => {
+  if (!userId) {
+    callback([]);
+    return () => {};
+  }
+
+  const q = query(collection(db, 'writing_sessions'), where('userId', '==', userId));
+  const unsubscribe = onSnapshot(q, async (querySnapshot) => {
+    try {
+      const rawSessions = querySnapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data()
+      })) as (WritingSession & { userId?: string })[];
+
+      const sessions = await Promise.all(
+        rawSessions.map(async (s) => {
+          const ownerUid = s.userId || userId;
+          const decryptedContent = s.content
+            ? await decryptSessionText(s.content, ownerUid)
+            : '';
+          return {
+            ...s,
+            wordCount: sanitizeMetricNumber(s.wordCount, 0, 100000, 0),
+            stressLevel: sanitizeMetricNumber(s.stressLevel, 1, 5, 3),
+            difficultyLevel: sanitizeMetricNumber(s.difficultyLevel, 1, 5, 1),
+            autoCorrectionFrequency: sanitizeMetricNumber(s.autoCorrectionFrequency, 1, 5, 1),
+            sessionRating: sanitizeMetricNumber(s.sessionRating, 1, 5, 3),
+            content: decryptedContent
+          } as WritingSession;
+        })
+      );
+
+      sessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      callback(sessions);
+    } catch (err) {
+      console.warn("Erro ao processar snapshot de sessões:", err);
+    }
+  }, (err) => {
+    console.warn("Erro no listener em tempo real de sessões:", err);
+  });
+
+  return unsubscribe;
 };
 
 export const saveSession = async (session: WritingSession, userId: string): Promise<void> => {
