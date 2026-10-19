@@ -17,7 +17,7 @@ import {
 import { ProjectWorkspace } from './ProjectWorkspace';
 import { RewardsShop } from './RewardsShop';
 import { AchievementsGallery } from './AchievementsGallery';
-import { BookOpen, Users, Sparkles, Clock, Hourglass } from 'lucide-react';
+import { BookOpen, Users, Sparkles, Clock, Hourglass, Compass, Waves } from 'lucide-react';
 import {
   wordsToDiamonds,
   wordsToScriptus,
@@ -764,61 +764,134 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     if (filteredSessions.length === 0) {
       return {
         preferredTimeOfDay: null,
-        mostProductiveDays: [],
+        timeOfDayPct: 0,
+        timeOfDayAvgWords: 0,
+        mostProductiveDays: [] as string[],
+        productiveDaysAvgWords: 0,
+        productiveDaysAvgMinutes: 0,
         longestStreak: 0,
         writerProfile: null,
-        weekdayVsWeekend: null
+        weekdayVsWeekend: null,
+        routineArchetype: {
+          title: 'Ritmo em Construção',
+          subtitle: 'Escreva suas primeiras sessões para calibrar seu arquétipo',
+          icon: '🎯'
+        },
+        flowZone: {
+          highlight: 'Calibrando...',
+          subtitle: 'Registre mais sessões para identificar sua zona de fluxo ótima.'
+        },
+        mentorRecommendation: {
+          headline: 'Inicie sua jornada criativa com uma meta leve',
+          body: 'Ao registrar suas primeiras sessões, o Mentor Parnaso identificará automaticamente seus turnos de ouro, ritmo de palavras por minuto e os gatilhos que potencializam seu estado de fluxo.'
+        }
       };
     }
 
-    // Analyze time of day
-    const timeOfDayCount = filteredSessions.reduce((acc, session) => {
+    // Helper calculate duration in minutes
+    const calculateDuration = (session: WritingSession) => {
+      return calculateSessionMinutes(session.startTime, session.endTime);
+    };
+
+    const totalWordsAll = filteredSessions.reduce((sum, s) => sum + s.wordCount, 0);
+    const totalMinutesAll = filteredSessions.reduce((sum, s) => sum + calculateDuration(s), 0);
+
+    // 1. Analyze time of day (Volume, Sessions, Avg Words)
+    const timeOfDayStats = filteredSessions.reduce((acc, session) => {
       const date = new Date(session.date);
       const hour = date.getHours();
-      let period: string;
+      let period: 'morning' | 'afternoon' | 'evening' | 'night';
 
       if (hour >= 6 && hour < 12) period = 'morning';
       else if (hour >= 12 && hour < 18) period = 'afternoon';
       else if (hour >= 18 && hour < 24) period = 'evening';
       else period = 'night';
 
-      acc[period] = (acc[period] || 0) + session.wordCount;
+      if (!acc[period]) {
+        acc[period] = { words: 0, sessions: 0 };
+      }
+      acc[period].words += session.wordCount;
+      acc[period].sessions += 1;
       return acc;
-    }, {} as Record<string, number>);
+    }, {} as Record<string, { words: number; sessions: number }>);
 
-    const preferredTimeOfDay = Object.entries(timeOfDayCount).length > 0
-      ? Object.entries(timeOfDayCount).sort((a, b) => b[1] - a[1])[0]?.[0] || null
-      : null;
+    const sortedPeriods = Object.entries(timeOfDayStats).sort((a, b) => b[1].words - a[1].words);
+    const preferredTimeOfDay = sortedPeriods[0]?.[0] || 'morning';
+    const preferredPeriodStat = sortedPeriods[0]?.[1] || { words: 0, sessions: 0 };
+    const timeOfDayPct = filteredSessions.length > 0 
+      ? Math.round((preferredPeriodStat.sessions / filteredSessions.length) * 100) 
+      : 0;
+    const timeOfDayAvgWords = preferredPeriodStat.sessions > 0 
+      ? Math.round(preferredPeriodStat.words / preferredPeriodStat.sessions) 
+      : 0;
 
-    // Analyze days of week
+    // 2. Analyze days of week
     const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-    const dayCount = filteredSessions.reduce((acc, session) => {
+    const dayStats = filteredSessions.reduce((acc, session) => {
       const day = new Date(session.date).getDay();
-      acc[day] = (acc[day] || 0) + session.wordCount;
+      if (!acc[day]) {
+        acc[day] = { words: 0, minutes: 0, sessions: 0 };
+      }
+      acc[day].words += session.wordCount;
+      acc[day].minutes += calculateDuration(session);
+      acc[day].sessions += 1;
       return acc;
-    }, {} as Record<number, number>);
+    }, {} as Record<number, { words: number; minutes: number; sessions: number }>);
 
-    const sortedDays = Object.entries(dayCount)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 2)
-      .map(([day]) => dayNames[parseInt(day)]);
+    const sortedDaysEntries = Object.entries(dayStats)
+      .sort((a, b) => b[1].words - a[1].words)
+      .slice(0, 2);
 
-    // Weekday vs Weekend
-    const weekdayWords = filteredSessions.reduce((sum, s) => {
+    const sortedDays = sortedDaysEntries.map(([day]) => dayNames[parseInt(day)]);
+    const topDaysTotalWords = sortedDaysEntries.reduce((sum, [, st]) => sum + st.words, 0);
+    const topDaysTotalMinutes = sortedDaysEntries.reduce((sum, [, st]) => sum + st.minutes, 0);
+    const topDaysTotalSessions = sortedDaysEntries.reduce((sum, [, st]) => sum + st.sessions, 0);
+
+    const productiveDaysAvgWords = topDaysTotalSessions > 0 ? Math.round(topDaysTotalWords / topDaysTotalSessions) : 0;
+    const productiveDaysAvgMinutes = topDaysTotalSessions > 0 ? Math.round(topDaysTotalMinutes / topDaysTotalSessions) : 0;
+
+    // 3. Weekday vs Weekend & Routine Archetype
+    const weekdaySessions = filteredSessions.filter(s => {
       const day = new Date(s.date).getDay();
-      return day >= 1 && day <= 5 ? sum + s.wordCount : sum;
-    }, 0);
-    const weekendWords = filteredSessions.reduce((sum, s) => {
+      return day >= 1 && day <= 5;
+    });
+    const weekendSessions = filteredSessions.filter(s => {
       const day = new Date(s.date).getDay();
-      return day === 0 || day === 6 ? sum + s.wordCount : sum;
-    }, 0);
+      return day === 0 || day === 6;
+    });
 
-    let weekdayVsWeekend: string | null = null;
+    const weekdayWords = weekdaySessions.reduce((sum, s) => sum + s.wordCount, 0);
+    const weekendWords = weekendSessions.reduce((sum, s) => sum + s.wordCount, 0);
+
+    let weekdayVsWeekend: 'weekday' | 'weekend' | 'balanced' = 'balanced';
     if (weekdayWords > weekendWords * 1.5) weekdayVsWeekend = 'weekday';
     else if (weekendWords > weekdayWords * 1.5) weekdayVsWeekend = 'weekend';
-    else if (weekdayWords > 0 || weekendWords > 0) weekdayVsWeekend = 'balanced';
 
-    // Calculate longest streak
+    const weekdayPct = totalWordsAll > 0 ? Math.round((weekdayWords / totalWordsAll) * 100) : 50;
+    const weekendPct = 100 - weekdayPct;
+    const overallWpm = totalMinutesAll > 0 ? (totalWordsAll / totalMinutesAll).toFixed(1) : '0.0';
+
+    let routineArchetype = {
+      title: 'Ritmo Constante',
+      subtitle: `${weekdayPct}% de Seg a Sex • Ritmo de ${overallWpm} pal/min`,
+      icon: '⚖️'
+    };
+
+    if (weekdayVsWeekend === 'weekday') {
+      routineArchetype = {
+        title: 'Estrategista de Semana',
+        subtitle: `${weekdayPct}% da produção de Seg a Sex • Ritmo de ${overallWpm} pal/min`,
+        icon: '💼'
+      };
+    } else if (weekdayVsWeekend === 'weekend') {
+      routineArchetype = {
+        title: 'Guardião do Fim de Semana',
+        subtitle: `${weekendPct}% da produção aos fins de semana • Ritmo de ${overallWpm} pal/min`,
+        icon: '🏖️'
+      };
+    }
+
+    // 4. Calculate longest streak (Strict consecutive calendar days written without Hestius)
     const sortedSessionsForStreak = [...filteredSessions].sort((a, b) =>
       new Date(b.date).getTime() - new Date(a.date).getTime()
     );
@@ -853,17 +926,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     }
     longestStreak = Math.max(longestStreak, tempStreak);
 
-    // Writer profile - calculate average duration from startTime/endTime
-    const calculateDuration = (session: WritingSession) => {
-      const [startHour, startMin] = session.startTime.split(':').map(Number);
-      const [endHour, endMin] = session.endTime.split(':').map(Number);
-      const startMinutes = startHour * 60 + startMin;
-      const endMinutes = endHour * 60 + endMin;
-      return endMinutes - startMinutes;
-    };
-
-    const avgDuration = filteredSessions.reduce((sum, s) => sum + calculateDuration(s), 0) / filteredSessions.length;
-
+    // 5. Writer profile (preserved for backward compatibility if needed)
+    const avgDuration = totalMinutesAll / filteredSessions.length;
     let writerProfile: string | null = null;
     const sessionCount = filteredSessions.length;
 
@@ -871,12 +935,120 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     else if (avgDuration < 30 && sessionCount > 15) writerProfile = 'sprinter';
     else if (currentStreak >= 7) writerProfile = 'consistent';
 
+    // 6. Flow Zone & Rhythm (Card 6)
+    // Cross duration intervals (<30m, 30-60m, >60m) and subjective metrics (low autocorrection <= 2, rating >= 4, stress <= 2)
+    const durationBuckets = {
+      short: { label: 'Sessões Curtas (< 30 min)', words: 0, minutes: 0, count: 0, highQualityCount: 0 },
+      medium: { label: 'Sessões de 30 a 60 min', words: 0, minutes: 0, count: 0, highQualityCount: 0 },
+      long: { label: 'Maratonas (> 60 min)', words: 0, minutes: 0, count: 0, highQualityCount: 0 }
+    };
+
+    let lowAutocorrectionWords = 0;
+    let lowAutocorrectionCount = 0;
+    let highAutocorrectionWords = 0;
+    let highAutocorrectionCount = 0;
+
+    let highRatingWords = 0;
+    let highRatingCount = 0;
+
+    filteredSessions.forEach(s => {
+      const dur = calculateDuration(s);
+      let bucket: 'short' | 'medium' | 'long' = 'medium';
+      if (dur < 30) bucket = 'short';
+      else if (dur > 60) bucket = 'long';
+
+      durationBuckets[bucket].words += s.wordCount;
+      durationBuckets[bucket].minutes += dur;
+      durationBuckets[bucket].count += 1;
+
+      const isHighQuality = (s.sessionRating && s.sessionRating >= 4) || (s.autoCorrectionFrequency && s.autoCorrectionFrequency <= 2);
+      if (isHighQuality) {
+        durationBuckets[bucket].highQualityCount += 1;
+      }
+
+      if (s.autoCorrectionFrequency !== undefined && s.autoCorrectionFrequency > 0) {
+        if (s.autoCorrectionFrequency <= 2) {
+          lowAutocorrectionWords += s.wordCount;
+          lowAutocorrectionCount += 1;
+        } else if (s.autoCorrectionFrequency >= 4) {
+          highAutocorrectionWords += s.wordCount;
+          highAutocorrectionCount += 1;
+        }
+      }
+
+      if (s.sessionRating && s.sessionRating >= 4) {
+        highRatingWords += s.wordCount;
+        highRatingCount += 1;
+      }
+    });
+
+    // Determine optimal flow condition
+    const sortedBuckets = Object.entries(durationBuckets)
+      .filter(([, b]) => b.count > 0)
+      .sort((a, b) => {
+        const rateA = a[1].minutes > 0 ? a[1].words / a[1].minutes : 0;
+        const rateB = b[1].minutes > 0 ? b[1].words / b[1].minutes : 0;
+        return rateB - rateA;
+      });
+
+    const bestBucket = sortedBuckets[0]?.[1] || durationBuckets.medium;
+    const bestBucketWpm = bestBucket.minutes > 0 ? (bestBucket.words / bestBucket.minutes).toFixed(1) : overallWpm;
+
+    let flowHighlight = bestBucket.count > 0 ? bestBucket.label.replace('Sessões de ', 'Faixa ideal: ') : 'Sessões de 30 a 50 min';
+    let flowSubtitle = `Pico de rendimento com ${bestBucketWpm} pal/min`;
+
+    if (lowAutocorrectionCount > 0 && highAutocorrectionCount > 0) {
+      const avgLow = lowAutocorrectionWords / lowAutocorrectionCount;
+      const avgHigh = highAutocorrectionWords / highAutocorrectionCount;
+      if (avgLow > avgHigh) {
+        const diffPct = Math.round(((avgLow - avgHigh) / (avgHigh || 1)) * 100);
+        flowSubtitle = `+${diffPct}% palavras quando você desativa a autocorreção (≤ 2/5).`;
+      }
+    } else if (highRatingCount >= 2) {
+      const avgRated = Math.round(highRatingWords / highRatingCount);
+      flowSubtitle = `Média de ${avgRated} palavras nas sessões avaliadas com 4 ou 5 estrelas.`;
+    }
+
+    // 7. Mentor Parnaso - Cross-recommendation discovery
+    const periodTranslation: Record<string, string> = {
+      morning: 'pela manhã',
+      afternoon: 'à tarde',
+      evening: 'à noite',
+      night: 'de madrugada'
+    };
+    const periodText = periodTranslation[preferredTimeOfDay] || 'no seu melhor horário';
+    const daysText = sortedDays.length > 0 ? sortedDays.join(' e ') : 'seus dias livres';
+
+    let mentorHeadline = `Seu ápice criativo acontece ${periodText} (${daysText})`;
+    let mentorBody = `Seus dados indicam uma sincronia ideal ao escrever ${periodText}, gerando em média ${timeOfDayAvgWords} palavras por sessão. Bloqueie blocos de 30 a 45 min nesses períodos para blindar seu estado de fluxo e acelerar seus projetos.`;
+
+    if (streakResult.isProtected) {
+      mentorHeadline = `Chama viva protegida por Hestius! Mantenha a guarda`;
+      mentorBody = `Seu escudo consumiu uma oferenda de Hestius para proteger sua ofensiva. Aproveite a sessão de hoje para retomar o ritmo ininterrupto e acumular mais Scriptus e Kronus.`;
+    } else if (currentStreak >= 5) {
+      mentorHeadline = `Ofensiva de ${currentStreak} dias! Ritmo excelente em ${routineArchetype.title}`;
+      mentorBody = `Você construiu uma consistência sólida com ${overallWpm} pal/min. Para evitar fadiga criativa, mantenha a autocorreção baixa durante o primeiro rascunho e comemore cada meta alcançada!`;
+    }
+
     return {
       preferredTimeOfDay,
+      timeOfDayPct,
+      timeOfDayAvgWords,
       mostProductiveDays: sortedDays,
+      productiveDaysAvgWords,
+      productiveDaysAvgMinutes,
       longestStreak,
       writerProfile,
-      weekdayVsWeekend
+      weekdayVsWeekend,
+      routineArchetype,
+      flowZone: {
+        highlight: flowHighlight,
+        subtitle: flowSubtitle
+      },
+      mentorRecommendation: {
+        headline: mentorHeadline,
+        body: mentorBody
+      }
     };
   };
 
@@ -2047,176 +2219,207 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   const renderWritingInsights = () => (
     <div className="mb-8">
-      <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-        </svg>
-        {t('dashboard.insights')}
-      </h3>
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+          <span className="p-1.5 rounded-lg bg-purple-50 text-purple-600 border border-purple-100">
+            <Sparkles className="w-4 h-4 text-purple-600" />
+          </span>
+          {t('dashboard.insights')}
+        </h3>
+        <span className="text-xs font-semibold text-slate-400">
+          Matriz Comportamental do Autor
+        </span>
+      </div>
 
+      {/* Bento Grid 3x2 (6 Cards) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* Time of Day Preference */}
-        {writingInsights.preferredTimeOfDay && (
-          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg">
-                <span className="text-2xl">
-                  {writingInsights.preferredTimeOfDay === 'morning' && '🌅'}
-                  {writingInsights.preferredTimeOfDay === 'afternoon' && '☀️'}
-                  {writingInsights.preferredTimeOfDay === 'evening' && '🌆'}
-                  {writingInsights.preferredTimeOfDay === 'night' && '🌙'}
-                </span>
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.preferredTime')}</p>
-                <p className="text-lg font-bold text-slate-800">
-                  {writingInsights.preferredTimeOfDay === 'morning' && t('dashboard.morning')}
-                  {writingInsights.preferredTimeOfDay === 'afternoon' && t('dashboard.afternoon')}
-                  {writingInsights.preferredTimeOfDay === 'evening' && t('dashboard.evening')}
-                  {writingInsights.preferredTimeOfDay === 'night' && t('dashboard.night')}
-                </p>
-                <p className="text-xs text-slate-600 mt-1">
-                  {writingInsights.preferredTimeOfDay === 'morning' && t('dashboard.timeDescMorning')}
-                  {writingInsights.preferredTimeOfDay === 'afternoon' && t('dashboard.timeDescAfternoon')}
-                  {writingInsights.preferredTimeOfDay === 'evening' && t('dashboard.timeDescEvening')}
-                  {writingInsights.preferredTimeOfDay === 'night' && t('dashboard.timeDescNight')}
-                </p>
-              </div>
+        {/* Card 1: Horário Preferido */}
+        <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl text-white shadow-xs">
+              <span className="text-xl">
+                {writingInsights.preferredTimeOfDay === 'morning' && '🌅'}
+                {writingInsights.preferredTimeOfDay === 'afternoon' && '☀️'}
+                {writingInsights.preferredTimeOfDay === 'evening' && '🌆'}
+                {writingInsights.preferredTimeOfDay === 'night' && '🌙'}
+                {!writingInsights.preferredTimeOfDay && '🌅'}
+              </span>
             </div>
-          </Card>
-        )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">
+                {t('dashboard.preferredTime')}
+              </p>
+              <p className="text-lg font-bold text-slate-800">
+                {writingInsights.preferredTimeOfDay === 'morning' && t('dashboard.morning')}
+                {writingInsights.preferredTimeOfDay === 'afternoon' && t('dashboard.afternoon')}
+                {writingInsights.preferredTimeOfDay === 'evening' && t('dashboard.evening')}
+                {writingInsights.preferredTimeOfDay === 'night' && t('dashboard.night')}
+                {!writingInsights.preferredTimeOfDay && 'Em Calibração'}
+              </p>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                {writingInsights.preferredTimeOfDay ? (
+                  <>Concentra <strong>{writingInsights.timeOfDayPct}%</strong> das suas sessões • Média de <strong>{writingInsights.timeOfDayAvgWords.toLocaleString('pt-BR')}</strong> palavras por sessão neste turno</>
+                ) : (
+                  'Registre sessões para mapear seu turno de maior inspiração.'
+                )}
+              </p>
+            </div>
+          </div>
+        </Card>
 
-        {/* Most Productive Days */}
-        {writingInsights.mostProductiveDays.length > 0 && (
-          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-lg">
-                <span className="text-2xl">📅</span>
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.productiveDays')}</p>
-                <p className="text-lg font-bold text-slate-800">
-                  {writingInsights.mostProductiveDays.join(', ')}
-                </p>
-                <p className="text-xs text-slate-600 mt-1">
-                  {t('dashboard.productiveDaysDesc')}
-                </p>
-              </div>
+        {/* Card 2: Dias Mais Produtivos */}
+        <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-xl text-white shadow-xs">
+              <span className="text-xl">📅</span>
             </div>
-          </Card>
-        )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">
+                {t('dashboard.productiveDays')}
+              </p>
+              <p className="text-lg font-bold text-slate-800 truncate">
+                {writingInsights.mostProductiveDays.length > 0
+                  ? writingInsights.mostProductiveDays.join(', ')
+                  : 'Em Análise'}
+              </p>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                {writingInsights.mostProductiveDays.length > 0 ? (
+                  <>Média de <strong>{writingInsights.productiveDaysAvgWords.toLocaleString('pt-BR')}</strong> palavras e <strong>{writingInsights.productiveDaysAvgMinutes} min</strong> dedicados nesses dias</>
+                ) : (
+                  'Escreva ao longo da semana para descobrir seus dias dourados.'
+                )}
+              </p>
+            </div>
+          </div>
+        </Card>
 
-        {/* Weekday vs Weekend */}
-        {writingInsights.weekdayVsWeekend && (
-          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-gradient-to-br from-indigo-400 to-purple-500 rounded-lg">
-                <span className="text-2xl">
-                  {writingInsights.weekdayVsWeekend === 'weekday' && '💼'}
-                  {writingInsights.weekdayVsWeekend === 'weekend' && '🏖️'}
-                  {writingInsights.weekdayVsWeekend === 'balanced' && '⚖️'}
-                </span>
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.routine')}</p>
-                <p className="text-lg font-bold text-slate-800">
-                  {writingInsights.weekdayVsWeekend === 'weekday' && t('dashboard.weekdayWriter')}
-                  {writingInsights.weekdayVsWeekend === 'weekend' && t('dashboard.weekendWriter')}
-                  {writingInsights.weekdayVsWeekend === 'balanced' && t('dashboard.balanced')}
-                </p>
-                <p className="text-xs text-slate-600 mt-1">
-                  {writingInsights.weekdayVsWeekend === 'weekday' && t('dashboard.productiveWeekdays')}
-                  {writingInsights.weekdayVsWeekend === 'weekend' && t('dashboard.productiveWeekends')}
-                  {writingInsights.weekdayVsWeekend === 'balanced' && t('dashboard.productiveBalanced')}
-                </p>
-              </div>
+        {/* Card 3: Arquétipo de Rotina */}
+        <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl text-white shadow-xs">
+              <span className="text-xl">{writingInsights.routineArchetype.icon}</span>
             </div>
-          </Card>
-        )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">
+                ROTINA & ARQUÉTIPO
+              </p>
+              <p className="text-lg font-bold text-slate-800 truncate">
+                {writingInsights.routineArchetype.title}
+              </p>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                {writingInsights.routineArchetype.subtitle}
+              </p>
+            </div>
+          </div>
+        </Card>
 
-        {/* Longest Streak */}
-        {writingInsights.longestStreak > 0 && (
-          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-gradient-to-br from-rose-400 to-pink-500 rounded-lg">
-                <span className="text-2xl">🔥</span>
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.longestStreak')}</p>
-                <p className="text-lg font-bold text-slate-800">
-                  {writingInsights.longestStreak} {t('dashboard.days')}
-                </p>
-                <p className="text-xs text-slate-600 mt-1">
-                  {t('dashboard.longestStreakDesc')}
-                </p>
-              </div>
+        {/* Card 4: Maior Sequência Real */}
+        <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-gradient-to-br from-rose-500 to-pink-600 rounded-xl text-white shadow-xs">
+              <span className="text-xl">🏆</span>
             </div>
-          </Card>
-        )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">
+                MAIOR SEQUÊNCIA REAL
+              </p>
+              <p className="text-lg font-bold text-slate-800">
+                {writingInsights.longestStreak} {writingInsights.longestStreak === 1 ? 'dia' : t('dashboard.days')}
+              </p>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                Seu recorde de dias consecutivos escrevendo (sem usar Hestius).
+              </p>
+            </div>
+          </div>
+        </Card>
 
-        {/* Writer Profile */}
-        {writingInsights.writerProfile && (
-          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-gradient-to-br from-emerald-400 to-green-500 rounded-lg">
-                <span className="text-2xl">
-                  {writingInsights.writerProfile === 'marathoner' && '🏃'}
-                  {writingInsights.writerProfile === 'sprinter' && '⚡'}
-                  {writingInsights.writerProfile === 'consistent' && '🎯'}
-                </span>
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{t('dashboard.writerProfile')}</p>
-                <p className="text-lg font-bold text-slate-800">
-                  {writingInsights.writerProfile === 'marathoner' && t('dashboard.marathoner')}
-                  {writingInsights.writerProfile === 'sprinter' && t('dashboard.sprinter')}
-                  {writingInsights.writerProfile === 'consistent' && t('dashboard.consistent')}
-                </p>
-                <p className="text-xs text-slate-600 mt-1">
-                  {writingInsights.writerProfile === 'marathoner' && t('dashboard.profileMarathonerDesc')}
-                  {writingInsights.writerProfile === 'sprinter' && t('dashboard.profileSprinterDesc')}
-                  {writingInsights.writerProfile === 'consistent' && t('dashboard.profileConsistentDesc')}
-                </p>
-              </div>
+        {/* Card 5: Ofensiva Atual & Proteção Hestius */}
+        <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl text-white shadow-xs">
+              <HestiusIcon className="w-5 h-5" />
             </div>
-          </Card>
-        )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-1 flex-wrap mb-1">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                  OFENSIVA ATUAL
+                </p>
+                {effectiveHestiusCount > 0 ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/90 shadow-2xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    🛡️ Protegido ({effectiveHestiusCount}/3 Hestius)
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('rewards');
+                      setSelectedProjectId(null);
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/90 transition-colors cursor-pointer group"
+                    title="Clique para ir à Loja de Recompensas e restaurar seu altar com Hestius"
+                  >
+                    <span>⚠️ Altar desprotegido (0/3 Hestius)</span>
+                    <span className="underline font-extrabold group-hover:text-rose-900">Loja →</span>
+                  </button>
+                )}
+              </div>
+              <p className="text-lg font-bold text-slate-800">
+                {currentStreak} {currentStreak === 1 ? 'dia' : t('dashboard.days')}
+              </p>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                {streakResult.isProtected
+                  ? '🔥 Chama resgatada por Hestius! Sua ofensiva foi mantida intacta.'
+                  : currentStreak > 0
+                    ? 'Sua ofensiva está ativa e sua chama queima firme!'
+                    : 'Escreva hoje para acender sua ofensiva diária!'}
+              </p>
+            </div>
+          </div>
+        </Card>
 
-        {/* Current Streak & Hestius Protection */}
-        {(currentStreak > 0 || effectiveHestiusCount > 0) && (
-          <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl text-white shadow-xs">
-                <HestiusIcon className="w-6 h-6" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-1 flex-wrap mb-1">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{t('dashboard.currentStreak')}</p>
-                  {effectiveHestiusCount > 0 ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/90 shadow-2xs">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                      🛡️ Protegido por {effectiveHestiusCount}/3 Hestius
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/90">
-                      ⚠️ Altar desprotegido (0/3 Hestius - Recarregue na Loja)
-                    </span>
-                  )}
-                </div>
-                <p className="text-lg font-bold text-slate-800">
-                  {currentStreak} {t('dashboard.days')}
-                </p>
-                <p className="text-xs text-slate-600 mt-1">
-                  {streakResult.isProtected
-                    ? '🔥 Chama resgatada por Hestius! Sua sequência foi mantida intacta.'
-                    : currentStreak > 0
-                      ? t('dashboard.streakKeepItUp')
-                      : 'Escreva hoje para manter sua chama acesa!'}
-                </p>
-              </div>
+        {/* Card 6: Zona de Fluxo & Ritmo */}
+        <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl text-white shadow-xs">
+              <Waves className="w-5 h-5 text-white" />
             </div>
-          </Card>
-        )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">
+                ZONA DE FLUXO & RITMO
+              </p>
+              <p className="text-lg font-bold text-slate-800 truncate">
+                {writingInsights.flowZone.highlight}
+              </p>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                {writingInsights.flowZone.subtitle}
+              </p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Banner Horizontal: Mentor Parnaso: Descoberta da Semana */}
+      <div className="mt-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 rounded-2xl p-4 sm:p-5 shadow-xs relative overflow-hidden">
+        <div className="absolute -right-6 -bottom-6 w-28 h-28 bg-emerald-300/10 rounded-full blur-xl pointer-events-none" />
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3.5 relative z-10">
+          <div className="p-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm shrink-0">
+            <Compass className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-md">
+                🧭 Mentor Parnaso: Descoberta da Semana
+              </span>
+              <span className="text-xs font-bold text-slate-800 truncate">
+                {writingInsights.mentorRecommendation.headline}
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {writingInsights.mentorRecommendation.body}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
