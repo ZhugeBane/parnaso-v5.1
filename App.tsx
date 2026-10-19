@@ -65,6 +65,40 @@ function App() {
     };
   }, [user?.id]);
 
+  // 3. Sincronização e consumo automático de Hestius se houver dias falhados protegidos
+  useEffect(() => {
+    if (!user || !sessions || sessions.length === 0) return;
+
+    const streakEval = evaluateStreakWithHestius(
+      sessions,
+      user.hestiusCount ?? 1,
+      user.hestiusProtectedDates || []
+    );
+
+    if (streakEval.newlyConsumedDates && streakEval.newlyConsumedDates.length > 0) {
+      const newCount = streakEval.effectiveHestius;
+      const updatedProtectedDates = [
+        ...(user.hestiusProtectedDates || []),
+        ...streakEval.newlyConsumedDates
+      ];
+      const lastConsumed = streakEval.newlyConsumedDates[streakEval.newlyConsumedDates.length - 1];
+
+      console.log('[App] 🔥 Consumindo Hestius para proteger dias falhados:', streakEval.newlyConsumedDates, 'Novo saldo:', newCount);
+
+      updateUserHestius(user.id, newCount, {
+        hestiusLastConsumedDate: lastConsumed,
+        hestiusProtectedDates: updatedProtectedDates
+      }).catch(err => console.warn('Erro ao atualizar Hestius no Firestore:', err));
+
+      setUser(prev => prev ? {
+        ...prev,
+        hestiusCount: newCount,
+        hestiusLastConsumedDate: lastConsumed,
+        hestiusProtectedDates: updatedProtectedDates
+      } : null);
+    }
+  }, [user?.id, sessions]);
+
   const checkAuth = async () => {
     try {
       const currentUser = await getCurrentUser();
@@ -161,7 +195,7 @@ function App() {
       setSessions(freshSessions);
 
       // Check consistency recharge for Hestius (recharges +1 every 2 consecutive days)
-      const streakEval = evaluateStreakWithHestius(freshSessions, user.hestiusCount ?? 1);
+      const streakEval = evaluateStreakWithHestius(freshSessions, user.hestiusCount ?? 1, user.hestiusProtectedDates || []);
       const rechargeCheck = checkHestiusConsistencyRecharge(
         streakEval.currentStreak,
         user.hestiusLastRechargeDate,

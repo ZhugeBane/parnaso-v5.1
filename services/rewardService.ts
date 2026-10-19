@@ -115,16 +115,19 @@ export interface StreakEvaluationResult {
   consumedHestius: number;
   effectiveHestius: number;
   protectedDates: string[];
+  newlyConsumedDates: string[];
 }
 
 /**
  * Avalia a sequência atual (ofensiva) considerando o escudo de Hestius.
  * Se o usuário passar 1 dia inteiro sem registrar sessão, em vez de zerar a
- * sequência, o sistema consome automaticamente 1 Hestius para manter a chama acesa.
+ * sequência, o sistema consome automaticamente 1 Hestius para manter a chama acesa
+ * e PRESERVA a sequência intacta (sem adicionar dias fantasmas de escrita).
  */
 export const evaluateStreakWithHestius = (
   sessions: WritingSession[],
-  userHestius: number = 1
+  userHestius: number = 1,
+  alreadyProtectedDates: string[] = []
 ): StreakEvaluationResult => {
   const clampedHestius = Math.max(0, Math.min(HESTIUS_MAX, userHestius));
 
@@ -134,11 +137,12 @@ export const evaluateStreakWithHestius = (
       isProtected: false,
       consumedHestius: 0,
       effectiveHestius: clampedHestius,
-      protectedDates: []
+      protectedDates: [],
+      newlyConsumedDates: []
     };
   }
 
-  // Obter timestamps de dias únicos com sessões (00:00:00)
+  // Obter timestamps de dias únicos com sessões (YYYY-MM-DD no fuso local)
   const uniqueDateStrings = new Set<string>();
   for (const s of sessions) {
     if (s.date) {
@@ -163,21 +167,21 @@ export const evaluateStreakWithHestius = (
   };
 
   const todayKey = formatDateKey(today);
+  const userWroteToday = uniqueDateStrings.has(todayKey);
 
   let currentStreak = 0;
   let availableHestius = clampedHestius;
-  let consumedHestius = 0;
   const protectedDates: string[] = [];
+  const tentativeNewlyConsumed: string[] = [];
 
-  // Começamos a verificação a partir de hoje
-  const checkDate = new Date(today);
-  const userWroteToday = uniqueDateStrings.has(todayKey);
-
-  // Se o usuário ainda não escreveu hoje, hoje não conta como falha (o dia ainda está em andamento)
-  let loopDate = new Date(today);
-  if (!userWroteToday) {
-    loopDate.setDate(loopDate.getDate() - 1); // Começa avaliando ontem
+  // Se o usuário escreveu hoje, conta hoje como +1 na sequência
+  if (userWroteToday) {
+    currentStreak++;
   }
+
+  // Começa a verificar os dias anteriores a partir de ontem
+  let loopDate = new Date(today);
+  loopDate.setDate(loopDate.getDate() - 1);
 
   // Itera dia a dia para trás
   const MAX_DAYS_LOOKBACK = 365;
@@ -186,14 +190,17 @@ export const evaluateStreakWithHestius = (
 
     if (uniqueDateStrings.has(key)) {
       currentStreak++;
+    } else if (alreadyProtectedDates.includes(key)) {
+      // Dia já protegido anteriormente por um Hestius previamente consumido
+      // Mantém a corrente intacta, mas NÃO incrementa o streak (não foi dia de escrita)
+      protectedDates.push(key);
     } else {
-      // Dia falhado!
+      // Dia falhado e ainda não protegido!
       if (availableHestius > 0) {
-        // Hestius consome 1 carga para proteger o dia e manter a chama viva
+        // Hestius tenta proteger esse dia
         availableHestius--;
-        consumedHestius++;
-        protectedDates.push(key);
-        currentStreak++; // O dia protegido mantém o elo da corrente
+        tentativeNewlyConsumed.push(key);
+        // CRUCIAL: NÃO incrementa currentStreak! Preserva a corrente de escrita real sem inflar dias falsos.
       } else {
         // Sem Hestius suficiente -> a corrente se rompe
         break;
@@ -204,12 +211,21 @@ export const evaluateStreakWithHestius = (
     loopDate.setDate(loopDate.getDate() - 1);
   }
 
+  // Validação: Hestius só é legitimamente consumido se houver uma sequência real mantida!
+  // Se currentStreak for 0 (nenhum dia escrito encontrado), não se consome Hestius à toa.
+  const hasRealStreak = currentStreak > 0;
+  const newlyConsumedDates = hasRealStreak ? tentativeNewlyConsumed : [];
+  const consumedHestius = newlyConsumedDates.length;
+  const effectiveHestius = hasRealStreak ? availableHestius : clampedHestius;
+  const isProtected = (protectedDates.length > 0 || newlyConsumedDates.length > 0) && hasRealStreak;
+
   return {
     currentStreak,
-    isProtected: consumedHestius > 0,
+    isProtected,
     consumedHestius,
-    effectiveHestius: availableHestius,
-    protectedDates
+    effectiveHestius,
+    protectedDates: [...protectedDates, ...newlyConsumedDates],
+    newlyConsumedDates
   };
 };
 

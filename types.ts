@@ -227,6 +227,7 @@ export interface User {
   hestiusCount?: number; // 0 to 3 (max 3)
   hestiusLastRechargeDate?: string; // ISO or YYYY-MM-DD
   hestiusLastConsumedDate?: string; // ISO or YYYY-MM-DD
+  hestiusProtectedDates?: string[]; // Array of YYYY-MM-DD dates protected by Hestius
 
   // Gamification: Badges & Achievements
   equippedBadges?: EquippedBadge[]; // Up to 2 equipped badges

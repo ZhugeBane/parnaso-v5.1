@@ -7,7 +7,7 @@ import { SessionDetailsModal } from './SessionDetailsModal';
 import { LanguageSelector } from './ui/LanguageSelector';
 import { HeatmapChart } from './ui/HeatmapChart';
 import { useLanguage } from '../i18n/LanguageContext';
-import { updateUserProfilePicture, updateUserProfileBase64 } from '../services/authService';
+import { updateUserProfilePicture, updateUserProfileBase64, updateUserHestius } from '../services/authService';
 import { compressImage, resizeImageToBase64 } from '../utils/imageProcessor';
 import { ImagePicker } from './ui/ImagePicker';
 import {
@@ -716,9 +716,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   // Streak calculation with Hestius Shield
   const streakResult = useMemo(() => {
-    return evaluateStreakWithHestius(workFilteredSessions, user.hestiusCount ?? 1);
-  }, [workFilteredSessions, user.hestiusCount]);
+    return evaluateStreakWithHestius(workFilteredSessions, user.hestiusCount ?? 1, user.hestiusProtectedDates || []);
+  }, [workFilteredSessions, user.hestiusCount, user.hestiusProtectedDates]);
   const currentStreak = streakResult.currentStreak;
+  const effectiveHestiusCount = streakResult.effectiveHestius;
+
+  // Auto-persist newly consumed Hestius if evaluated in Dashboard
+  useEffect(() => {
+    if (streakResult.newlyConsumedDates && streakResult.newlyConsumedDates.length > 0 && user.id) {
+      const mergedProtected = Array.from(new Set([...(user.hestiusProtectedDates || []), ...streakResult.newlyConsumedDates]));
+      updateUserHestius(user.id, streakResult.effectiveHestius, {
+        hestiusProtectedDates: mergedProtected
+      }).then(() => {
+        if (onUpdateUser) {
+          onUpdateUser({
+            hestiusCount: streakResult.effectiveHestius,
+            hestiusProtectedDates: mergedProtected
+          });
+        }
+      }).catch(err => console.error("Erro ao persistir consumo de Hestius:", err));
+    }
+  }, [streakResult.newlyConsumedDates, streakResult.effectiveHestius, user.id, user.hestiusProtectedDates, onUpdateUser]);
+
 
   // --- Writing Pattern Analysis ---
   const analyzeWritingPatterns = () => {
@@ -1055,7 +1074,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
     if (metricViewMode === 'time') {
       return (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <Card className="border-l-4 border-amber-500 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <Stat
               label={t('dashboard.totalProductionTime') || 'Tempo Total Produzido'}
@@ -1082,17 +1101,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               subtitle={`${filteredSessions.length} ${filteredSessions.length === 1 ? 'sessão analisada' : 'sessões analisadas'}`}
             />
           </Card>
-          <Card className="border-l-4 border-purple-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <Card className="border-l-4 border-yellow-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <Stat
-              label="Total de Sessões"
-              value={filteredSessions.length}
-              subValue="sessões"
-              colorClass="text-purple-600"
+              label={t('dashboard.avgRating') || 'Média de Avaliação'}
+              value={`⭐ ${avgRating}`}
+              subValue="/ 5.0"
+              colorClass="text-yellow-600"
               subtitle={
                 filteredSessions.length > 0
-                  ? `${filteredSessions.filter(s => s.sessionRating >= 4).length} com nota alta (4+ ⭐)`
+                  ? `${filteredSessions.filter(s => s.sessionRating >= 4).length} com nota 4+ ⭐`
                   : 'Nenhuma sessão no período'
               }
+            />
+          </Card>
+          <Card className="border-l-4 border-rose-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+            <Stat
+              label={t('dashboard.avgStress')}
+              value={avgStress}
+              colorClass="text-rose-500"
+              subtitle={stressSemantic}
             />
           </Card>
         </div>
@@ -1100,7 +1127,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     }
 
     return (
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         <Card className="border-l-4 border-teal-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
           <Stat
             label={t('dashboard.totalWords')}
@@ -1113,6 +1140,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             }
           />
         </Card>
+        <Card className="border-l-4 border-amber-500 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+          <Stat
+            label={t('dashboard.totalProductionTime') || 'Tempo de Produção'}
+            value={formatMinutesToHours(totalMinutes)}
+            colorClass="text-amber-600"
+            subtitle={`Ritmo: ${avgPaceWpm} pal/min • ~${avgSessionMinutes}m/sessão`}
+          />
+        </Card>
         <Card className="border-l-4 border-purple-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
           <Stat
             label={t('dashboard.avgPerSession')}
@@ -1122,15 +1157,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             subtitle={`⏱️ ~${avgSessionMinutes} min / sessão`}
           />
         </Card>
-        <Card className="border-l-4 border-amber-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+        <Card className="border-l-4 border-yellow-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
           <Stat
-            label="Ritmo Médio"
-            value={avgPaceWpm}
-            subValue="pal/min"
-            colorClass="text-amber-500"
+            label={t('dashboard.avgRating') || 'Média de Avaliação'}
+            value={`⭐ ${avgRating}`}
+            subValue="/ 5.0"
+            colorClass="text-yellow-600"
             subtitle={
               filteredSessions.length > 0
-                ? `${filteredSessions.filter(s => s.sessionRating >= 4).length} sessões com nota 4+ ⭐`
+                ? `${filteredSessions.filter(s => s.sessionRating >= 4).length} com nota 4+ ⭐`
                 : 'Nenhuma sessão no período'
             }
           />
@@ -2128,7 +2163,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         )}
 
         {/* Current Streak & Hestius Protection */}
-        {(currentStreak > 0 || (user.hestiusCount ?? 1) > 0) && (
+        {(currentStreak > 0 || effectiveHestiusCount > 0) && (
           <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl text-white shadow-xs">
@@ -2137,10 +2172,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-1 flex-wrap mb-1">
                   <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{t('dashboard.currentStreak')}</p>
-                  {(user.hestiusCount ?? 1) > 0 ? (
+                  {effectiveHestiusCount > 0 ? (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/90 shadow-2xs">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                      🛡️ Protegido por {user.hestiusCount ?? 1}/3 Hestius
+                      🛡️ Protegido por {effectiveHestiusCount}/3 Hestius
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/90">
@@ -2863,10 +2898,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/30 text-rose-200 transition-colors">
                       <HestiusIcon className="w-4 h-4 text-rose-300" />
                       <span className="font-extrabold text-xs tracking-wide text-rose-100">
-                        {user.hestiusCount ?? 1}/3
+                        {effectiveHestiusCount}/3
                       </span>
                       <div className="hidden sm:flex items-center">
-                        <HestiusOrbs count={user.hestiusCount ?? 1} size="sm" />
+                        <HestiusOrbs count={effectiveHestiusCount} size="sm" />
                       </div>
                     </div>
                   </div>

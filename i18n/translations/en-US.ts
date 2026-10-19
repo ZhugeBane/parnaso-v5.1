@@ -79,6 +79,7 @@ export const enUS = {
         totalWords: 'Total Words',
         avgPerSession: 'Avg / Session',
         currentStreak: 'Current Streak',
+        avgRating: 'Average Rating',
         avgStress: 'Avg Stress',
         words: 'words',
         days: 'days',

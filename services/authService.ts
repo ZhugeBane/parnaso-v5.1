@@ -45,6 +45,7 @@ const mapUser = (docData: any, uid: string, email: string): User => ({
   hestiusCount: typeof docData.hestiusCount === 'number' ? Math.max(0, Math.min(3, docData.hestiusCount)) : 1,
   hestiusLastRechargeDate: docData.hestiusLastRechargeDate || '',
   hestiusLastConsumedDate: docData.hestiusLastConsumedDate || '',
+  hestiusProtectedDates: Array.isArray(docData.hestiusProtectedDates) ? docData.hestiusProtectedDates : [],
 
   // Badges & Collectible Achievements
   equippedBadges: Array.isArray(docData.equippedBadges) ? docData.equippedBadges.slice(0, 2) : [],
@@ -420,7 +421,7 @@ export const updateAuthorProfile = async (
 export const updateUserHestius = async (
   userId: string,
   hestiusCount: number,
-  additionalData?: { hestiusLastRechargeDate?: string; hestiusLastConsumedDate?: string }
+  additionalData?: { hestiusLastRechargeDate?: string; hestiusLastConsumedDate?: string; hestiusProtectedDates?: string[] }
 ): Promise<void> => {
   if (!userId) return;
   const safeCount = Math.max(0, Math.min(3, hestiusCount));

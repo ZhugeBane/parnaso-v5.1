@@ -79,6 +79,7 @@ export const ptBR = {
         totalWords: 'Total de Palavras',
         avgPerSession: 'Média / Sessão',
         currentStreak: 'Sequência Atual',
+        avgRating: 'Média de Avaliação',
         avgStress: 'Média de Estresse',
         words: 'palavras',
         days: 'dias',
