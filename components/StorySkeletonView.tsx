@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StorySkeletonItem, SkeletonItemStatus, User } from '../types';
+import { StorySkeletonItem, SkeletonIdeaBox, SkeletonItemStatus, User } from '../types';
 import {
   getStorySkeleton,
   subscribeToStorySkeleton,
@@ -15,14 +15,31 @@ interface StorySkeletonViewProps {
   readOnly?: boolean;
 }
 
-const STATUS_CONFIG: Record<SkeletonItemStatus, { label: string; icon: string; bg: string; text: string; border: string; badgeBg: string }> = {
+const STATUS_CONFIG: Record<SkeletonItemStatus, {
+  label: string;
+  icon: string;
+  bg: string;
+  text: string;
+  border: string;
+  badgeBg: string;
+  borderLeft: string;
+  subAddBg: string;
+  subAddText: string;
+  subAddBorder: string;
+  subAddCircle: string;
+}> = {
   draft: {
     label: 'Ideia Inicial',
     icon: '💡',
     bg: 'bg-amber-50',
     text: 'text-amber-800',
     border: 'border-amber-200',
-    badgeBg: 'bg-amber-500'
+    badgeBg: 'bg-amber-500',
+    borderLeft: 'border-l-amber-500',
+    subAddBg: 'bg-amber-50/60 hover:bg-amber-100/80',
+    subAddText: 'text-amber-800',
+    subAddBorder: 'border-amber-200 hover:border-amber-300',
+    subAddCircle: 'bg-amber-200 text-amber-900 group-hover/btnadd:bg-amber-500 group-hover/btnadd:text-white'
   },
   structured: {
     label: 'Estruturado',
@@ -30,7 +47,12 @@ const STATUS_CONFIG: Record<SkeletonItemStatus, { label: string; icon: string; b
     bg: 'bg-sky-50',
     text: 'text-sky-800',
     border: 'border-sky-200',
-    badgeBg: 'bg-sky-500'
+    badgeBg: 'bg-sky-500',
+    borderLeft: 'border-l-sky-500',
+    subAddBg: 'bg-sky-50/60 hover:bg-sky-100/80',
+    subAddText: 'text-sky-800',
+    subAddBorder: 'border-sky-200 hover:border-sky-300',
+    subAddCircle: 'bg-sky-200 text-sky-900 group-hover/btnadd:bg-sky-500 group-hover/btnadd:text-white'
   },
   writing: {
     label: 'Escrevendo',
@@ -38,7 +60,12 @@ const STATUS_CONFIG: Record<SkeletonItemStatus, { label: string; icon: string; b
     bg: 'bg-violet-50',
     text: 'text-violet-800',
     border: 'border-violet-200',
-    badgeBg: 'bg-violet-600'
+    badgeBg: 'bg-violet-600',
+    borderLeft: 'border-l-violet-500',
+    subAddBg: 'bg-violet-50/60 hover:bg-violet-100/80',
+    subAddText: 'text-violet-800',
+    subAddBorder: 'border-violet-200 hover:border-violet-300',
+    subAddCircle: 'bg-violet-200 text-violet-900 group-hover/btnadd:bg-violet-600 group-hover/btnadd:text-white'
   },
   completed: {
     label: 'Concluído',
@@ -46,8 +73,27 @@ const STATUS_CONFIG: Record<SkeletonItemStatus, { label: string; icon: string; b
     bg: 'bg-emerald-50',
     text: 'text-emerald-800',
     border: 'border-emerald-200',
-    badgeBg: 'bg-emerald-600'
+    badgeBg: 'bg-emerald-600',
+    borderLeft: 'border-l-emerald-500',
+    subAddBg: 'bg-emerald-50/60 hover:bg-emerald-100/80',
+    subAddText: 'text-emerald-800',
+    subAddBorder: 'border-emerald-200 hover:border-emerald-300',
+    subAddCircle: 'bg-emerald-200 text-emerald-900 group-hover/btnadd:bg-emerald-600 group-hover/btnadd:text-white'
   }
+};
+
+/**
+ * Converte dados legados (string única em content) automaticamente em lista de Caixas de Ideias
+ * garantindo 100% de retrocompatibilidade com textos já existentes.
+ */
+export const getItemIdeas = (item: StorySkeletonItem): SkeletonIdeaBox[] => {
+  if (Array.isArray(item.ideas) && item.ideas.length > 0) {
+    return item.ideas;
+  }
+  if (item.content && item.content.trim()) {
+    return [{ id: `idea_${item.id}_1`, content: item.content }];
+  }
+  return [{ id: `idea_${item.id}_1`, content: '' }];
 };
 
 export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
@@ -61,6 +107,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [activeIdeaFocusId, setActiveIdeaFocusId] = useState<string | null>(null);
 
   // Debounce timers for auto-saving content
   const contentDebounceTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
@@ -92,11 +139,39 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
     setTimeout(() => setSaveToast(null), 2500);
   };
 
-  // Add a new idea box at a specific position (index) or at the end
+  // Direct edit of fields with auto-save
+  const handleUpdateItem = async (itemId: string, patch: Partial<StorySkeletonItem>, debounce: boolean = false) => {
+    if (readOnly) return;
+    const current = items.find(i => i.id === itemId);
+    if (!current) return;
+
+    const updated = { ...current, ...patch, updatedAt: new Date().toISOString() };
+    setItems(prev => prev.map(i => i.id === itemId ? updated : i));
+
+    if (debounce) {
+      setSavingId(itemId);
+      if (contentDebounceTimers.current.has(itemId)) {
+        clearTimeout(contentDebounceTimers.current.get(itemId)!);
+      }
+      const timer = setTimeout(async () => {
+        await saveStorySkeletonItem(updated, user.id);
+        setSavingId(null);
+        contentDebounceTimers.current.delete(itemId);
+      }, 700);
+      contentDebounceTimers.current.set(itemId, timer);
+    } else {
+      setSavingId(itemId);
+      await saveStorySkeletonItem(updated, user.id);
+      setSavingId(null);
+    }
+  };
+
+  // Add a new chapter at a specific position (index) or at the end
   const handleAddBox = async (insertIndex?: number) => {
     if (readOnly) return;
     const order = (typeof insertIndex === 'number' && insertIndex >= 0) ? insertIndex + 1 : items.length + 1;
-    const defaultTitle = `Ideia #${order}`;
+    const defaultTitle = `Capítulo ${order}`;
+    const initialIdeaId = `idea_skel_${Date.now()}_1`;
 
     const newItem: StorySkeletonItem = {
       id: `skel_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -106,6 +181,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
       title: defaultTitle,
       status: 'draft',
       content: '',
+      ideas: [{ id: initialIdeaId, content: '' }],
       createdAt: new Date().toISOString()
     };
 
@@ -120,19 +196,98 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
       updatedList = [...items, newItem];
     }
 
-    // Re-index orders
     updatedList = updatedList.map((it, idx) => ({ ...it, order: idx + 1 }));
     setItems(updatedList);
+    setActiveIdeaFocusId(initialIdeaId);
 
     try {
       await saveStorySkeletonItem(newItem, user.id);
       if (updatedList.length > 1) {
         await reorderStorySkeleton(projectId, user.id, updatedList);
       }
-      showFeedback('Nova caixa adicionada ao esqueleto!');
+      showFeedback('Novo capítulo adicionado ao esqueleto!');
     } catch (err) {
-      console.error('Erro ao adicionar caixa ao esqueleto:', err);
+      console.error('Erro ao adicionar capítulo ao esqueleto:', err);
     }
+  };
+
+  // Add an idea sub-box to a chapter
+  const handleAddIdeaToChapter = (itemId: string) => {
+    if (readOnly) return;
+    const currentItem = items.find(i => i.id === itemId);
+    if (!currentItem) return;
+
+    const currentIdeas = getItemIdeas(currentItem);
+    const newIdeaId = `idea_${itemId}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newIdeaBox: SkeletonIdeaBox = {
+      id: newIdeaId,
+      content: '',
+      createdAt: new Date().toISOString()
+    };
+
+    const updatedIdeas = [...currentIdeas, newIdeaBox];
+    setActiveIdeaFocusId(newIdeaId);
+
+    // Make sure chapter is open
+    setCollapsedIds(prev => {
+      const next = new Set(prev);
+      next.delete(itemId);
+      return next;
+    });
+
+    const synthesizedContent = updatedIdeas.map(i => i.content).filter(Boolean).join('\n\n');
+    handleUpdateItem(itemId, { ideas: updatedIdeas, content: synthesizedContent }, false);
+    showFeedback('Nova caixa de ideia adicionada ao capítulo!');
+  };
+
+  // Update content of an idea inside a chapter
+  const handleUpdateIdeaContent = (itemId: string, ideaId: string, newContent: string) => {
+    if (readOnly) return;
+    const currentItem = items.find(i => i.id === itemId);
+    if (!currentItem) return;
+
+    const currentIdeas = getItemIdeas(currentItem);
+    const updatedIdeas = currentIdeas.map(idBox => idBox.id === ideaId ? { ...idBox, content: newContent } : idBox);
+    const synthesizedContent = updatedIdeas.map(i => i.content).filter(Boolean).join('\n\n');
+
+    handleUpdateItem(itemId, { ideas: updatedIdeas, content: synthesizedContent }, true);
+  };
+
+  // Move an idea up or down inside a chapter
+  const handleMoveIdea = (itemId: string, ideaIndex: number, direction: 'up' | 'down') => {
+    if (readOnly) return;
+    const currentItem = items.find(i => i.id === itemId);
+    if (!currentItem) return;
+
+    const currentIdeas = [...getItemIdeas(currentItem)];
+    const targetIndex = direction === 'up' ? ideaIndex - 1 : ideaIndex + 1;
+    if (targetIndex < 0 || targetIndex >= currentIdeas.length) return;
+
+    const [moved] = currentIdeas.splice(ideaIndex, 1);
+    currentIdeas.splice(targetIndex, 0, moved);
+
+    const synthesizedContent = currentIdeas.map(i => i.content).filter(Boolean).join('\n\n');
+    handleUpdateItem(itemId, { ideas: currentIdeas, content: synthesizedContent }, false);
+  };
+
+  // Delete an idea inside a chapter
+  const handleDeleteIdea = (itemId: string, ideaId: string) => {
+    if (readOnly) return;
+    const currentItem = items.find(i => i.id === itemId);
+    if (!currentItem) return;
+
+    const currentIdeas = getItemIdeas(currentItem);
+    if (currentIdeas.length <= 1) {
+      const cleared = [{ id: `idea_${itemId}_${Date.now()}`, content: '' }];
+      handleUpdateItem(itemId, { ideas: cleared, content: '' }, false);
+      showFeedback('Caixa de ideia esvaziada.');
+      return;
+    }
+
+    const filtered = currentIdeas.filter(i => i.id !== ideaId);
+    const synthesizedContent = filtered.map(i => i.content).filter(Boolean).join('\n\n');
+    handleUpdateItem(itemId, { ideas: filtered, content: synthesizedContent }, false);
+    showFeedback('Caixa de ideia removida do capítulo.');
   };
 
   // Pre-load templates
@@ -166,6 +321,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
       title: beat.title,
       status: beat.status,
       content: beat.content,
+      ideas: [{ id: `idea_${idx}_1`, content: beat.content }],
       createdAt: new Date().toISOString()
     }));
 
@@ -176,7 +332,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
     showFeedback('Modelo aplicado com sucesso ao esqueleto!');
   };
 
-  // Move an item up or down
+  // Move a chapter up or down
   const handleMove = async (index: number, direction: 'up' | 'down') => {
     if (readOnly) return;
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
@@ -191,10 +347,10 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
     await reorderStorySkeleton(projectId, user.id, reordered);
   };
 
-  // Delete an item
+  // Delete an entire chapter
   const handleDelete = async (itemId: string) => {
     if (readOnly) return;
-    if (!window.confirm('Tem certeza de que deseja remover esta ideia do esqueleto da obra?')) return;
+    if (!window.confirm('Tem certeza de que deseja remover este capítulo inteiro do esqueleto da obra?')) return;
 
     const filtered = items.filter(i => i.id !== itemId).map((it, idx) => ({ ...it, order: idx + 1 }));
     setItems(filtered);
@@ -202,34 +358,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
     if (filtered.length > 0) {
       await reorderStorySkeleton(projectId, user.id, filtered);
     }
-    showFeedback('Ideia removida do esqueleto.');
-  };
-
-  // Direct edit of fields
-  const handleUpdateItem = async (itemId: string, patch: Partial<StorySkeletonItem>, debounce: boolean = false) => {
-    if (readOnly) return;
-    const current = items.find(i => i.id === itemId);
-    if (!current) return;
-
-    const updated = { ...current, ...patch, updatedAt: new Date().toISOString() };
-    setItems(prev => prev.map(i => i.id === itemId ? updated : i));
-
-    if (debounce) {
-      setSavingId(itemId);
-      if (contentDebounceTimers.current.has(itemId)) {
-        clearTimeout(contentDebounceTimers.current.get(itemId)!);
-      }
-      const timer = setTimeout(async () => {
-        await saveStorySkeletonItem(updated, user.id);
-        setSavingId(null);
-        contentDebounceTimers.current.delete(itemId);
-      }, 700);
-      contentDebounceTimers.current.set(itemId, timer);
-    } else {
-      setSavingId(itemId);
-      await saveStorySkeletonItem(updated, user.id);
-      setSavingId(null);
-    }
+    showFeedback('Capítulo removido do esqueleto.');
   };
 
   const toggleCollapse = (id: string) => {
@@ -248,7 +377,8 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
       const q = searchQuery.toLowerCase();
       const matchTitle = (item.title || '').toLowerCase().includes(q);
       const matchContent = (item.content || '').toLowerCase().includes(q);
-      return matchTitle || matchContent;
+      const matchIdeas = (item.ideas || []).some(idBox => (idBox.content || '').toLowerCase().includes(q));
+      return matchTitle || matchContent || matchIdeas;
     }
     return true;
   });
@@ -282,11 +412,11 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
             <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
               <span>🦴 Esqueleto da Obra</span>
               <span className="text-sm font-extrabold px-3 py-0.5 rounded-full bg-violet-900/80 text-violet-200 border border-violet-700/60">
-                {items.length} {items.length === 1 ? 'ideia' : 'ideias encadeadas'}
+                {items.length} {items.length === 1 ? 'capítulo' : 'capítulos estruturados'}
               </span>
             </h2>
             <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
-              Estruture o ritmo e a progressão da sua narrativa. Conecte cenas, atos, marcos e pontos de virada em uma sequência lógica contínua.
+              Estruture a narrativa capítulo a capítulo. Abra cada gaveta e empilhe caixas de ideias e cenas independentes para compor o enredo com clareza visual.
             </p>
 
             {/* Quick Status Badges */}
@@ -300,7 +430,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
                     : 'bg-white/10 text-slate-300 hover:bg-white/20'
                 }`}
               >
-                Todas ({items.length})
+                Todos ({items.length})
               </button>
               <button
                 type="button"
@@ -358,7 +488,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
                 className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-400 hover:to-indigo-500 text-white font-extrabold text-sm shadow-lg shadow-violet-600/30 hover:shadow-violet-600/50 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer border border-violet-300/30"
               >
                 <Plus className="w-5 h-5 stroke-[2.5]" />
-                <span>+ Adicionar Caixa de Ideia</span>
+                <span>+ Adicionar Capítulo</span>
               </button>
             )}
 
@@ -377,7 +507,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
         </div>
       </div>
 
-      {/* Main Spine & Idea Boxes Content */}
+      {/* Main Spine & Chapters Content */}
       {items.length === 0 ? (
         /* Empty State with Template Starters */
         <div className="bg-white rounded-3xl p-8 sm:p-12 text-center border-2 border-dashed border-violet-200/90 shadow-sm max-w-2xl mx-auto space-y-6">
@@ -401,7 +531,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
                 className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-violet-600 hover:bg-violet-700 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
-                <span>Começar com uma Caixa em Branco</span>
+                <span>Começar com o Capítulo 1</span>
               </button>
 
               <button
@@ -434,15 +564,16 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
             const statusInfo = STATUS_CONFIG[item.status || 'draft'];
             const isCollapsed = collapsedIds.has(item.id);
             const isSaving = savingId === item.id;
+            const ideas = getItemIdeas(item);
 
             return (
               <React.Fragment key={item.id}>
-                {/* Idea Box Card */}
+                {/* Chapter Card Container */}
                 <div className="relative group">
-                  {/* Spine Milestone Node Badge */}
+                  {/* Spine Milestone Node Badge (EXATAMENTE COMO ESTÁ HOJE) */}
                   <div
                     className={`absolute -left-6 sm:-left-10 top-5 w-6 h-6 sm:w-8 sm:h-8 rounded-full ${statusInfo.badgeBg} text-white font-black text-[10px] sm:text-xs flex items-center justify-center shadow-md ring-4 ring-white z-10`}
-                    title={`Passo #${item.order}`}
+                    title={`Capítulo #${item.order}`}
                   >
                     #{item.order}
                   </div>
@@ -450,10 +581,13 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
                   <div
                     className={`bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm hover:shadow-md border transition-all duration-200 ${statusInfo.border}`}
                   >
-                    {/* Header Row: Title, Status Pill, Move & Delete Controls */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-                      {/* Title input with editable pill */}
-                      <div className="flex-1 flex items-center gap-2">
+                    {/* Header Row: Title, Status Pill, Move, Collapse & Delete Controls (EXATAMENTE COMO ESTÁ HOJE) */}
+                    <div
+                      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 cursor-pointer select-none`}
+                      onClick={() => toggleCollapse(item.id)}
+                    >
+                      {/* Left: Icon + Chapter Title + Ideas Counter Badge */}
+                      <div className="flex-1 flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                         <span className="text-lg flex-shrink-0">{statusInfo.icon}</span>
                         {readOnly ? (
                           <span className="font-extrabold text-base text-slate-800">{item.title}</span>
@@ -462,14 +596,27 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
                             type="text"
                             value={item.title}
                             onChange={(e) => handleUpdateItem(item.id, { title: e.target.value }, true)}
-                            placeholder="Título da Ideia / Marco (ex: Incidente Incitante, Capítulo 1)..."
-                            className="w-full text-sm sm:text-base font-extrabold text-slate-800 placeholder:text-slate-300 bg-transparent hover:bg-slate-50 focus:bg-slate-50/80 px-2 py-1 rounded-xl outline-none focus:ring-1 focus:ring-violet-400 transition-all"
+                            placeholder="Título do Capítulo (ex: Incidente Incitante, Capítulo 1)..."
+                            className="text-sm sm:text-base font-extrabold text-slate-800 placeholder:text-slate-300 bg-transparent hover:bg-slate-50 focus:bg-slate-50/80 px-2 py-1 rounded-xl outline-none focus:ring-1 focus:ring-violet-400 transition-all flex-1 min-w-[180px]"
                           />
+                        )}
+                        {/* Contador de caixas de ideias existentes lá dentro */}
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200/80 whitespace-nowrap shadow-2xs"
+                          title={`${ideas.length} caixa(s) de ideia(s) neste capítulo`}
+                        >
+                          <span>{ideas.length}</span>
+                          <span>{ideas.length === 1 ? 'ideia' : 'ideias'}</span>
+                        </span>
+                        {isSaving && (
+                          <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-200 animate-pulse">
+                            Salvando...
+                          </span>
                         )}
                       </div>
 
-                      {/* Status Selector & Card Actions */}
-                      <div className="flex items-center gap-1.5 self-end sm:self-auto flex-wrap">
+                      {/* Right: Status Selector, Move Up/Down, Collapse Button & Trash */}
+                      <div className="flex items-center gap-1.5 self-end sm:self-auto flex-wrap" onClick={(e) => e.stopPropagation()}>
                         {/* Status Dropdown/Pill */}
                         {!readOnly ? (
                           <div className="relative inline-block">
@@ -517,23 +664,23 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
                           </button>
                         )}
 
-                        {/* Collapse/Expand Content */}
+                        {/* Collapse/Expand Toggle (⌃ / ⌄) */}
                         <button
                           type="button"
                           onClick={() => toggleCollapse(item.id)}
-                          className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                          title={isCollapsed ? 'Expandir' : 'Recolher'}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                          title={isCollapsed ? 'Expandir capítulo' : 'Recolher capítulo'}
                         >
                           {isCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
                         </button>
 
-                        {/* Delete Button */}
+                        {/* Delete Button (🗑️) */}
                         {!readOnly && (
                           <button
                             type="button"
                             onClick={() => handleDelete(item.id)}
                             className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer ml-1"
-                            title="Excluir ideia do esqueleto"
+                            title="Excluir capítulo do esqueleto"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -541,45 +688,123 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Expandable Text Area */}
-                    {!isCollapsed && (
-                      <div className="mt-3">
-                        {readOnly ? (
-                          <p className="text-xs sm:text-sm text-slate-700 whitespace-pre-wrap p-2 min-h-[3rem]">
-                            {item.content || <span className="italic text-slate-400">Nenhum detalhe descrito.</span>}
-                          </p>
-                        ) : (
-                          <div className="relative">
-                            <textarea
-                              rows={4}
-                              value={item.content}
-                              onChange={(e) => handleUpdateItem(item.id, { content: e.target.value }, true)}
-                              placeholder="Descreva livremente o que acontece nesta parte da história: ações, revelações, emoções dos personagens ou conflito chave..."
-                              className="w-full p-3 sm:p-4 text-xs sm:text-sm text-slate-700 placeholder:text-slate-300 bg-slate-50/60 hover:bg-slate-50 focus:bg-white rounded-2xl border border-slate-200 focus:border-violet-400 outline-none transition-all resize-y min-h-[90px]"
-                            />
-                            {isSaving && (
-                              <span className="absolute bottom-3 right-3 text-[10px] font-semibold text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-200 animate-pulse">
-                                Salvando...
+                    {/* Gaveta Deslizante para Baixo (Slide-Down / Accordion Suave) */}
+                    <div
+                      className={`transition-all duration-300 ease-in-out overflow-hidden ${
+                        isCollapsed ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[8000px] opacity-100 pt-4'
+                      }`}
+                    >
+                      <div className="space-y-3.5">
+                        {/* Caixas de Ideias Empilhadas */}
+                        {ideas.map((idea, ideaIdx) => (
+                          <div
+                            key={idea.id}
+                            className={`bg-white border-l-4 ${statusInfo.borderLeft} rounded-2xl shadow-sm hover:shadow-md p-4 sm:p-5 transition-all duration-200 border border-slate-200/80 group/ideabox`}
+                          >
+                            {/* Header da Caixa de Ideia: Marcador Numerado + Controles Mover/Excluir */}
+                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 text-xs text-slate-500">
+                              <span className="font-extrabold text-slate-700 flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${statusInfo.badgeBg}`} />
+                                <span>Cena / Ideia {item.order}.{ideaIdx + 1}</span>
                               </span>
+
+                              {!readOnly && (
+                                <div className="flex items-center gap-1 opacity-70 group-hover/ideabox:opacity-100 transition-opacity">
+                                  {/* Mover Ideia para Cima */}
+                                  <button
+                                    type="button"
+                                    disabled={ideaIdx === 0}
+                                    onClick={() => handleMoveIdea(item.id, ideaIdx, 'up')}
+                                    className="p-1 text-slate-400 hover:text-violet-700 hover:bg-violet-50 rounded-lg disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                    title="Mover ideia para cima dentro deste capítulo"
+                                  >
+                                    <ArrowUp className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {/* Mover Ideia para Baixo */}
+                                  <button
+                                    type="button"
+                                    disabled={ideaIdx === ideas.length - 1}
+                                    onClick={() => handleMoveIdea(item.id, ideaIdx, 'down')}
+                                    className="p-1 text-slate-400 hover:text-violet-700 hover:bg-violet-50 rounded-lg disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                    title="Mover ideia para baixo dentro deste capítulo"
+                                  >
+                                    <ArrowDown className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {/* Excluir esta Caixa de Ideia */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteIdea(item.id, idea.id)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer ml-1"
+                                    title="Excluir esta caixa de ideia"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Tipografia Viva e Legível: Auto-Resize sem barra de rolagem */}
+                            {readOnly ? (
+                              <p className="text-slate-800 text-base leading-relaxed font-medium whitespace-pre-wrap py-1">
+                                {idea.content || <span className="italic text-slate-400 font-normal">Nenhum detalhe descrito.</span>}
+                              </p>
+                            ) : (
+                              <textarea
+                                ref={(el) => {
+                                  if (el) {
+                                    el.style.height = 'auto';
+                                    el.style.height = `${Math.max(el.scrollHeight, 56)}px`;
+                                  }
+                                }}
+                                value={idea.content}
+                                autoFocus={activeIdeaFocusId === idea.id}
+                                onFocus={() => {
+                                  if (activeIdeaFocusId === idea.id) setActiveIdeaFocusId(null);
+                                }}
+                                onChange={(e) => {
+                                  e.target.style.height = 'auto';
+                                  e.target.style.height = `${Math.max(e.target.scrollHeight, 56)}px`;
+                                  handleUpdateIdeaContent(item.id, idea.id, e.target.value);
+                                }}
+                                placeholder="Descreva o que acontece nesta parte da história: ações, revelações, emoções dos personagens ou conflito..."
+                                className="w-full text-slate-800 text-base leading-relaxed font-medium placeholder:text-slate-300 placeholder:font-normal bg-transparent outline-none resize-none overflow-hidden transition-all"
+                                rows={2}
+                              />
                             )}
                           </div>
+                        ))}
+
+                        {/* Botão Convidativo: + Adicionar caixa de ideia ao capítulo */}
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => handleAddIdeaToChapter(item.id)}
+                            className={`w-full py-3 px-4 rounded-2xl ${statusInfo.subAddBg} ${statusInfo.subAddText} border-2 border-dashed ${statusInfo.subAddBorder} font-bold text-xs sm:text-sm transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer shadow-2xs hover:shadow-sm group/btnadd`}
+                          >
+                            <div className={`w-5 h-5 rounded-full ${statusInfo.subAddCircle} flex items-center justify-center transition-colors`}>
+                              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                            </div>
+                            <span>+ Adicionar caixa de ideia ao capítulo</span>
+                          </button>
                         )}
                       </div>
-                    )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Quick Insert (+) Pill between boxes */}
+                {/* Quick Insert (+) Pill between chapters */}
                 {!readOnly && index < items.length - 1 && (
                   <div className="relative flex justify-center py-1 group/insert">
                     <button
                       type="button"
                       onClick={() => handleAddBox(index + 1)}
                       className="opacity-0 group-hover/insert:opacity-100 focus:opacity-100 transition-opacity duration-200 bg-white hover:bg-violet-600 text-slate-400 hover:text-white px-3 py-1 rounded-full text-[11px] font-bold shadow-sm border border-slate-200 hover:border-violet-600 flex items-center gap-1 cursor-pointer transform hover:scale-105 active:scale-95"
-                      title="Inserir ideia aqui na sequência"
+                      title="Inserir capítulo aqui na sequência"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>Inserir ideia entre #{item.order} e #{item.order + 1}</span>
+                      <span>Inserir capítulo entre #{item.order} e #{item.order + 1}</span>
                     </button>
                   </div>
                 )}
@@ -587,7 +812,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
             );
           })}
 
-          {/* Bottom Add Next Idea Button */}
+          {/* Bottom Add Next Chapter Button (MANTIDO INTACTO) */}
           {!readOnly && (
             <div className="pt-2">
               <button
@@ -598,7 +823,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
                 <div className="w-7 h-7 rounded-full bg-violet-200 group-hover:bg-violet-600 text-violet-700 group-hover:text-white flex items-center justify-center transition-colors">
                   <Plus className="w-4 h-4 stroke-[2.5]" />
                 </div>
-                <span>+ Adicionar Próxima Ideia ao Esqueleto (#{items.length + 1})</span>
+                <span>+ Adicionar Próximo Capítulo ao Esqueleto (#{items.length + 1})</span>
               </button>
             </div>
           )}

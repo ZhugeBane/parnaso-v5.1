@@ -139,6 +139,13 @@ export interface ProjectComment {
 
 export type SkeletonItemStatus = 'draft' | 'structured' | 'writing' | 'completed';
 
+export interface SkeletonIdeaBox {
+  id: string;
+  content: string;
+  title?: string;
+  createdAt?: string;
+}
+
 export interface StorySkeletonItem {
   id: string;
   projectId: string;
@@ -146,7 +153,8 @@ export interface StorySkeletonItem {
   order: number; // 1, 2, 3...
   title: string; // ex: "Incidente Incitante", "Capítulo 1: A Chegada", "Plot Twist do 2º Ato"
   status?: SkeletonItemStatus; // 💡 Ideia Inicial, 📐 Estruturado, ✍️ Escrevendo, ✅ Concluído
-  content: string; // Caixa de texto expansível da ideia
+  content: string; // Caixa de texto legado (retrocompatibilidade)
+  ideas?: SkeletonIdeaBox[]; // Caixas de ideias empilhadas dentro do capítulo
   createdAt: string;
   updatedAt?: string;
 }
