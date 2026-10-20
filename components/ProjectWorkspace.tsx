@@ -1,10 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Project, User, WritingSession } from '../types';
 import { ConceptMapCanvas } from './ConceptMapCanvas';
 import { CharactersFolder } from './CharactersFolder';
+import { StorySkeletonView } from './StorySkeletonView';
+import { PhysicalEnvironmentsGallery } from './PhysicalEnvironmentsGallery';
 import { ProjectComments } from './ProjectComments';
 import { ScriptusIcon, KronusIcon } from './ui/GamificationIcons';
 import { sessionToKronus, calculateSessionMinutes, formatMinutesToHours } from '../services/rewardService';
+import {
+  subscribeToStorySkeleton,
+  subscribeToStoryEnvironments,
+  getCharacters,
+  getChapterConceptMaps
+} from '../services/projectCreativeService';
+import { ListTree, MapPin, Compass, Users, Brain, MessageSquare, BarChart3 } from 'lucide-react';
+
+export type ProjectWorkspaceTab = 'concepts' | 'characters' | 'skeleton' | 'environments' | 'comments' | 'stats';
 
 interface ProjectWorkspaceProps {
   project: Project;
@@ -13,6 +24,7 @@ interface ProjectWorkspaceProps {
   onBackToProjects: () => void;
   renderAutomonitoring: () => React.ReactNode;
   onDeleteRequested?: () => void;
+  initialTab?: ProjectWorkspaceTab;
   readOnly?: boolean;
 }
 
@@ -23,9 +35,52 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   onBackToProjects,
   renderAutomonitoring,
   onDeleteRequested,
+  initialTab = 'skeleton',
   readOnly = false
 }) => {
-  const [activeTab, setActiveTab] = useState<'concepts' | 'characters' | 'comments' | 'stats'>('concepts');
+  const [activeTab, setActiveTab] = useState<ProjectWorkspaceTab>(initialTab);
+
+  // Creative Item Counters
+  const [skeletonCount, setSkeletonCount] = useState<number>(0);
+  const [environmentsCount, setEnvironmentsCount] = useState<number>(0);
+  const [charactersCount, setCharactersCount] = useState<number>(0);
+  const [mapsCount, setMapsCount] = useState<number>(0);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    // Real-time listener for skeleton ideas
+    const unsubSkeleton = subscribeToStorySkeleton(project.id, user.id, (items) => {
+      if (isMounted) setSkeletonCount(items.length);
+    });
+
+    // Real-time listener for environments
+    const unsubEnvs = subscribeToStoryEnvironments(project.id, user.id, (envs) => {
+      if (isMounted) setEnvironmentsCount(envs.length);
+    });
+
+    // Characters count
+    getCharacters(project.id, user.id).then(chars => {
+      if (isMounted) setCharactersCount(chars.length);
+    });
+
+    // Maps count
+    getChapterConceptMaps(project.id, user.id).then(maps => {
+      if (isMounted) setMapsCount(maps.length);
+    });
+
+    return () => {
+      isMounted = false;
+      unsubSkeleton();
+      unsubEnvs();
+    };
+  }, [project.id, user.id]);
 
   const projSessions = sessions
     .filter(s => s.projectId === project.id || (s.projectId && s.projectId.trim().toLowerCase() === project.name.trim().toLowerCase()));
@@ -140,20 +195,46 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
         </div>
 
         {/* Project Workspace Navigation Tabs */}
-        <div className="flex border-b border-slate-200 mt-6 -mb-5 sm:-mb-6 overflow-x-auto text-sm font-bold">
+        <div className="flex border-b border-slate-200 mt-6 -mb-5 sm:-mb-6 overflow-x-auto text-sm font-bold scrollbar-thin">
+          {/* TAB 1: SKELETON */}
           <button
             type="button"
-            onClick={() => setActiveTab('concepts')}
+            onClick={() => setActiveTab('skeleton')}
             className={`py-3 px-4 border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
-              activeTab === 'concepts'
-                ? 'border-indigo-600 text-indigo-700 bg-indigo-50/40 rounded-t-xl'
+              activeTab === 'skeleton'
+                ? 'border-violet-600 text-violet-700 bg-violet-50/50 rounded-t-xl'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <span>🧠</span>
-            <span>Ideias & Mapas Conceituais</span>
+            <ListTree className="w-4 h-4 text-violet-600 flex-shrink-0" />
+            <span>🦴 Esqueleto da Obra</span>
+            <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${
+              activeTab === 'skeleton' ? 'bg-violet-200 text-violet-800' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {skeletonCount} {skeletonCount === 1 ? 'ideia' : 'ideias'}
+            </span>
           </button>
 
+          {/* TAB 2: ENVIRONMENTS */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('environments')}
+            className={`py-3 px-4 border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'environments'
+                ? 'border-emerald-600 text-emerald-700 bg-emerald-50/50 rounded-t-xl'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Compass className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span>🏛️ Ambientes Físicos</span>
+            <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${
+              activeTab === 'environments' ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {environmentsCount} {environmentsCount === 1 ? 'local' : 'locais'}
+            </span>
+          </button>
+
+          {/* TAB 3: CHARACTERS */}
           <button
             type="button"
             onClick={() => setActiveTab('characters')}
@@ -163,10 +244,35 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <span>👥</span>
-            <span>Pasta de Personagens</span>
+            <Users className="w-4 h-4 text-teal-600 flex-shrink-0" />
+            <span>👥 Personagens</span>
+            <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${
+              activeTab === 'characters' ? 'bg-teal-200 text-teal-800' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {charactersCount}
+            </span>
           </button>
 
+          {/* TAB 4: CONCEPTS & MAPS */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('concepts')}
+            className={`py-3 px-4 border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'concepts'
+                ? 'border-indigo-600 text-indigo-700 bg-indigo-50/40 rounded-t-xl'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Brain className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+            <span>🧠 Mapas Conceituais</span>
+            <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${
+              activeTab === 'concepts' ? 'bg-indigo-200 text-indigo-800' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {mapsCount}
+            </span>
+          </button>
+
+          {/* TAB 5: COMMENTS */}
           <button
             type="button"
             onClick={() => setActiveTab('comments')}
@@ -176,10 +282,11 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <span>💬</span>
-            <span>Comentários</span>
+            <MessageSquare className="w-4 h-4 text-amber-500 flex-shrink-0" />
+            <span>💬 Comentários</span>
           </button>
 
+          {/* TAB 6: STATS */}
           <button
             type="button"
             onClick={() => setActiveTab('stats')}
@@ -189,15 +296,23 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <span>📊</span>
-            <span>Automonitoramento & Métricas</span>
+            <BarChart3 className="w-4 h-4 text-teal-600 flex-shrink-0" />
+            <span>📊 Automonitoramento</span>
           </button>
         </div>
       </div>
 
       {/* Tab Panels */}
-      {activeTab === 'concepts' && (
-        <ConceptMapCanvas
+      {activeTab === 'skeleton' && (
+        <StorySkeletonView
+          projectId={project.id}
+          user={user}
+          readOnly={readOnly}
+        />
+      )}
+
+      {activeTab === 'environments' && (
+        <PhysicalEnvironmentsGallery
           projectId={project.id}
           user={user}
           readOnly={readOnly}
@@ -206,6 +321,14 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
 
       {activeTab === 'characters' && (
         <CharactersFolder
+          projectId={project.id}
+          user={user}
+          readOnly={readOnly}
+        />
+      )}
+
+      {activeTab === 'concepts' && (
+        <ConceptMapCanvas
           projectId={project.id}
           user={user}
           readOnly={readOnly}

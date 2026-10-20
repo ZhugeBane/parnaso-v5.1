@@ -14,10 +14,11 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   LineChart, Line, AreaChart, Area, ReferenceLine, PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { ProjectWorkspace } from './ProjectWorkspace';
+import { ProjectWorkspace, ProjectWorkspaceTab } from './ProjectWorkspace';
+import { getProjectCreativeCounts } from '../services/projectCreativeService';
 import { RewardsShop } from './RewardsShop';
 import { AchievementsGallery } from './AchievementsGallery';
-import { BookOpen, Users, Sparkles, Clock, Hourglass, Compass, Waves } from 'lucide-react';
+import { BookOpen, Users, Sparkles, Clock, Hourglass, Compass, Waves, ListTree, MapPin } from 'lucide-react';
 import {
   wordsToDiamonds,
   wordsToScriptus,
@@ -158,6 +159,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'general' | 'projects' | 'achievements' | 'rewards'>('general');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [workspaceInitialTab, setWorkspaceInitialTab] = useState<ProjectWorkspaceTab>('skeleton');
+  const [projectCreativeCounts, setProjectCreativeCounts] = useState<Record<string, { skeletonCount: number; environmentsCount: number }>>({});
+
+  // Carrega contadores criativos (Esqueleto e Ambientes Físicos) para os cards de Minhas Obras
+  useEffect(() => {
+    let isMounted = true;
+    const loadCounts = async () => {
+      const countsMap: Record<string, { skeletonCount: number; environmentsCount: number }> = {};
+      await Promise.all(
+        projects.map(async (p) => {
+          try {
+            const counts = await getProjectCreativeCounts(p.id, user.id);
+            countsMap[p.id] = {
+              skeletonCount: counts.skeletonCount,
+              environmentsCount: counts.environmentsCount
+            };
+          } catch {}
+        })
+      );
+      if (isMounted) {
+        setProjectCreativeCounts(countsMap);
+      }
+    };
+    if (projects.length > 0 && user.id) {
+      loadCounts();
+    }
+  }, [projects, user.id]);
   const [dateFilter, setDateFilter] = useState<DateFilterType>('all');
   const [selectedSession, setSelectedSession] = useState<WritingSession | null>(null);
   const [showAuthorProfileModal, setShowAuthorProfileModal] = useState(false);
@@ -3374,7 +3402,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               return (
                 <div
                   key={project.id}
-                  onClick={() => setSelectedProjectId(project.id)}
+                  onClick={() => { setWorkspaceInitialTab('skeleton'); setSelectedProjectId(project.id); }}
                   className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-pointer group relative overflow-hidden flex flex-col justify-between"
                 >
                   {/* Color indicator strip */}
@@ -3610,6 +3638,45 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       </div>
                     </div>
 
+                    {/* Quick Creative Hub: Esqueleto & Ambientes Físicos */}
+                    <div className="mt-3 grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWorkspaceInitialTab('skeleton');
+                          setSelectedProjectId(project.id);
+                        }}
+                        className="flex items-center justify-between gap-1 px-2.5 py-2 rounded-xl text-xs font-bold text-violet-800 bg-violet-50 hover:bg-violet-100 border border-violet-200/80 hover:border-violet-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer group/skel"
+                        title="Abrir Esqueleto e Estrutura de Ideias desta Obra"
+                      >
+                        <span className="flex items-center gap-1.5 truncate">
+                          <ListTree className="w-3.5 h-3.5 text-violet-600 flex-shrink-0 group-hover/skel:scale-110 transition-transform" />
+                          <span className="truncate">🦴 Esqueleto</span>
+                        </span>
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-violet-200 text-violet-900 flex-shrink-0">
+                          {projectCreativeCounts[project.id]?.skeletonCount ?? 0}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWorkspaceInitialTab('environments');
+                          setSelectedProjectId(project.id);
+                        }}
+                        className="flex items-center justify-between gap-1 px-2.5 py-2 rounded-xl text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 hover:border-emerald-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer group/env"
+                        title="Abrir Catálogo de Ambientes Físicos e Cenários desta Obra"
+                      >
+                        <span className="flex items-center gap-1.5 truncate">
+                          <Compass className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0 group-hover/env:scale-110 transition-transform" />
+                          <span className="truncate">🏛️ Ambientes</span>
+                        </span>
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-emerald-200 text-emerald-900 flex-shrink-0">
+                          {projectCreativeCounts[project.id]?.environmentsCount ?? 0}
+                        </span>
+                      </button>
+                    </div>
+
                     {/* Modernized Automonitoring & Discreet Curtain Toggle */}
                     <div
                       className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap"
@@ -3712,6 +3779,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
               sessions={sessions}
               onBackToProjects={() => setSelectedProjectId(null)}
               renderAutomonitoring={() => renderAutomonitoringSections()}
+              initialTab={workspaceInitialTab}
               onDeleteRequested={onDeleteProject ? () => {
                 setProjectToDelete(project);
                 setDeleteConfirmedCheck(false);

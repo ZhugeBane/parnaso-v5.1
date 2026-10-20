@@ -135,6 +135,42 @@ export interface ProjectComment {
   updatedAt?: string;
 }
 
+// --- Story Skeleton (Esqueleto da Obra / Ideias Encadeadas) ---
+
+export type SkeletonItemStatus = 'draft' | 'structured' | 'writing' | 'completed';
+
+export interface StorySkeletonItem {
+  id: string;
+  projectId: string;
+  userId: string;
+  order: number; // 1, 2, 3...
+  title: string; // ex: "Incidente Incitante", "Capítulo 1: A Chegada", "Plot Twist do 2º Ato"
+  status?: SkeletonItemStatus; // 💡 Ideia Inicial, 📐 Estruturado, ✍️ Escrevendo, ✅ Concluído
+  content: string; // Caixa de texto expansível da ideia
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// --- Physical Environments (Ambientes Físicos / Cenários da Obra) ---
+
+export type EnvironmentCategory = 'interior' | 'exterior' | 'city' | 'shelter' | 'conflict' | 'other';
+
+export interface StoryEnvironment {
+  id: string;
+  projectId: string;
+  userId: string;
+  name: string; // ex: "Vagão do Meio", "Biblioteca Subterrânea", "Cafeteria Central"
+  category: EnvironmentCategory; // Interior, Exterior, Cidade/Região, Refúgio, Local de Conflito, Outro
+  visualDescription?: string; // Como é o espaço físico, iluminação, objetos importantes e disposição
+  sensoryAtmosphere?: string; // Sons, cheiros, clima, temperatura, atmosfera sensorial
+  associatedScenesOrCharacters?: string; // Quem frequenta esse lugar ou o que acontece de importante ali
+  imageUrl?: string;
+  imageBase64?: string; // Base64 comprimida (< 35KB) para moodboard/cenário
+  createdAt: string;
+  updatedAt?: string;
+}
+
+
 export interface WritingSession {
   id: string;
   projectId?: string; // Link to a Project

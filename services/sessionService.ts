@@ -511,6 +511,48 @@ export const deleteProject = async (projectId: string, userId: string): Promise<
       console.warn('[deleteProject] Aviso ao excluir comentários da obra:', commentErr);
     }
 
+    // 6. Excluir esqueleto da obra
+    try {
+      const skelQ = query(
+        collection(db, 'project_skeleton_items'),
+        where('projectId', '==', projectId),
+        where('userId', '==', userId)
+      );
+      const skelSnap = await getDocs(skelQ);
+      if (!skelSnap.empty) {
+        const batchSkel = writeBatch(db);
+        skelSnap.forEach((docSnap) => {
+          batchSkel.delete(docSnap.ref);
+        });
+        await batchSkel.commit();
+        console.log(`[deleteProject] ✅ ${skelSnap.size} itens de esqueleto excluídos.`);
+      }
+      localStorage.removeItem(`parnaso_skeleton_${projectId}`);
+    } catch (skelErr) {
+      console.warn('[deleteProject] Aviso ao excluir esqueleto da obra:', skelErr);
+    }
+
+    // 7. Excluir ambientes físicos da obra
+    try {
+      const envQ = query(
+        collection(db, 'project_environments'),
+        where('projectId', '==', projectId),
+        where('userId', '==', userId)
+      );
+      const envSnap = await getDocs(envQ);
+      if (!envSnap.empty) {
+        const batchEnv = writeBatch(db);
+        envSnap.forEach((docSnap) => {
+          batchEnv.delete(docSnap.ref);
+        });
+        await batchEnv.commit();
+        console.log(`[deleteProject] ✅ ${envSnap.size} ambientes físicos excluídos.`);
+      }
+      localStorage.removeItem(`parnaso_environments_${projectId}`);
+    } catch (envErr) {
+      console.warn('[deleteProject] Aviso ao excluir ambientes físicos da obra:', envErr);
+    }
+
     console.log('[deleteProject] ✅ Exclusão completa finalizada!');
   } catch (error: any) {
     console.error('[deleteProject] ❌ Erro ao excluir projeto:', error);
