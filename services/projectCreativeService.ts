@@ -1,4 +1,4 @@
-import { Character, ChapterConceptMap, ProjectComment, StorySkeletonItem, StoryEnvironment } from '../types';
+import { Character, ChapterConceptMap, ProjectComment, StorySkeletonItem, StoryEnvironment, ProjectDiaryEntry } from '../types';
 import { db } from '../lib/firebase';
 import {
   collection,
@@ -19,6 +19,7 @@ const getLocalMapsKey = (projectId: string) => `parnaso_concept_maps_${projectId
 const getLocalCommentsKey = (projectId: string) => `parnaso_comments_${projectId}`;
 const getLocalSkeletonKey = (projectId: string) => `parnaso_skeleton_${projectId}`;
 const getLocalEnvironmentsKey = (projectId: string) => `parnaso_environments_${projectId}`;
+const getLocalDiaryKey = (projectId: string) => `parnaso_diary_${projectId}`;
 
 // Clean object of undefined values for Firestore
 const cleanDataForFirestore = (obj: any): any => {
@@ -675,7 +676,166 @@ export const deleteStoryEnvironment = async (envId: string, projectId: string): 
 };
 
 // ==========================================
-// 6. CREATIVE COUNTS HELPER (para os cards de Obras)
+// 6. PROJECT DIARY (Diário da Obra)
+// ==========================================
+
+export const getProjectDiaryEntries = async (
+  projectId: string,
+  userId: string
+): Promise<ProjectDiaryEntry[]> => {
+  const localRaw = localStorage.getItem(getLocalDiaryKey(projectId));
+  let cached: ProjectDiaryEntry[] = [];
+  if (localRaw) {
+    try {
+      cached = JSON.parse(localRaw);
+    } catch (e) {
+      console.warn('Erro ao ler cache de diário:', e);
+    }
+  }
+
+  try {
+    const q = query(
+      collection(db, 'project_diary_entries'),
+      where('projectId', '==', projectId),
+      where('userId', '==', userId)
+    );
+    const snap = await getDocs(q);
+    const remote = snap.docs.map(d => ({
+      id: d.id,
+      ...d.data()
+    })) as ProjectDiaryEntry[];
+
+    // Sort descending by entryDate / createdAt (most recent first)
+    remote.sort((a, b) => new Date(b.entryDate || b.createdAt).getTime() - new Date(a.entryDate || a.createdAt).getTime());
+
+    localStorage.setItem(getLocalDiaryKey(projectId), JSON.stringify(remote));
+    return remote;
+  } catch (error) {
+    console.warn('Usando páginas do diário do cache local devido a erro no Firestore:', error);
+    return cached;
+  }
+};
+
+export const saveProjectDiaryEntry = async (
+  entry: ProjectDiaryEntry,
+  userId: string
+): Promise<ProjectDiaryEntry> => {
+  const { id, ...data } = entry;
+  const now = new Date().toISOString();
+  const cleanData = cleanDataForFirestore({
+    ...data,
+    userId,
+    entryDate: entry.entryDate || now,
+    updatedAt: now
+  });
+
+  let savedEntry: ProjectDiaryEntry = { ...entry };
+
+  try {
+    if (id && !id.startsWith('local_') && !id.startsWith('temp_') && id.length >= 15) {
+      const docRef = doc(db, 'project_diary_entries', id);
+      await setDoc(docRef, cleanData, { merge: true });
+      savedEntry = { ...entry, ...cleanData, id };
+    } else {
+      const docRef = await addDoc(collection(db, 'project_diary_entries'), {
+        ...cleanData,
+        createdAt: entry.createdAt || now
+      });
+      savedEntry = { ...entry, ...cleanData, id: docRef.id };
+    }
+  } catch (error) {
+    console.warn('Erro ao salvar página no Firestore, salvando apenas localmente:', error);
+    if (!savedEntry.id) {
+      savedEntry.id = `local_diary_${Date.now()}`;
+    }
+  }
+
+  // Update local cache
+  try {
+    const localRaw = localStorage.getItem(getLocalDiaryKey(entry.projectId));
+    let list: ProjectDiaryEntry[] = localRaw ? JSON.parse(localRaw) : [];
+    const idx = list.findIndex(e => e.id === savedEntry.id);
+    if (idx >= 0) {
+      list[idx] = savedEntry;
+    } else {
+      list.unshift(savedEntry);
+    }
+    list.sort((a, b) => new Date(b.entryDate || b.createdAt).getTime() - new Date(a.entryDate || a.createdAt).getTime());
+    localStorage.setItem(getLocalDiaryKey(entry.projectId), JSON.stringify(list));
+  } catch (e) {
+    console.error('Erro ao salvar no cache local:', e);
+  }
+
+  return savedEntry;
+};
+
+export const deleteProjectDiaryEntry = async (
+  entryId: string,
+  projectId: string,
+  userId: string
+): Promise<void> => {
+  try {
+    if (entryId && !entryId.startsWith('local_') && !entryId.startsWith('temp_')) {
+      await deleteDoc(doc(db, 'project_diary_entries', entryId));
+    }
+  } catch (error) {
+    console.warn('Erro ao deletar página do Firestore:', error);
+  }
+
+  try {
+    const localRaw = localStorage.getItem(getLocalDiaryKey(projectId));
+    if (localRaw) {
+      const list: ProjectDiaryEntry[] = JSON.parse(localRaw);
+      const filtered = list.filter(e => e.id !== entryId);
+      localStorage.setItem(getLocalDiaryKey(projectId), JSON.stringify(filtered));
+    }
+  } catch (e) {
+    console.error('Erro ao atualizar cache local ao excluir página do diário:', e);
+  }
+};
+
+export const subscribeToProjectDiaryEntries = (
+  projectId: string,
+  userId: string,
+  callback: (entries: ProjectDiaryEntry[]) => void
+): (() => void) => {
+  // Read local cache immediately
+  const localRaw = localStorage.getItem(getLocalDiaryKey(projectId));
+  if (localRaw) {
+    try {
+      callback(JSON.parse(localRaw));
+    } catch {}
+  }
+
+  try {
+    const q = query(
+      collection(db, 'project_diary_entries'),
+      where('projectId', '==', projectId),
+      where('userId', '==', userId)
+    );
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const entries = snapshot.docs.map(d => ({
+          id: d.id,
+          ...d.data()
+        })) as ProjectDiaryEntry[];
+        entries.sort((a, b) => new Date(b.entryDate || b.createdAt).getTime() - new Date(a.entryDate || a.createdAt).getTime());
+        localStorage.setItem(getLocalDiaryKey(projectId), JSON.stringify(entries));
+        callback(entries);
+      },
+      (err) => {
+        console.warn('Erro no listener de diário da obra:', err);
+      }
+    );
+    return unsubscribe;
+  } catch {
+    return () => {};
+  }
+};
+
+// ==========================================
+// 7. CREATIVE COUNTS HELPER (para os cards de Obras)
 // ==========================================
 
 export interface ProjectCreativeCounts {
@@ -683,6 +843,7 @@ export interface ProjectCreativeCounts {
   environmentsCount: number;
   charactersCount: number;
   mapsCount: number;
+  diaryCount: number;
 }
 
 export const getProjectCreativeCounts = async (
@@ -694,6 +855,7 @@ export const getProjectCreativeCounts = async (
   let environmentsCount = 0;
   let charactersCount = 0;
   let mapsCount = 0;
+  let diaryCount = 0;
 
   try {
     const skRaw = localStorage.getItem(getLocalSkeletonKey(projectId));
@@ -704,19 +866,23 @@ export const getProjectCreativeCounts = async (
     if (charRaw) charactersCount = JSON.parse(charRaw).length;
     const mapRaw = localStorage.getItem(getLocalMapsKey(projectId));
     if (mapRaw) mapsCount = JSON.parse(mapRaw).length;
+    const diaryRaw = localStorage.getItem(getLocalDiaryKey(projectId));
+    if (diaryRaw) diaryCount = JSON.parse(diaryRaw).length;
   } catch {}
 
   // Fetch Firestore in parallel
   try {
-    const [skSnap, envSnap] = await Promise.all([
+    const [skSnap, envSnap, diarySnap] = await Promise.all([
       getDocs(query(collection(db, 'project_skeleton_items'), where('projectId', '==', projectId), where('userId', '==', userId))),
-      getDocs(query(collection(db, 'project_environments'), where('projectId', '==', projectId), where('userId', '==', userId)))
+      getDocs(query(collection(db, 'project_environments'), where('projectId', '==', projectId), where('userId', '==', userId))),
+      getDocs(query(collection(db, 'project_diary_entries'), where('projectId', '==', projectId), where('userId', '==', userId)))
     ]);
     skeletonCount = skSnap.size;
     environmentsCount = envSnap.size;
+    diaryCount = diarySnap.size;
   } catch (err) {
     // Keep local fallback
   }
 
-  return { skeletonCount, environmentsCount, charactersCount, mapsCount };
+  return { skeletonCount, environmentsCount, charactersCount, mapsCount, diaryCount };
 };

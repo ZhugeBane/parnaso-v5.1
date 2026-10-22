@@ -18,7 +18,7 @@ import { ProjectWorkspace, ProjectWorkspaceTab } from './ProjectWorkspace';
 import { getProjectCreativeCounts } from '../services/projectCreativeService';
 import { RewardsShop } from './RewardsShop';
 import { AchievementsGallery } from './AchievementsGallery';
-import { BookOpen, Users, Sparkles, Clock, Hourglass, Compass, Waves, ListTree, MapPin } from 'lucide-react';
+import { BookOpen, Users, Sparkles, Clock, Hourglass, Compass, Waves, ListTree, MapPin, BookHeart } from 'lucide-react';
 import {
   wordsToDiamonds,
   wordsToScriptus,
@@ -160,20 +160,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const [activeTab, setActiveTab] = useState<'general' | 'projects' | 'achievements' | 'rewards'>('general');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [workspaceInitialTab, setWorkspaceInitialTab] = useState<ProjectWorkspaceTab>('skeleton');
-  const [projectCreativeCounts, setProjectCreativeCounts] = useState<Record<string, { skeletonCount: number; environmentsCount: number }>>({});
+  const [projectCreativeCounts, setProjectCreativeCounts] = useState<Record<string, { skeletonCount: number; environmentsCount: number; diaryCount?: number }>>({});
 
-  // Carrega contadores criativos (Esqueleto e Ambientes Físicos) para os cards de Minhas Obras
+  // Carrega contadores criativos (Esqueleto, Ambientes Físicos e Diário) para os cards de Minhas Obras
   useEffect(() => {
     let isMounted = true;
     const loadCounts = async () => {
-      const countsMap: Record<string, { skeletonCount: number; environmentsCount: number }> = {};
+      const countsMap: Record<string, { skeletonCount: number; environmentsCount: number; diaryCount?: number }> = {};
       await Promise.all(
         projects.map(async (p) => {
           try {
             const counts = await getProjectCreativeCounts(p.id, user.id);
             countsMap[p.id] = {
               skeletonCount: counts.skeletonCount,
-              environmentsCount: counts.environmentsCount
+              environmentsCount: counts.environmentsCount,
+              diaryCount: counts.diaryCount
             };
           } catch {}
         })
@@ -225,6 +226,103 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   // Segmented Control View Mode: 'words' (Volume de Palavras) vs 'time' (Tempo de Produção / Kronus)
   const [metricViewMode, setMetricViewMode] = useState<'words' | 'time'>('words');
+
+  // Historical Monthly Navigation State ('YYYY-MM' or null for dynamic relative period)
+  const [selectedHistoricalMonth, setSelectedHistoricalMonth] = useState<string | null>(null);
+
+  // Available historical months computed from sessions and frozen goals history
+  const availableHistoricalMonths = useMemo(() => {
+    const monthSet = new Set<string>();
+    monthSet.add(new Date().toISOString().slice(0, 7));
+    sessions.forEach(s => {
+      if (s.date && s.date.length >= 7) {
+        monthSet.add(s.date.slice(0, 7));
+      }
+    });
+    if (settings.monthlyGoalsHistory) {
+      Object.keys(settings.monthlyGoalsHistory).forEach(k => monthSet.add(k));
+    }
+    return Array.from(monthSet).sort().reverse();
+  }, [sessions, settings.monthlyGoalsHistory]);
+
+  const formatMonthYearPt = (yyyyMm: string): string => {
+    try {
+      const [year, month] = yyyyMm.split('-').map(Number);
+      const date = new Date(year, month - 1, 1);
+      const monthName = date.toLocaleDateString('pt-BR', { month: 'long' });
+      const capitalized = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+      return `${capitalized} de ${year}`;
+    } catch {
+      return yyyyMm;
+    }
+  };
+
+  const handleSelectHistoricalMonth = (monthKey: string | null) => {
+    setSelectedHistoricalMonth(monthKey);
+    if (monthKey) {
+      const now = new Date();
+      const [y, m] = monthKey.split('-').map(Number);
+      const target = new Date(y, m - 1, 1);
+      const diff = (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth());
+      setCalendarMonthOffset(diff);
+    } else {
+      setCalendarMonthOffset(0);
+    }
+  };
+
+  const handlePrevHistoricalMonth = () => {
+    const current = selectedHistoricalMonth || new Date().toISOString().slice(0, 7);
+    const idx = availableHistoricalMonths.indexOf(current);
+    if (idx < availableHistoricalMonths.length - 1) {
+      handleSelectHistoricalMonth(availableHistoricalMonths[idx + 1]);
+    } else {
+      const [y, m] = current.split('-').map(Number);
+      const prevDate = new Date(y, m - 2, 1);
+      handleSelectHistoricalMonth(prevDate.toISOString().slice(0, 7));
+    }
+  };
+
+  const handleNextHistoricalMonth = () => {
+    if (!selectedHistoricalMonth) return;
+    const idx = availableHistoricalMonths.indexOf(selectedHistoricalMonth);
+    if (idx > 0) {
+      handleSelectHistoricalMonth(availableHistoricalMonths[idx - 1]);
+    } else {
+      handleSelectHistoricalMonth(null);
+    }
+  };
+
+  // Effective Goals & Monthly Frozen Snapshot
+  const effectiveGoals = useMemo(() => {
+    const nowKey = new Date().toISOString().slice(0, 7);
+    const targetKey = selectedHistoricalMonth || nowKey;
+    const frozenRecord = settings.monthlyGoalsHistory?.[targetKey];
+
+    const primaryGoalType = frozenRecord?.goalType || settings.primaryGoalType || 'words';
+    const dailyWordGoal = frozenRecord?.dailyWordGoal ?? settings.dailyWordGoal ?? 500;
+    const weeklyWordGoal = frozenRecord?.weeklyWordGoal ?? settings.weeklyWordGoal ?? 2500;
+    const dailyMinutesGoal = frozenRecord?.dailyMinutesGoal ?? settings.dailyMinutesGoal ?? 30;
+    const weeklyMinutesGoal = frozenRecord?.weeklyMinutesGoal ?? settings.weeklyMinutesGoal ?? 180;
+
+    return {
+      isHistorical: Boolean(selectedHistoricalMonth && selectedHistoricalMonth !== nowKey),
+      monthKey: targetKey,
+      primaryGoalType,
+      dailyWordGoal,
+      weeklyWordGoal,
+      dailyMinutesGoal,
+      weeklyMinutesGoal,
+      isFrozen: Boolean(frozenRecord)
+    };
+  }, [settings, selectedHistoricalMonth]);
+
+  const chartReferenceGoalValue = metricViewMode === 'time'
+    ? effectiveGoals.dailyMinutesGoal
+    : effectiveGoals.dailyWordGoal;
+
+  const chartReferenceLabel = metricViewMode === 'time'
+    ? `${effectiveGoals.dailyMinutesGoal} min`
+    : `${effectiveGoals.dailyWordGoal.toLocaleString('pt-BR')} pal.`;
 
   // Bar Chart Interactive Work Filter / Highlight
   const [highlightedWorkId, setHighlightedWorkId] = useState<string | null>(null);
@@ -650,7 +748,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     return sessions.filter(s => s.projectId === selectedWorkId);
   }, [sessions, selectedProjectId, selectedWorkId, projectsInAutomonitoring, projects]);
 
-  const filteredSessions = filterSessionsByDate(workFilteredSessions, dateFilter);
+  const filteredSessions = useMemo(() => {
+    if (selectedHistoricalMonth) {
+      return workFilteredSessions.filter(s => s.date && s.date.slice(0, 7) === selectedHistoricalMonth);
+    }
+    return filterSessionsByDate(workFilteredSessions, dateFilter);
+  }, [workFilteredSessions, selectedHistoricalMonth, dateFilter]);
 
   // --- Statistics Logic ---
   const sortedSessions = [...filteredSessions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -1070,15 +1173,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
 
   const writingInsights = analyzeWritingPatterns();
 
-  // Goals (Words & Production Time)
+  // Goals (Words & Production Time - respecting flexible primary modality & frozen historical monthly goals)
   const today = new Date().toLocaleDateString('en-CA');
   const todaySessions = workFilteredSessions.filter(s => new Date(s.date).toLocaleDateString('en-CA') === today);
   const wordsToday = todaySessions.reduce((acc, curr) => acc + curr.wordCount, 0);
   const minutesToday = todaySessions.reduce((acc, curr) => acc + calculateSessionMinutes(curr.startTime, curr.endTime), 0);
 
-  const dailyMinutesGoal = settings.dailyMinutesGoal || 30;
-  const dailyProgress = Math.min(100, Math.round((wordsToday / (settings.dailyWordGoal || 500)) * 100));
-  const dailyTimeProgress = Math.min(100, Math.round((minutesToday / dailyMinutesGoal) * 100));
+  const activeDailyMinutesGoal = effectiveGoals.dailyMinutesGoal || 30;
+  const activeDailyWordGoal = effectiveGoals.dailyWordGoal || 500;
+  const dailyProgress = Math.min(100, Math.round((wordsToday / activeDailyWordGoal) * 100));
+  const dailyTimeProgress = Math.min(100, Math.round((minutesToday / activeDailyMinutesGoal) * 100));
 
   const oneWeekAgo = new Date();
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -1086,9 +1190,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
   const wordsWeek = weekSessions.reduce((acc, curr) => acc + curr.wordCount, 0);
   const minutesWeek = weekSessions.reduce((acc, curr) => acc + calculateSessionMinutes(curr.startTime, curr.endTime), 0);
 
-  const weeklyMinutesGoal = settings.weeklyMinutesGoal || 180;
-  const weeklyProgress = Math.min(100, Math.round((wordsWeek / (settings.weeklyWordGoal || 2500)) * 100));
-  const weeklyTimeProgress = Math.min(100, Math.round((minutesWeek / weeklyMinutesGoal) * 100));
+  const activeWeeklyMinutesGoal = effectiveGoals.weeklyMinutesGoal || 180;
+  const activeWeeklyWordGoal = effectiveGoals.weeklyWordGoal || 2500;
+  const weeklyProgress = Math.min(100, Math.round((wordsWeek / activeWeeklyWordGoal) * 100));
+  const weeklyTimeProgress = Math.min(100, Math.round((minutesWeek / activeWeeklyMinutesGoal) * 100));
 
   // Total Production Time (Filtered and Averages)
   const totalMinutes = filteredSessions.reduce((acc, s) => acc + calculateSessionMinutes(s.startTime, s.endTime), 0);
@@ -1136,6 +1241,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       const avgRating = daySessions.length > 0 
         ? (daySessions.reduce((acc, s) => acc + s.sessionRating, 0) / daySessions.length).toFixed(1)
         : null;
+      const isTargetMet = effectiveGoals.primaryGoalType === 'time'
+        ? totalMinutes >= activeDailyMinutesGoal
+        : totalWords >= activeDailyWordGoal;
+
       days.push({
         day: i,
         dateKey: checkDate,
@@ -1144,10 +1253,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
         totalWords,
         totalMinutes,
         avgRating,
+        isTargetMet
       });
     }
     return days;
-  }, [currentCalendarDate, filteredSessions]);
+  }, [currentCalendarDate, filteredSessions, effectiveGoals, activeDailyMinutesGoal, activeDailyWordGoal]);
 
   // --- TROPHY CALCULATIONS ---
   const achievementStats = useMemo(() => {
@@ -1411,12 +1521,89 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 subtitle={metricViewMode === 'time' ? (t('dashboard.timeProductionSubtitle') || 'Acompanhe as horas e minutos dedicados por dia/sessão') : t('dashboard.wordProductionSubtitle')}
               >
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <div className="bg-slate-100 rounded-lg p-1 flex text-xs font-medium">
-                    <button onClick={() => setDateFilter('7days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '7days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.weekly')}</button>
-                    <button onClick={() => setDateFilter('30days')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '30days' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.monthly')}</button>
-                    <button onClick={() => setDateFilter('6months')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '6months' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.semester')}</button>
-                    <button onClick={() => setDateFilter('1year')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === '1year' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.yearly')}</button>
-                    <button onClick={() => setDateFilter('all')} className={`px-3 py-1 rounded-md transition-all ${dateFilter === 'all' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>{t('dashboard.all')}</button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="bg-slate-100 rounded-lg p-1 flex text-xs font-medium">
+                      <button
+                        onClick={() => { setSelectedHistoricalMonth(null); setDateFilter('7days'); }}
+                        className={`px-3 py-1 rounded-md transition-all ${dateFilter === '7days' && !selectedHistoricalMonth ? 'bg-white shadow text-slate-800 font-bold' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        {t('dashboard.weekly')}
+                      </button>
+                      <button
+                        onClick={() => { setSelectedHistoricalMonth(null); setDateFilter('30days'); }}
+                        className={`px-3 py-1 rounded-md transition-all ${dateFilter === '30days' && !selectedHistoricalMonth ? 'bg-white shadow text-slate-800 font-bold' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        {t('dashboard.monthly')}
+                      </button>
+                      <button
+                        onClick={() => { setSelectedHistoricalMonth(null); setDateFilter('6months'); }}
+                        className={`px-3 py-1 rounded-md transition-all ${dateFilter === '6months' && !selectedHistoricalMonth ? 'bg-white shadow text-slate-800 font-bold' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        {t('dashboard.semester')}
+                      </button>
+                      <button
+                        onClick={() => { setSelectedHistoricalMonth(null); setDateFilter('1year'); }}
+                        className={`px-3 py-1 rounded-md transition-all ${dateFilter === '1year' && !selectedHistoricalMonth ? 'bg-white shadow text-slate-800 font-bold' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        {t('dashboard.yearly')}
+                      </button>
+                      <button
+                        onClick={() => { setSelectedHistoricalMonth(null); setDateFilter('all'); }}
+                        className={`px-3 py-1 rounded-md transition-all ${dateFilter === 'all' && !selectedHistoricalMonth ? 'bg-white shadow text-slate-800 font-bold' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        {t('dashboard.all')}
+                      </button>
+                    </div>
+
+                    {/* Historical Month Navigator (Requirement 3) */}
+                    <div className={`flex items-center gap-1 p-1 rounded-xl border text-xs font-medium transition-all ${
+                      selectedHistoricalMonth
+                        ? 'bg-amber-50 border-amber-300 text-amber-950 shadow-2xs ring-1 ring-amber-300/40'
+                        : 'bg-slate-100 border-slate-200/80 text-slate-600'
+                    }`}>
+                      <button
+                        type="button"
+                        onClick={handlePrevHistoricalMonth}
+                        className="px-1.5 py-0.5 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all cursor-pointer font-bold"
+                        title="Mês anterior"
+                      >
+                        ‹
+                      </button>
+                      <select
+                        value={selectedHistoricalMonth || ''}
+                        onChange={(e) => handleSelectHistoricalMonth(e.target.value ? e.target.value : null)}
+                        className={`bg-transparent text-xs font-bold py-0.5 px-1 focus:outline-none cursor-pointer ${
+                          selectedHistoricalMonth ? 'text-amber-950' : 'text-slate-700'
+                        }`}
+                      >
+                        <option value="">📅 Navegar por Mês...</option>
+                        {availableHistoricalMonths.map(mKey => (
+                          <option key={mKey} value={mKey}>
+                            {formatMonthYearPt(mKey)} {mKey === new Date().toISOString().slice(0, 7) ? '(Atual)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleNextHistoricalMonth}
+                        disabled={!selectedHistoricalMonth || selectedHistoricalMonth === new Date().toISOString().slice(0, 7)}
+                        className="px-1.5 py-0.5 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed font-bold"
+                        title="Próximo mês"
+                      >
+                        ›
+                      </button>
+
+                      {selectedHistoricalMonth && (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectHistoricalMonth(null)}
+                          className="px-2 py-0.5 text-[10px] font-extrabold rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-all ml-1 cursor-pointer"
+                          title="Voltar ao período relativo atual"
+                        >
+                          Voltar ao Mês Atual
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Dual-Pill Metric Selector inside Card */}
@@ -1470,6 +1657,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                           return [`${num.toLocaleString('pt-BR')} palavras`, name];
                         }}
                       />
+                      {/* Dashed Reference Line for Goal Target (Requirement 2) */}
+                      {chartReferenceGoalValue > 0 && (
+                        <ReferenceLine
+                          y={chartReferenceGoalValue}
+                          stroke={metricViewMode === 'time' ? '#f59e0b' : '#0d9488'}
+                          strokeDasharray="4 4"
+                          strokeWidth={2}
+                          label={{
+                            value: `🎯 Meta: ${chartReferenceLabel}`,
+                            position: 'top',
+                            fill: metricViewMode === 'time' ? '#b45309' : '#0f766e',
+                            fontSize: 11,
+                            fontWeight: 700
+                          }}
+                        />
+                      )}
                       {/* General/No-Project Bar */}
                       {(selectedWorkId === 'all' || selectedWorkId === 'general') && (
                         <Bar
@@ -1967,7 +2170,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                         key={i}
                         className={`aspect-square flex items-center justify-center rounded-lg text-xs font-semibold transition-all relative group ${
                           d.hasSession
-                            ? 'bg-teal-500 text-white shadow-md shadow-teal-200 hover:scale-110 hover:bg-teal-600 cursor-pointer z-10'
+                            ? d.isTargetMet
+                              ? 'bg-teal-500 text-white shadow-md shadow-teal-200 ring-2 ring-amber-400 ring-offset-1 hover:scale-110 hover:bg-teal-600 cursor-pointer z-10'
+                              : 'bg-teal-500 text-white shadow-md shadow-teal-200 hover:scale-110 hover:bg-teal-600 cursor-pointer z-10'
                             : 'bg-slate-50 text-slate-400 cursor-default'
                         }`}
                         onClick={() => {
@@ -1976,11 +2181,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                           }
                         }}
                       >
-                        {d.day}
+                        <div className="flex items-center gap-0.5">
+                          <span>{d.day}</span>
+                          {d.isTargetMet && (
+                            <span className="text-[9px] -mr-1" title="Meta Diária Atingida!">🎯</span>
+                          )}
+                        </div>
 
                         {/* Rich Popover Tooltip for active writing days */}
                         {d.hasSession && (
                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2.5 bg-slate-900/95 backdrop-blur-xs text-white rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none z-30 shadow-xl border border-slate-700 text-left">
+                            {d.isTargetMet && (
+                              <div className="mb-1.5 px-2 py-0.5 rounded-md bg-amber-400/20 text-amber-300 font-bold text-[10px] flex items-center gap-1 border border-amber-400/30">
+                                <span>🎯</span>
+                                <span>Meta do dia atingida ({effectiveGoals.primaryGoalType === 'time' ? `${effectiveGoals.dailyMinutesGoal} min` : `${effectiveGoals.dailyWordGoal} pal.`})</span>
+                              </div>
+                            )}
                             <div className="flex items-center justify-between text-xs font-bold text-slate-200 border-b border-slate-700/80 pb-1 mb-1.5 flex-wrap gap-1">
                               <span>📅 Dia {d.day}</span>
                               <div className="flex items-center gap-1.5 text-[11px]">
@@ -2704,55 +2920,130 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
     );
   };
 
-  const renderAutomonitoringSections = () => (
-    <div className="space-y-8">
-      {/* Goals */}
-      {visibleModules.goals && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Daily Goal */}
-          <Card className="group relative hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
-            <div className="flex justify-between items-center mb-2">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-700 flex items-center gap-1.5">
-                  <span>{metricViewMode === 'time' ? '⏱️' : '📝'}</span>
-                  <span>{metricViewMode === 'time' ? (t('dashboard.dailyTimeGoal') || 'Meta Diária de Tempo') : t('dashboard.dailyGoal')}</span>
-                </span>
-                {metricViewMode === 'time' ? (
-                  minutesToday >= dailyMinutesGoal && (
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                      Meta Batida! ⏱️🎉
+  const renderAutomonitoringSections = () => {
+    const isTimeMode = effectiveGoals.primaryGoalType === 'time' || metricViewMode === 'time';
+
+    return (
+      <div className="space-y-8">
+        {/* Historical Month Active Notification Banner (Requirement 3) */}
+        {selectedHistoricalMonth && (
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300/90 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">📅</span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-amber-950 text-sm">
+                    Visualizando histórico de {formatMonthYearPt(selectedHistoricalMonth)}
+                  </span>
+                  {effectiveGoals.isFrozen && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-extrabold uppercase tracking-wider">
+                      Meta Congelada
                     </span>
-                  )
-                ) : (
-                  wordsToday >= settings.dailyWordGoal && (
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-700 border border-teal-200">
-                      Meta Batida! 🎉
-                    </span>
-                  )
-                )}
+                  )}
+                </div>
+                <p className="text-xs text-amber-900/80 mt-0.5">
+                  Meta vigente na época:{' '}
+                  <strong className="text-amber-950 font-semibold">
+                    {effectiveGoals.primaryGoalType === 'time'
+                      ? `${activeDailyMinutesGoal} min/dia (${formatMinutesToHours(activeWeeklyMinutesGoal)}/sem)`
+                      : `${activeDailyWordGoal.toLocaleString('pt-BR')} palavras/dia (${activeWeeklyWordGoal.toLocaleString('pt-BR')}/sem)`}
+                  </strong>
+                  {' • '}
+                  <span className="text-amber-800/70">
+                    {effectiveGoals.primaryGoalType === 'time'
+                      ? `(Volume: ${activeDailyWordGoal.toLocaleString('pt-BR')} pal.)`
+                      : `(Tempo: ${activeDailyMinutesGoal} min)`}
+                  </span>
+                </p>
               </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleSelectHistoricalMonth(null)}
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white hover:bg-amber-100/80 border border-amber-300 text-amber-950 font-bold text-xs shadow-2xs transition-all cursor-pointer self-start sm:self-auto"
+            >
+              <span>✕</span>
+              <span>Voltar ao Período Atual</span>
+            </button>
+          </div>
+        )}
+
+        {/* Goals */}
+        {visibleModules.goals && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Daily Goal */}
+            <Card className="group relative hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+              <div className="flex justify-between items-center mb-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                    <span>{isTimeMode ? '⏱️' : '📝'}</span>
+                    <span>{isTimeMode ? (t('dashboard.dailyTimeGoal') || 'Meta Diária de Tempo') : t('dashboard.dailyGoal')}</span>
+                  </span>
+                  {!readOnly && (
+                    <div className="inline-flex rounded-lg bg-slate-100 p-0.5 border border-slate-200 text-[10px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => onUpdateSettings({ ...settings, primaryGoalType: 'words' })}
+                        className={`px-1.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                          !isTimeMode
+                            ? 'bg-white text-teal-700 shadow-2xs font-extrabold'
+                            : 'text-slate-400 hover:text-slate-600'
+                        }`}
+                        title="Tornar Meta por Palavras a Principal"
+                      >
+                        📝 Pal.
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateSettings({ ...settings, primaryGoalType: 'time' })}
+                        className={`px-1.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                          isTimeMode
+                            ? 'bg-white text-amber-700 shadow-2xs font-extrabold'
+                            : 'text-slate-400 hover:text-slate-600'
+                        }`}
+                        title="Tornar Meta por Tempo a Principal"
+                      >
+                        ⏱️ Tempo
+                      </button>
+                    </div>
+                  )}
+                  {isTimeMode ? (
+                    minutesToday >= activeDailyMinutesGoal && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                        Meta Batida! ⏱️🎉
+                      </span>
+                    )
+                  ) : (
+                    wordsToday >= activeDailyWordGoal && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-700 border border-teal-200">
+                        Meta Batida! 🎉
+                      </span>
+                    )
+                  )}
+                </div>
               <div className="flex items-center gap-2">
-                {editingGoal === (metricViewMode === 'time' ? 'dailyTime' : 'daily') ? (
+                {editingGoal === (isTimeMode ? 'dailyTime' : 'daily') ? (
                   <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="number"
                       min="1"
                       className={`w-20 px-2 py-0.5 text-xs font-semibold border rounded-md focus:outline-none focus:ring-1 ${
-                        metricViewMode === 'time' ? 'border-amber-400 focus:ring-amber-500' : 'border-teal-400 focus:ring-teal-500'
+                        isTimeMode ? 'border-amber-400 focus:ring-amber-500' : 'border-teal-400 focus:ring-teal-500'
                       }`}
                       value={tempGoalInput}
                       onChange={(e) => setTempGoalInput(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleSaveGoal(metricViewMode === 'time' ? 'dailyTime' : 'daily');
+                        if (e.key === 'Enter') handleSaveGoal(isTimeMode ? 'dailyTime' : 'daily');
                         if (e.key === 'Escape') setEditingGoal(null);
                       }}
                       autoFocus
                     />
                     <button
                       type="button"
-                      onClick={() => handleSaveGoal(metricViewMode === 'time' ? 'dailyTime' : 'daily')}
+                      onClick={() => handleSaveGoal(isTimeMode ? 'dailyTime' : 'daily')}
                       className={`p-1 text-white rounded transition cursor-pointer ${
-                        metricViewMode === 'time' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-teal-500 hover:bg-teal-600'
+                        isTimeMode ? 'bg-amber-500 hover:bg-amber-600' : 'bg-teal-500 hover:bg-teal-600'
                       }`}
                       title="Salvar"
                     >
@@ -2774,24 +3065,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 ) : (
                   <>
                     <span className="text-sm font-bold text-slate-700">
-                      {metricViewMode === 'time'
-                        ? `${minutesToday} min / ${dailyMinutesGoal} min`
-                        : `${wordsToday.toLocaleString('pt-BR')} / ${settings.dailyWordGoal.toLocaleString('pt-BR')} ${t('dashboard.words')}`}
+                      {isTimeMode
+                        ? `${minutesToday} min / ${activeDailyMinutesGoal} min`
+                        : `${wordsToday.toLocaleString('pt-BR')} / ${activeDailyWordGoal.toLocaleString('pt-BR')} ${t('dashboard.words')}`}
                     </span>
                     {!readOnly && (
                       <button
                         type="button"
                         onClick={() => {
-                          if (metricViewMode === 'time') {
+                          if (isTimeMode) {
                             setEditingGoal('dailyTime');
-                            setTempGoalInput(String(dailyMinutesGoal));
+                            setTempGoalInput(String(activeDailyMinutesGoal));
                           } else {
                             setEditingGoal('daily');
-                            setTempGoalInput(String(settings.dailyWordGoal));
+                            setTempGoalInput(String(activeDailyWordGoal));
                           }
                         }}
                         className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-teal-600 hover:bg-slate-100 rounded-md cursor-pointer"
-                        title={metricViewMode === 'time' ? 'Editar Meta Diária de Tempo' : 'Editar Meta Diária de Palavras'}
+                        title={isTimeMode ? 'Editar Meta Diária de Tempo' : 'Editar Meta Diária de Palavras'}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -2805,27 +3096,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
               <div
                 className={`h-3 rounded-full transition-all duration-1000 ${
-                  metricViewMode === 'time'
-                    ? minutesToday >= dailyMinutesGoal
+                  isTimeMode
+                    ? minutesToday >= activeDailyMinutesGoal
                       ? 'bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.7)] ring-1 ring-amber-400/50'
                       : 'bg-amber-400'
-                    : wordsToday >= settings.dailyWordGoal
+                    : wordsToday >= activeDailyWordGoal
                       ? 'bg-teal-400 shadow-[0_0_12px_rgba(45,212,191,0.7)] ring-1 ring-teal-400/50'
                       : 'bg-teal-400'
                 }`}
-                style={{ width: `${metricViewMode === 'time' ? dailyTimeProgress : dailyProgress}%` }}
+                style={{ width: `${isTimeMode ? dailyTimeProgress : dailyProgress}%` }}
               ></div>
             </div>
             {/* Secondary complementary metric */}
             <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium mt-1.5 pt-1 border-t border-slate-100">
-              {metricViewMode === 'time' ? (
+              {isTimeMode ? (
                 <>
-                  <span>📝 Volume: {wordsToday.toLocaleString('pt-BR')} / {settings.dailyWordGoal.toLocaleString('pt-BR')} pal.</span>
+                  <span>📝 Volume: {wordsToday.toLocaleString('pt-BR')} / ${activeDailyWordGoal.toLocaleString('pt-BR')} pal.</span>
                   <span className="font-semibold text-slate-500">{dailyProgress}% da meta de palavras</span>
                 </>
               ) : (
                 <>
-                  <span>⏱️ Tempo: {minutesToday} min / {dailyMinutesGoal} min</span>
+                  <span>⏱️ Tempo: {minutesToday} min / ${activeDailyMinutesGoal} min</span>
                   <span className="font-semibold text-slate-500">{dailyTimeProgress}% da meta de tempo</span>
                 </>
               )}
@@ -2835,19 +3126,51 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           {/* Weekly Goal */}
           <Card className="group relative hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
             <div className="flex justify-between items-center mb-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-slate-700 flex items-center gap-1.5">
-                  <span>{metricViewMode === 'time' ? '⏱️' : '📝'}</span>
-                  <span>{metricViewMode === 'time' ? (t('dashboard.weeklyTimeGoal') || 'Meta Semanal de Tempo') : t('dashboard.weeklyGoal')}</span>
+                  <span>{isTimeMode ? '⏱️' : '📝'}</span>
+                  <span>
+                    {isTimeMode
+                      ? (t('dashboard.weeklyTimeGoal') || 'Meta Semanal de Tempo')
+                      : t('dashboard.weeklyGoal')}
+                  </span>
                 </span>
-                {metricViewMode === 'time' ? (
-                  minutesWeek >= weeklyMinutesGoal && (
+                {!readOnly && (
+                  <div className="inline-flex rounded-lg bg-slate-100 p-0.5 border border-slate-200 text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => onUpdateSettings({ ...settings, primaryGoalType: 'words' })}
+                      className={`px-1.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                        !isTimeMode
+                          ? 'bg-white text-emerald-700 shadow-2xs font-extrabold'
+                          : 'text-slate-400 hover:text-slate-600'
+                      }`}
+                      title="Tornar Meta por Palavras a Principal"
+                    >
+                      📝 Pal.
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onUpdateSettings({ ...settings, primaryGoalType: 'time' })}
+                      className={`px-1.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                        isTimeMode
+                          ? 'bg-white text-amber-700 shadow-2xs font-extrabold'
+                          : 'text-slate-400 hover:text-slate-600'
+                      }`}
+                      title="Tornar Meta por Tempo a Principal"
+                    >
+                      ⏱️ Tempo
+                    </button>
+                  </div>
+                )}
+                {isTimeMode ? (
+                  minutesWeek >= activeWeeklyMinutesGoal && (
                     <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
                       Meta Batida! ⏱️🎉
                     </span>
                   )
                 ) : (
-                  wordsWeek >= settings.weeklyWordGoal && (
+                  wordsWeek >= activeWeeklyWordGoal && (
                     <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
                       Meta Batida! 🎉
                     </span>
@@ -2855,27 +3178,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {editingGoal === (metricViewMode === 'time' ? 'weeklyTime' : 'weekly') ? (
+                {editingGoal === (isTimeMode ? 'weeklyTime' : 'weekly') ? (
                   <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="number"
                       min="1"
                       className={`w-20 px-2 py-0.5 text-xs font-semibold border rounded-md focus:outline-none focus:ring-1 ${
-                        metricViewMode === 'time' ? 'border-amber-400 focus:ring-amber-500' : 'border-emerald-400 focus:ring-emerald-500'
+                        isTimeMode ? 'border-amber-400 focus:ring-amber-500' : 'border-emerald-400 focus:ring-emerald-500'
                       }`}
                       value={tempGoalInput}
                       onChange={(e) => setTempGoalInput(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleSaveGoal(metricViewMode === 'time' ? 'weeklyTime' : 'weekly');
+                        if (e.key === 'Enter') handleSaveGoal(isTimeMode ? 'weeklyTime' : 'weekly');
                         if (e.key === 'Escape') setEditingGoal(null);
                       }}
                       autoFocus
                     />
                     <button
                       type="button"
-                      onClick={() => handleSaveGoal(metricViewMode === 'time' ? 'weeklyTime' : 'weekly')}
+                      onClick={() => handleSaveGoal(isTimeMode ? 'weeklyTime' : 'weekly')}
                       className={`p-1 text-white rounded transition cursor-pointer ${
-                        metricViewMode === 'time' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'
+                        isTimeMode ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'
                       }`}
                       title="Salvar"
                     >
@@ -2897,24 +3220,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                 ) : (
                   <>
                     <span className="text-sm font-bold text-slate-700">
-                      {metricViewMode === 'time'
-                        ? `${formatMinutesToHours(minutesWeek)} / ${formatMinutesToHours(weeklyMinutesGoal)}`
-                        : `${wordsWeek.toLocaleString('pt-BR')} / ${settings.weeklyWordGoal.toLocaleString('pt-BR')} ${t('dashboard.words')}`}
+                      {isTimeMode
+                        ? `${formatMinutesToHours(minutesWeek)} / ${formatMinutesToHours(activeWeeklyMinutesGoal)}`
+                        : `${wordsWeek.toLocaleString('pt-BR')} / ${activeWeeklyWordGoal.toLocaleString('pt-BR')} ${t('dashboard.words')}`}
                     </span>
                     {!readOnly && (
                       <button
                         type="button"
                         onClick={() => {
-                          if (metricViewMode === 'time') {
+                          if (isTimeMode) {
                             setEditingGoal('weeklyTime');
-                            setTempGoalInput(String(weeklyMinutesGoal));
+                            setTempGoalInput(String(activeWeeklyMinutesGoal));
                           } else {
                             setEditingGoal('weekly');
-                            setTempGoalInput(String(settings.weeklyWordGoal));
+                            setTempGoalInput(String(activeWeeklyWordGoal));
                           }
                         }}
                         className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 rounded-md cursor-pointer"
-                        title={metricViewMode === 'time' ? 'Editar Meta Semanal de Tempo' : 'Editar Meta Semanal de Palavras'}
+                        title={isTimeMode ? 'Editar Meta Semanal de Tempo' : 'Editar Meta Semanal de Palavras'}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -2928,27 +3251,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
               <div
                 className={`h-3 rounded-full transition-all duration-1000 ${
-                  metricViewMode === 'time'
-                    ? minutesWeek >= weeklyMinutesGoal
+                  isTimeMode
+                    ? minutesWeek >= activeWeeklyMinutesGoal
                       ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.7)] ring-1 ring-amber-500/50'
                       : 'bg-amber-500'
-                    : wordsWeek >= settings.weeklyWordGoal
+                    : wordsWeek >= activeWeeklyWordGoal
                       ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.7)] ring-1 ring-emerald-400/50'
                       : 'bg-emerald-400'
                 }`}
-                style={{ width: `${metricViewMode === 'time' ? weeklyTimeProgress : weeklyProgress}%` }}
+                style={{ width: `${isTimeMode ? weeklyTimeProgress : weeklyProgress}%` }}
               ></div>
             </div>
             {/* Secondary complementary metric */}
             <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium mt-1.5 pt-1 border-t border-slate-100">
-              {metricViewMode === 'time' ? (
+              {isTimeMode ? (
                 <>
-                  <span>📝 Volume: {wordsWeek.toLocaleString('pt-BR')} / {settings.weeklyWordGoal.toLocaleString('pt-BR')} pal.</span>
+                  <span>📝 Volume: {wordsWeek.toLocaleString('pt-BR')} / ${activeWeeklyWordGoal.toLocaleString('pt-BR')} pal.</span>
                   <span className="font-semibold text-slate-500">{weeklyProgress}% da meta de palavras</span>
                 </>
               ) : (
                 <>
-                  <span>⏱️ Tempo: {formatMinutesToHours(minutesWeek)} / {formatMinutesToHours(weeklyMinutesGoal)}</span>
+                  <span>⏱️ Tempo: {formatMinutesToHours(minutesWeek)} / ${formatMinutesToHours(activeWeeklyMinutesGoal)}</span>
                   <span className="font-semibold text-slate-500">{weeklyTimeProgress}% da meta de tempo</span>
                 </>
               )}
@@ -2973,6 +3296,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       {visibleModules.sessionsList && renderSessionList()}
     </div>
   );
+};
 
 
   const renderAchievements = () => {
@@ -3638,22 +3962,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       </div>
                     </div>
 
-                    {/* Quick Creative Hub: Esqueleto & Ambientes Físicos */}
-                    <div className="mt-3 grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
+                    {/* Quick Creative Hub: Esqueleto, Ambientes Físicos & Diário */}
+                    <div className="mt-3 grid grid-cols-3 gap-1.5" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
                         onClick={() => {
                           setWorkspaceInitialTab('skeleton');
                           setSelectedProjectId(project.id);
                         }}
-                        className="flex items-center justify-between gap-1 px-2.5 py-2 rounded-xl text-xs font-bold text-violet-800 bg-violet-50 hover:bg-violet-100 border border-violet-200/80 hover:border-violet-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer group/skel"
+                        className="flex items-center justify-between gap-1 px-2 py-1.5 rounded-xl text-xs font-bold text-violet-800 bg-violet-50 hover:bg-violet-100 border border-violet-200/80 hover:border-violet-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer group/skel"
                         title="Abrir Esqueleto e Estrutura de Ideias desta Obra"
                       >
-                        <span className="flex items-center gap-1.5 truncate">
+                        <span className="flex items-center gap-1 truncate">
                           <ListTree className="w-3.5 h-3.5 text-violet-600 flex-shrink-0 group-hover/skel:scale-110 transition-transform" />
                           <span className="truncate">🦴 Esqueleto</span>
                         </span>
-                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-violet-200 text-violet-900 flex-shrink-0">
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-md bg-violet-200 text-violet-900 flex-shrink-0">
                           {projectCreativeCounts[project.id]?.skeletonCount ?? 0}
                         </span>
                       </button>
@@ -3664,15 +3988,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                           setWorkspaceInitialTab('environments');
                           setSelectedProjectId(project.id);
                         }}
-                        className="flex items-center justify-between gap-1 px-2.5 py-2 rounded-xl text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 hover:border-emerald-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer group/env"
+                        className="flex items-center justify-between gap-1 px-2 py-1.5 rounded-xl text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 hover:border-emerald-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer group/env"
                         title="Abrir Catálogo de Ambientes Físicos e Cenários desta Obra"
                       >
-                        <span className="flex items-center gap-1.5 truncate">
+                        <span className="flex items-center gap-1 truncate">
                           <Compass className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0 group-hover/env:scale-110 transition-transform" />
-                          <span className="truncate">🏛️ Ambientes</span>
+                          <span className="truncate">🏛️ Cenários</span>
                         </span>
-                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-emerald-200 text-emerald-900 flex-shrink-0">
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-md bg-emerald-200 text-emerald-900 flex-shrink-0">
                           {projectCreativeCounts[project.id]?.environmentsCount ?? 0}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWorkspaceInitialTab('diary');
+                          setSelectedProjectId(project.id);
+                        }}
+                        className="flex items-center justify-between gap-1 px-2 py-1.5 rounded-xl text-xs font-bold text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 hover:border-rose-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer group/diary"
+                        title="Abrir Diário da Obra e Registro Reflexivo"
+                      >
+                        <span className="flex items-center gap-1 truncate">
+                          <BookHeart className="w-3.5 h-3.5 text-rose-600 flex-shrink-0 group-hover/diary:scale-110 transition-transform" />
+                          <span className="truncate">📓 Diário</span>
+                        </span>
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-md bg-rose-200 text-rose-900 flex-shrink-0">
+                          {projectCreativeCounts[project.id]?.diaryCount ?? 0}
                         </span>
                       </button>
                     </div>
@@ -3830,6 +4172,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
             </div>
 
             <div className="space-y-4 mb-8">
+              {/* Primary Goal Selector (Requirement 1) */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                  Modalidade Principal da Meta
+                </label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setTempSettings({ ...tempSettings, primaryGoalType: 'words' })}
+                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      (tempSettings.primaryGoalType || 'words') === 'words'
+                        ? 'bg-white text-teal-700 shadow-xs border border-teal-200'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <span>📝</span>
+                    <span>Meta por Palavras</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTempSettings({ ...tempSettings, primaryGoalType: 'time' })}
+                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      tempSettings.primaryGoalType === 'time'
+                        ? 'bg-white text-amber-700 shadow-xs border border-amber-200'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <span>⏱️</span>
+                    <span>Meta por Tempo</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Define qual meta dita as barras de progresso principais, comemorações de meta batida e linha de meta nos gráficos.
+                </p>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">{t('dashboard.dailyWordGoal')}</label>

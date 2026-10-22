@@ -5,17 +5,19 @@ import { CharactersFolder } from './CharactersFolder';
 import { StorySkeletonView } from './StorySkeletonView';
 import { PhysicalEnvironmentsGallery } from './PhysicalEnvironmentsGallery';
 import { ProjectComments } from './ProjectComments';
+import { ProjectDiaryView } from './ProjectDiaryView';
 import { ScriptusIcon, KronusIcon } from './ui/GamificationIcons';
 import { sessionToKronus, calculateSessionMinutes, formatMinutesToHours } from '../services/rewardService';
 import {
   subscribeToStorySkeleton,
   subscribeToStoryEnvironments,
+  subscribeToProjectDiaryEntries,
   getCharacters,
   getChapterConceptMaps
 } from '../services/projectCreativeService';
-import { ListTree, MapPin, Compass, Users, Brain, MessageSquare, BarChart3 } from 'lucide-react';
+import { ListTree, MapPin, Compass, Users, Brain, MessageSquare, BarChart3, BookHeart, Feather } from 'lucide-react';
 
-export type ProjectWorkspaceTab = 'concepts' | 'characters' | 'skeleton' | 'environments' | 'comments' | 'stats';
+export type ProjectWorkspaceTab = 'concepts' | 'characters' | 'skeleton' | 'environments' | 'comments' | 'diary' | 'stats';
 
 interface ProjectWorkspaceProps {
   project: Project;
@@ -45,6 +47,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
   const [environmentsCount, setEnvironmentsCount] = useState<number>(0);
   const [charactersCount, setCharactersCount] = useState<number>(0);
   const [mapsCount, setMapsCount] = useState<number>(0);
+  const [diaryCount, setDiaryCount] = useState<number>(0);
 
   useEffect(() => {
     if (initialTab) {
@@ -65,6 +68,11 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       if (isMounted) setEnvironmentsCount(envs.length);
     });
 
+    // Real-time listener for diary pages
+    const unsubDiary = subscribeToProjectDiaryEntries(project.id, user.id, (pages) => {
+      if (isMounted) setDiaryCount(pages.length);
+    });
+
     // Characters count
     getCharacters(project.id, user.id).then(chars => {
       if (isMounted) setCharactersCount(chars.length);
@@ -79,6 +87,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
       isMounted = false;
       unsubSkeleton();
       unsubEnvs();
+      unsubDiary();
     };
   }, [project.id, user.id]);
 
@@ -272,7 +281,26 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
             </span>
           </button>
 
-          {/* TAB 5: COMMENTS */}
+          {/* TAB 5: DIARY */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('diary')}
+            className={`py-3 px-4 border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'diary'
+                ? 'border-amber-600 text-amber-800 bg-amber-50/60 rounded-t-xl'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <BookHeart className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span>📓 Diário da Obra</span>
+            <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${
+              activeTab === 'diary' ? 'bg-amber-200 text-amber-900' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {diaryCount} {diaryCount === 1 ? 'página' : 'páginas'}
+            </span>
+          </button>
+
+          {/* TAB 6: COMMENTS */}
           <button
             type="button"
             onClick={() => setActiveTab('comments')}
@@ -286,7 +314,7 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
             <span>💬 Comentários</span>
           </button>
 
-          {/* TAB 6: STATS */}
+          {/* TAB 7: STATS */}
           <button
             type="button"
             onClick={() => setActiveTab('stats')}
@@ -329,6 +357,14 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
 
       {activeTab === 'concepts' && (
         <ConceptMapCanvas
+          projectId={project.id}
+          user={user}
+          readOnly={readOnly}
+        />
+      )}
+
+      {activeTab === 'diary' && (
+        <ProjectDiaryView
           projectId={project.id}
           user={user}
           readOnly={readOnly}

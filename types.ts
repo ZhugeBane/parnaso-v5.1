@@ -159,6 +159,22 @@ export interface StorySkeletonItem {
   updatedAt?: string;
 }
 
+// --- Project Diary (Diário da Obra / Registro Reflexivo e Emocional) ---
+
+export type DiaryMood = 'inspired' | 'insecure' | 'excited' | 'reflective' | 'stuck';
+
+export interface ProjectDiaryEntry {
+  id: string;
+  projectId: string;
+  userId: string;
+  title?: string;
+  content: string;
+  mood?: DiaryMood;
+  entryDate: string; // ISO date string
+  createdAt: string;
+  updatedAt?: string;
+}
+
 // --- Physical Environments (Ambientes Físicos / Cenários da Obra) ---
 
 export type EnvironmentCategory = 'interior' | 'exterior' | 'city' | 'shelter' | 'conflict' | 'other';
@@ -212,11 +228,24 @@ export interface WritingSession {
   sessionRating: number; // 1 (Terrible) - 5 (Excellent)
 }
 
+export type GoalType = 'words' | 'time';
+
+export interface MonthlyGoalRecord {
+  goalType: GoalType;
+  dailyWordGoal: number;
+  weeklyWordGoal: number;
+  dailyMinutesGoal: number;
+  weeklyMinutesGoal: number;
+  updatedAt?: string;
+}
+
 export interface UserSettings {
   dailyWordGoal: number;
   weeklyWordGoal: number;
   dailyMinutesGoal?: number;
   weeklyMinutesGoal?: number;
+  primaryGoalType?: GoalType;
+  monthlyGoalsHistory?: Record<string, MonthlyGoalRecord>;
 }
 
 export interface PurchaseLink {
@@ -284,6 +313,14 @@ export interface User {
   spentKronus?: number;
   scriptusBalance?: number;
   kronusBalance?: number;
+
+  // Primary goal settings & monthly history
+  primaryGoalType?: GoalType;
+  dailyMinutesGoal?: number;
+  weeklyMinutesGoal?: number;
+  dailyWordGoal?: number;
+  weeklyWordGoal?: number;
+  monthlyGoalsHistory?: Record<string, MonthlyGoalRecord>;
 }
 
 export interface EquippedBadge {
@@ -463,7 +500,11 @@ export interface ClaimedReward {
 
 export const INITIAL_SETTINGS: UserSettings = {
   dailyWordGoal: 500,
-  weeklyWordGoal: 3500
+  weeklyWordGoal: 2500,
+  dailyMinutesGoal: 30,
+  weeklyMinutesGoal: 180,
+  primaryGoalType: 'words',
+  monthlyGoalsHistory: {}
 };
 
 export const INITIAL_SESSIONS: WritingSession[] = [

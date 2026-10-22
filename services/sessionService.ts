@@ -1,5 +1,5 @@
 
-import { WritingSession, UserSettings, INITIAL_SETTINGS, Project } from '../types';
+import { WritingSession, UserSettings, INITIAL_SETTINGS, Project, MonthlyGoalRecord } from '../types';
 import { db } from '../lib/firebase';
 import {
   collection,
@@ -11,6 +11,7 @@ import {
   doc,
   setDoc,
   getDoc,
+  updateDoc,
   deleteDoc,
   writeBatch,
   onSnapshot
@@ -318,7 +319,7 @@ export const deleteSession = async (sessionId: string, userId: string): Promise<
   }
 };
 
-// --- Settings ---
+// --- Settings & Monthly Frozen Goals ---
 
 export const getSettings = async (userId: string): Promise<UserSettings> => {
   try {
@@ -326,20 +327,91 @@ export const getSettings = async (userId: string): Promise<UserSettings> => {
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
-      return docSnap.data() as UserSettings;
+      const data = docSnap.data();
+      const currentMonthKey = new Date().toISOString().slice(0, 7);
+      const existingHistory: Record<string, MonthlyGoalRecord> = data.monthlyGoalsHistory || {};
+
+      // If current month has no frozen snapshot yet, seed it with active settings
+      if (!existingHistory[currentMonthKey]) {
+        existingHistory[currentMonthKey] = {
+          goalType: data.primaryGoalType || 'words',
+          dailyWordGoal: typeof data.dailyWordGoal === 'number' ? data.dailyWordGoal : 500,
+          weeklyWordGoal: typeof data.weeklyWordGoal === 'number' ? data.weeklyWordGoal : 2500,
+          dailyMinutesGoal: typeof data.dailyMinutesGoal === 'number' ? data.dailyMinutesGoal : 30,
+          weeklyMinutesGoal: typeof data.weeklyMinutesGoal === 'number' ? data.weeklyMinutesGoal : 180,
+          updatedAt: new Date().toISOString()
+        };
+      }
+
+      return {
+        dailyWordGoal: typeof data.dailyWordGoal === 'number' ? data.dailyWordGoal : INITIAL_SETTINGS.dailyWordGoal,
+        weeklyWordGoal: typeof data.weeklyWordGoal === 'number' ? data.weeklyWordGoal : INITIAL_SETTINGS.weeklyWordGoal,
+        dailyMinutesGoal: typeof data.dailyMinutesGoal === 'number' ? data.dailyMinutesGoal : INITIAL_SETTINGS.dailyMinutesGoal,
+        weeklyMinutesGoal: typeof data.weeklyMinutesGoal === 'number' ? data.weeklyMinutesGoal : INITIAL_SETTINGS.weeklyMinutesGoal,
+        primaryGoalType: data.primaryGoalType || INITIAL_SETTINGS.primaryGoalType,
+        monthlyGoalsHistory: existingHistory
+      };
     }
     return INITIAL_SETTINGS;
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao buscar configurações:', error);
     return INITIAL_SETTINGS;
   }
 };
 
-export const saveSettings = async (settings: UserSettings, userId: string): Promise<void> => {
+export const saveSettings = async (settings: UserSettings, userId: string): Promise<UserSettings> => {
   try {
-    await setDoc(doc(db, 'user_settings', userId), settings);
+    const currentMonthKey = new Date().toISOString().slice(0, 7);
+    const primaryGoalType = settings.primaryGoalType || 'words';
+    const dailyWordGoal = typeof settings.dailyWordGoal === 'number' ? settings.dailyWordGoal : 500;
+    const weeklyWordGoal = typeof settings.weeklyWordGoal === 'number' ? settings.weeklyWordGoal : 2500;
+    const dailyMinutesGoal = typeof settings.dailyMinutesGoal === 'number' ? settings.dailyMinutesGoal : 30;
+    const weeklyMinutesGoal = typeof settings.weeklyMinutesGoal === 'number' ? settings.weeklyMinutesGoal : 180;
+
+    const currentMonthRecord: MonthlyGoalRecord = {
+      goalType: primaryGoalType,
+      dailyWordGoal,
+      weeklyWordGoal,
+      dailyMinutesGoal,
+      weeklyMinutesGoal,
+      updatedAt: new Date().toISOString()
+    };
+
+    const updatedHistory: Record<string, MonthlyGoalRecord> = {
+      ...(settings.monthlyGoalsHistory || {}),
+      [currentMonthKey]: currentMonthRecord
+    };
+
+    const finalSettings: UserSettings = {
+      dailyWordGoal,
+      weeklyWordGoal,
+      dailyMinutesGoal,
+      weeklyMinutesGoal,
+      primaryGoalType,
+      monthlyGoalsHistory: updatedHistory
+    };
+
+    // Save in user_settings doc
+    await setDoc(doc(db, 'user_settings', userId), finalSettings, { merge: true });
+
+    // Sync in user profile doc for cross-device consistency
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        primaryGoalType,
+        dailyWordGoal,
+        weeklyWordGoal,
+        dailyMinutesGoal,
+        weeklyMinutesGoal,
+        monthlyGoalsHistory: updatedHistory
+      });
+    } catch (e) {
+      // User doc might not be loaded yet or transient issue
+    }
+
+    return finalSettings;
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao salvar configurações:', error);
+    return settings;
   }
 };
 
@@ -551,6 +623,27 @@ export const deleteProject = async (projectId: string, userId: string): Promise<
       localStorage.removeItem(`parnaso_environments_${projectId}`);
     } catch (envErr) {
       console.warn('[deleteProject] Aviso ao excluir ambientes físicos da obra:', envErr);
+    }
+
+    // 7. Excluir Diário da Obra
+    try {
+      const qDiary = query(
+        collection(db, 'project_diary_entries'),
+        where('projectId', '==', projectId),
+        where('userId', '==', userId)
+      );
+      const diarySnap = await getDocs(qDiary);
+      if (!diarySnap.empty) {
+        const batchDiary = writeBatch(db);
+        diarySnap.forEach((docSnap) => {
+          batchDiary.delete(docSnap.ref);
+        });
+        await batchDiary.commit();
+        console.log(`[deleteProject] ✅ ${diarySnap.size} páginas do diário excluídas.`);
+      }
+      localStorage.removeItem(`parnaso_diary_${projectId}`);
+    } catch (diaryErr) {
+      console.warn('[deleteProject] Aviso ao excluir diário da obra:', diaryErr);
     }
 
     console.log('[deleteProject] ✅ Exclusão completa finalizada!');

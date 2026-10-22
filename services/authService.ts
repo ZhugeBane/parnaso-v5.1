@@ -60,6 +60,12 @@ const mapUser = (docData: any, uid: string, email: string): User => ({
   spentKronus: typeof docData.spentKronus === 'number' ? docData.spentKronus : 0,
   scriptusBalance: typeof docData.scriptusBalance === 'number' ? docData.scriptusBalance : undefined,
   kronusBalance: typeof docData.kronusBalance === 'number' ? docData.kronusBalance : undefined,
+  primaryGoalType: docData.primaryGoalType || 'words',
+  dailyWordGoal: typeof docData.dailyWordGoal === 'number' ? docData.dailyWordGoal : 500,
+  weeklyWordGoal: typeof docData.weeklyWordGoal === 'number' ? docData.weeklyWordGoal : 2500,
+  dailyMinutesGoal: typeof docData.dailyMinutesGoal === 'number' ? docData.dailyMinutesGoal : 30,
+  weeklyMinutesGoal: typeof docData.weeklyMinutesGoal === 'number' ? docData.weeklyMinutesGoal : 180,
+  monthlyGoalsHistory: docData.monthlyGoalsHistory || {},
 });
 
 export const updateUserPresence = async (userId: string, isOnline: boolean = true): Promise<void> => {
