@@ -15,9 +15,10 @@ import {
   getCharacters,
   getChapterConceptMaps
 } from '../services/projectCreativeService';
-import { ListTree, MapPin, Compass, Users, Brain, MessageSquare, BarChart3, BookHeart, Feather } from 'lucide-react';
+import { ListTree, MapPin, Compass, Users, Brain, MessageSquare, BarChart3, BookHeart, Feather, Activity } from 'lucide-react';
+import { ChapterXRayView } from './ChapterXRayView';
 
-export type ProjectWorkspaceTab = 'concepts' | 'characters' | 'skeleton' | 'environments' | 'comments' | 'diary' | 'stats';
+export type ProjectWorkspaceTab = 'concepts' | 'characters' | 'skeleton' | 'environments' | 'comments' | 'diary' | 'chapter_xray' | 'stats';
 
 interface ProjectWorkspaceProps {
   project: Project;
@@ -314,7 +315,21 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
             <span>💬 Comentários</span>
           </button>
 
-          {/* TAB 7: STATS */}
+          {/* TAB 7: CHAPTER X-RAY (Raio-X dos Capítulos) */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('chapter_xray')}
+            className={`py-3 px-4 border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'chapter_xray'
+                ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50 rounded-t-xl'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Activity className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+            <span>📊 Raio-X dos Capítulos</span>
+          </button>
+
+          {/* TAB 8: STATS */}
           <button
             type="button"
             onClick={() => setActiveTab('stats')}
@@ -336,6 +351,16 @@ export const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({
           projectId={project.id}
           user={user}
           readOnly={readOnly}
+          sessions={projSessions}
+        />
+      )}
+
+      {activeTab === 'chapter_xray' && (
+        <ChapterXRayView
+          project={project}
+          user={user}
+          sessions={projSessions}
+          onOpenSkeleton={() => setActiveTab('skeleton')}
         />
       )}
 

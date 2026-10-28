@@ -177,6 +177,12 @@ export const SessionDetailsModal: React.FC<SessionDetailsModalProps> = ({
                                     <span>{t('sessionDetails.noProject')}</span>
                                 </span>
                             )}
+                            {session.chapterTitle && (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-violet-50 text-violet-800 border border-violet-200 shadow-2xs">
+                                    <span>📑</span>
+                                    <span>{session.chapterTitle}</span>
+                                </span>
+                            )}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 capitalize">

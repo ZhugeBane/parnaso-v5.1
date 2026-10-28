@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { WritingSession, Project } from '../types';
+import { WritingSession, Project, User, StorySkeletonItem } from '../types';
 import { Card } from './ui/Card';
 import { useLanguage } from '../i18n/LanguageContext';
+import { auth } from '../lib/firebase';
+import { getStorySkeleton, subscribeToStorySkeleton, createQuickChapter } from '../services/projectCreativeService';
 import {
   Clock,
   Calendar,
@@ -29,6 +31,7 @@ interface SessionFormProps {
   onAddProject?: (project: Project) => Promise<Project | undefined> | void;
   userHestius?: number;
   sessions?: WritingSession[];
+  user?: User;
 }
 
 const DEFAULT_PROJECT_COLORS = [
@@ -223,9 +226,12 @@ export const SessionForm: React.FC<SessionFormProps> = ({
   projects,
   onAddProject,
   userHestius,
-  sessions
+  sessions,
+  user
 }) => {
   const { t } = useLanguage();
+  const effectiveUserId = user?.id || auth.currentUser?.uid || '';
+
   const [showSuccess, setShowSuccess] = useState(false);
   const [pendingSession, setPendingSession] = useState<WritingSession | null>(null);
   const [randomMessage, setRandomMessage] = useState("");
@@ -236,6 +242,13 @@ export const SessionForm: React.FC<SessionFormProps> = ({
   const [newProjectDesc, setNewProjectDesc] = useState('');
   const [newProjectGoal, setNewProjectGoal] = useState('');
   const [newProjectColor, setNewProjectColor] = useState(DEFAULT_PROJECT_COLORS[Math.floor(Math.random() * DEFAULT_PROJECT_COLORS.length)]);
+
+  // Chapters State (Requirement 1)
+  const [chapters, setChapters] = useState<StorySkeletonItem[]>([]);
+  const [isLoadingChapters, setIsLoadingChapters] = useState(false);
+  const [showNewChapterInput, setShowNewChapterInput] = useState(false);
+  const [newChapterTitle, setNewChapterTitle] = useState('');
+  const [isCreatingChapter, setIsCreatingChapter] = useState(false);
 
   const motivationalMessages = useMemo(() => [
     t('sessionForm.motivation1'),
@@ -279,8 +292,73 @@ export const SessionForm: React.FC<SessionFormProps> = ({
     rewardDescription: '',
     content: '',
     ...initialValues,
-    projectId: initialValues?.projectId || ''
+    projectId: initialValues?.projectId || '',
+    chapterId: initialValues?.chapterId || undefined,
+    chapterTitle: initialValues?.chapterTitle || undefined
   });
+
+  // Carrega e sincroniza em tempo real os capítulos da obra selecionada
+  useEffect(() => {
+    if (!formData.projectId || !effectiveUserId) {
+      setChapters([]);
+      return;
+    }
+    let isMounted = true;
+    setIsLoadingChapters(true);
+    getStorySkeleton(formData.projectId, effectiveUserId).then(cached => {
+      if (isMounted) {
+        setChapters(cached);
+        setIsLoadingChapters(false);
+        if (formData.chapterId && !formData.chapterTitle) {
+          const found = cached.find(c => c.id === formData.chapterId);
+          if (found) {
+            setFormData(prev => ({ ...prev, chapterTitle: found.title }));
+          }
+        }
+      }
+    }).catch(() => {
+      if (isMounted) setIsLoadingChapters(false);
+    });
+
+    const unsubscribe = subscribeToStorySkeleton(formData.projectId, effectiveUserId, (fresh) => {
+      if (isMounted) {
+        setChapters(fresh);
+        setIsLoadingChapters(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [formData.projectId, effectiveUserId]);
+
+  // Criação inline rápida de novo capítulo direto no formulário
+  const handleCreateQuickChapter = async () => {
+    if (!newChapterTitle.trim() || !formData.projectId || !effectiveUserId) return;
+    setIsCreatingChapter(true);
+    try {
+      const created = await createQuickChapter(formData.projectId, effectiveUserId, newChapterTitle.trim());
+      setChapters(prev => {
+        const next = [...prev, created];
+        next.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        return next;
+      });
+      setFormData(prev => ({
+        ...prev,
+        chapterId: created.id,
+        chapterTitle: created.title,
+        usedSkeleton: true
+      }));
+      setShowNewChapterInput(false);
+      setNewChapterTitle('');
+    } catch (err) {
+      console.error('Erro ao criar capítulo inline:', err);
+      alert('Erro ao criar capítulo. Tente novamente.');
+    } finally {
+      setIsCreatingChapter(false);
+    }
+  };
 
   const handleChange = (key: keyof WritingSession, value: any) => {
     setFormData(prev => ({ ...prev, [key]: value }));
@@ -309,6 +387,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({
     const newSession: WritingSession = {
       id: initialValues?.id || formData.id || Date.now().toString(),
       projectId: formData.projectId === '' ? undefined : formData.projectId,
+      chapterId: formData.chapterId || undefined,
+      chapterTitle: formData.chapterTitle || undefined,
       date: formData.date || new Date().toISOString(),
       startTime: formData.startTime!,
       endTime: formData.endTime!,
@@ -448,87 +528,201 @@ export const SessionForm: React.FC<SessionFormProps> = ({
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Project Selection Card */}
-        <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              {t('sessionForm.projectQuestion')}
-            </label>
-            {!showNewProjectForm && onAddProject && (
-              <button
-                type="button"
-                onClick={() => setShowNewProjectForm(true)}
-                className="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1 cursor-pointer"
+        {/* Project & Chapter Selection Card */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-sm space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                {t('sessionForm.projectQuestion')}
+              </label>
+              {!showNewProjectForm && onAddProject && (
+                <button
+                  type="button"
+                  onClick={() => setShowNewProjectForm(true)}
+                  className="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>+</span>
+                  <span>{t('sessionForm.newProject')}</span>
+                </button>
+              )}
+            </div>
+
+            {!showNewProjectForm ? (
+              <select
+                value={formData.projectId || ''}
+                onChange={(e) => {
+                  const newPid = e.target.value;
+                  setFormData(prev => ({
+                    ...prev,
+                    projectId: newPid,
+                    chapterId: undefined,
+                    chapterTitle: undefined
+                  }));
+                }}
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-400 focus:border-teal-400 outline-none bg-white font-medium text-xs text-slate-800 transition-all cursor-pointer"
               >
-                <span>+</span>
-                <span>{t('sessionForm.newProject')}</span>
-              </button>
+                <option value="">{t('sessionForm.noProject')}</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            ) : (
+              <div className="space-y-4 p-4 bg-slate-50 rounded-2xl border border-slate-200 animate-fade-in">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <InputField
+                    label={t('sessionForm.projectName')}
+                    value={newProjectName}
+                    onChange={setNewProjectName}
+                    required
+                  />
+                  <InputField
+                    label={t('sessionForm.projectGoal')}
+                    type="number"
+                    value={newProjectGoal}
+                    onChange={setNewProjectGoal}
+                  />
+                </div>
+                <InputField
+                  label={t('sessionForm.projectDesc')}
+                  value={newProjectDesc}
+                  onChange={setNewProjectDesc}
+                />
+
+                <div className="flex items-center justify-between pt-2">
+                  <div className="flex gap-2">
+                    {DEFAULT_PROJECT_COLORS.map(color => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => setNewProjectColor(color)}
+                        className={`w-6 h-6 rounded-full transition-transform hover:scale-110 cursor-pointer ${newProjectColor === color ? 'ring-2 ring-offset-2 ring-slate-400 scale-110' : ''}`}
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowNewProjectForm(false)}
+                      className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+                    >
+                      {t('sessionForm.cancelNewProject')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCreateProject}
+                      disabled={!newProjectName}
+                      className="px-4 py-1.5 text-xs font-bold text-white bg-teal-600 rounded-xl hover:bg-teal-700 disabled:opacity-50 cursor-pointer shadow-xs"
+                    >
+                      {t('sessionForm.addProject')}
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 
-          {!showNewProjectForm ? (
-            <select
-              value={formData.projectId || ''}
-              onChange={(e) => handleChange('projectId', e.target.value)}
-              className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-400 focus:border-teal-400 outline-none bg-white font-medium text-xs text-slate-800 transition-all cursor-pointer"
-            >
-              <option value="">{t('sessionForm.noProject')}</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          ) : (
-            <div className="space-y-4 p-4 bg-slate-50 rounded-2xl border border-slate-200 animate-fade-in">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <InputField
-                  label={t('sessionForm.projectName')}
-                  value={newProjectName}
-                  onChange={setNewProjectName}
-                  required
-                />
-                <InputField
-                  label={t('sessionForm.projectGoal')}
-                  type="number"
-                  value={newProjectGoal}
-                  onChange={setNewProjectGoal}
-                />
+          {/* Chapter / Part of Work Selector (Requirement 1) */}
+          {formData.projectId && (
+            <div className="pt-3 border-t border-slate-100 animate-fade-in">
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>📖</span>
+                  <span>Capítulo / Parte da Obra</span>
+                </label>
+                {!showNewChapterInput && (
+                  <button
+                    type="button"
+                    onClick={() => setShowNewChapterInput(true)}
+                    className="text-xs font-bold text-violet-600 hover:text-violet-700 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>+</span>
+                    <span>Criar novo capítulo aqui mesmo</span>
+                  </button>
+                )}
               </div>
-              <InputField
-                label={t('sessionForm.projectDesc')}
-                value={newProjectDesc}
-                onChange={setNewProjectDesc}
-              />
 
-              <div className="flex items-center justify-between pt-2">
-                <div className="flex gap-2">
-                  {DEFAULT_PROJECT_COLORS.map(color => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => setNewProjectColor(color)}
-                      className={`w-6 h-6 rounded-full transition-transform hover:scale-110 cursor-pointer ${newProjectColor === color ? 'ring-2 ring-offset-2 ring-slate-400 scale-110' : ''}`}
-                      style={{ backgroundColor: color }}
+              {!showNewChapterInput ? (
+                <div className="relative">
+                  <select
+                    value={formData.chapterId || ''}
+                    onChange={(e) => {
+                      const selectedId = e.target.value;
+                      if (!selectedId) {
+                        setFormData(prev => ({ ...prev, chapterId: undefined, chapterTitle: undefined }));
+                      } else {
+                        const ch = chapters.find(c => c.id === selectedId);
+                        setFormData(prev => ({
+                          ...prev,
+                          chapterId: selectedId,
+                          chapterTitle: ch ? ch.title : undefined,
+                          usedSkeleton: true
+                        }));
+                      }
+                    }}
+                    className="w-full px-4 py-2.5 border border-violet-200/90 rounded-xl focus:ring-2 focus:ring-violet-400 focus:border-violet-400 outline-none bg-violet-50/30 hover:bg-violet-50/50 font-medium text-xs text-slate-800 transition-all cursor-pointer"
+                  >
+                    <option value="">📌 Geral / Sem capítulo específico</option>
+                    {chapters.map(ch => (
+                      <option key={ch.id} value={ch.id}>
+                        #{ch.order} - {ch.title}
+                      </option>
+                    ))}
+                  </select>
+                  {isLoadingChapters && (
+                    <span className="absolute right-8 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 animate-pulse">
+                      Carregando capítulos...
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3.5 bg-violet-50/60 rounded-2xl border border-violet-200 space-y-3 animate-fade-in">
+                  <div>
+                    <label className="block text-[11px] font-bold text-violet-900 uppercase tracking-wider mb-1">
+                      Nome do Novo Capítulo
+                    </label>
+                    <input
+                      type="text"
+                      value={newChapterTitle}
+                      onChange={(e) => setNewChapterTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleCreateQuickChapter();
+                        }
+                      }}
+                      placeholder="Ex: Capítulo VII - O Confronto..."
+                      className="w-full px-3.5 py-2 bg-white border border-violet-300 rounded-xl text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      autoFocus
                     />
-                  ))}
+                  </div>
+                  <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+                    <span className="text-[11px] text-violet-700/80">
+                      Será salvo na obra e sincronizado com o Esqueleto da Obra.
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowNewChapterInput(false);
+                          setNewChapterTitle('');
+                        }}
+                        className="px-3 py-1.5 font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreateQuickChapter}
+                        disabled={!newChapterTitle.trim() || isCreatingChapter}
+                        className="px-3.5 py-1.5 font-bold text-white bg-violet-600 hover:bg-violet-700 rounded-xl disabled:opacity-50 transition-colors shadow-2xs cursor-pointer"
+                      >
+                        {isCreatingChapter ? 'Criando...' : 'Adicionar Capítulo'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowNewProjectForm(false)}
-                    className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
-                  >
-                    {t('sessionForm.cancelNewProject')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCreateProject}
-                    disabled={!newProjectName}
-                    className="px-4 py-1.5 text-xs font-bold text-white bg-teal-600 rounded-xl hover:bg-teal-700 disabled:opacity-50 cursor-pointer shadow-xs"
-                  >
-                    {t('sessionForm.addProject')}
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
           )}
         </div>

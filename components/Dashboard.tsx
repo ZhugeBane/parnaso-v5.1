@@ -1149,6 +1149,40 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       mentorBody = `Você construiu uma consistência sólida com ${overallWpm} pal/min. Para evitar fadiga criativa, mantenha a autocorreção baixa durante o primeiro rascunho e comemore cada meta alcançada!`;
     }
 
+    // 8. Chapter Bottleneck & Friction Detection (Requirement 3)
+    const recentChapterStats = filteredSessions.slice(0, 15).reduce((acc, s) => {
+      if (s.chapterTitle) {
+        const title = s.chapterTitle.trim();
+        if (!acc[title]) {
+          acc[title] = { count: 0, totalStress: 0, totalAutoCorr: 0, totalDiff: 0 };
+        }
+        acc[title].count += 1;
+        acc[title].totalStress += (s.stressLevel || 1);
+        acc[title].totalAutoCorr += (s.autoCorrectionFrequency || 1);
+        acc[title].totalDiff += (s.difficultyLevel || 1);
+      }
+      return acc;
+    }, {} as Record<string, { count: number; totalStress: number; totalAutoCorr: number; totalDiff: number }>);
+
+    let chapterBottleneck: { chapterTitle: string; avgStress: number; avgAutoCorr: number; count: number } | null = null;
+    const bottleneckEntries = Object.entries(recentChapterStats)
+      .map(([title, st]) => ({
+        chapterTitle: title,
+        avgStress: Number((st.totalStress / st.count).toFixed(1)),
+        avgAutoCorr: Number((st.totalAutoCorr / st.count).toFixed(1)),
+        count: st.count
+      }))
+      .filter(item => item.avgStress >= 3.5 || item.avgAutoCorr >= 3.5)
+      .sort((a, b) => (b.avgStress + b.avgAutoCorr) - (a.avgStress + a.avgAutoCorr));
+
+    if (bottleneckEntries.length > 0) {
+      chapterBottleneck = bottleneckEntries[0];
+      if (!streakResult.isProtected) {
+        mentorHeadline = `Atenção à fricção no capítulo: ${chapterBottleneck.chapterTitle}`;
+        mentorBody = `Suas sessões recentes em "${chapterBottleneck.chapterTitle}" apresentaram concentração de estresse (${chapterBottleneck.avgStress}/5) e autocorreção (${chapterBottleneck.avgAutoCorr}/5). Experimente avançar em escrita livre rápida sem editar para romper o bloqueio criativo.`;
+      }
+    }
+
     return {
       preferredTimeOfDay,
       timeOfDayPct,
@@ -1160,6 +1194,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
       writerProfile,
       weekdayVsWeekend,
       routineArchetype,
+      chapterBottleneck,
       flowZone: {
         highlight: flowHighlight,
         subtitle: flowSubtitle
@@ -2374,26 +2409,54 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
                       <div className="font-medium text-slate-800 group-hover:text-teal-700 transition-colors">{new Date(session.date).toLocaleDateString()}</div>
                       <div className="text-xs text-slate-400">{session.startTime} - {session.endTime}</div>
                     </td>
-                    <td className="px-4 py-3 text-slate-500 truncate max-w-[160px]">
+                    <td className="px-4 py-3 text-slate-500 max-w-[190px]">
                       {proj ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: proj.color }}></div>
-                          {isPrivacyMode ? (
-                            <span className="text-slate-600 font-medium">
-                              {isPrivateProj || autoIdx === -1
-                                ? 'Obra Privada 🔒'
-                                : `${t('dashboard.workNumber')} #${autoIdx + 1}`}
-                            </span>
-                          ) : (
-                            <span
-                              style={isPrivateProj && isProjectDiscreet(proj) ? { filter: 'blur(6px)' } : undefined}
-                              className="transition-all duration-300 group-hover:!filter-none"
-                            >
-                              {proj.name}
-                            </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: proj.color }}></div>
+                            {isPrivacyMode ? (
+                              <span className="text-slate-600 font-medium truncate">
+                                {isPrivateProj || autoIdx === -1
+                                  ? 'Obra Privada 🔒'
+                                  : `${t('dashboard.workNumber')} #${autoIdx + 1}`}
+                              </span>
+                            ) : (
+                              <span
+                                style={isPrivateProj && isProjectDiscreet(proj) ? { filter: 'blur(6px)' } : undefined}
+                                className="transition-all duration-300 group-hover:!filter-none truncate font-medium text-slate-800"
+                              >
+                                {proj.name}
+                              </span>
+                            )}
+                          </div>
+                          {session.chapterTitle && (
+                            <div className="mt-1">
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-800 border border-violet-200/80 truncate max-w-[180px]"
+                                title={session.chapterTitle}
+                              >
+                                <span>📖</span>
+                                <span className="truncate">{session.chapterTitle}</span>
+                              </span>
+                            </div>
                           )}
                         </div>
-                      ) : <span className="text-slate-400 italic">{t('dashboard.general_project')}</span>}
+                      ) : (
+                        <div>
+                          <span className="text-slate-400 italic">{t('dashboard.general_project')}</span>
+                          {session.chapterTitle && (
+                            <div className="mt-1">
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[180px]"
+                                title={session.chapterTitle}
+                              >
+                                <span>📖</span>
+                                <span className="truncate">{session.chapterTitle}</span>
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-800">{session.wordCount.toLocaleString('pt-BR')}</td>
                     <td className="px-4 py-3">
@@ -2653,6 +2716,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, sessions, projects, 
           </div>
         </div>
       </div>
+
+      {/* Alerta de Gargalo no Capítulo (Requirement 3) */}
+      {writingInsights.chapterBottleneck && (
+        <div className="mt-3 bg-gradient-to-r from-amber-50 to-rose-50 border border-amber-300/80 rounded-2xl p-3.5 sm:p-4 shadow-xs flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <span className="text-xl p-2 bg-amber-100 rounded-xl">⚠️</span>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-black text-amber-950 uppercase tracking-wide">
+                  Gargalo Identificado no Capítulo
+                </span>
+                <span className="text-xs font-extrabold px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 border border-rose-200">
+                  📖 {writingInsights.chapterBottleneck.chapterTitle}
+                </span>
+              </div>
+              <p className="text-xs text-amber-900/80 mt-0.5">
+                Concentrando estresse médio de <strong>{writingInsights.chapterBottleneck.avgStress}/5</strong> e autocorreção de <strong>{writingInsights.chapterBottleneck.avgAutoCorr}/5</strong>. Experimente escrever um rascunho sem censura nesta cena para recuperar a fluidez.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 

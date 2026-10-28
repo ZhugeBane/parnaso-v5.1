@@ -4,19 +4,92 @@ import { Logo } from './ui/Logo';
 import { PomodoroTimer } from './ui/PomodoroTimer';
 import { useLanguage } from '../i18n/LanguageContext';
 import { ScriptusIcon, KronusIcon } from './ui/GamificationIcons';
+import { Project, User, StorySkeletonItem } from '../types';
+import { getStorySkeleton, subscribeToStorySkeleton, createQuickChapter } from '../services/projectCreativeService';
+import { auth } from '../lib/firebase';
 
 interface FocusModeProps {
-  onExit: (sessionData?: { startTime: string; endTime: string; text: string; wordCount: number }) => void;
+  onExit: (sessionData?: {
+    startTime: string;
+    endTime: string;
+    text: string;
+    wordCount: number;
+    projectId?: string;
+    chapterId?: string;
+    chapterTitle?: string;
+  }) => void;
+  projects?: Project[];
+  user?: User;
 }
 
-export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
+export const FocusMode: React.FC<FocusModeProps> = ({ onExit, projects = [], user }) => {
   const { t } = useLanguage();
+  const effectiveUserId = user?.id || auth.currentUser?.uid || '';
+
   const [isActive, setIsActive] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [text, setText] = useState('');
   const [timerMode, setTimerMode] = useState<'free' | 'pomodoro'>('free');
   const [pomodoros, setPomodoros] = useState(0);
+
+  // Project & Chapter Selection in Focus Mode (Requirement 1)
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedChapterId, setSelectedChapterId] = useState<string>('');
+  const [selectedChapterTitle, setSelectedChapterTitle] = useState<string>('');
+  const [chapters, setChapters] = useState<StorySkeletonItem[]>([]);
+  const [showNewChapterInput, setShowNewChapterInput] = useState(false);
+  const [newChapterTitle, setNewChapterTitle] = useState('');
+  const [isCreatingChapter, setIsCreatingChapter] = useState(false);
+
+  // Load and sync chapters when selected project changes
+  useEffect(() => {
+    if (!selectedProjectId || !effectiveUserId) {
+      setChapters([]);
+      setSelectedChapterId('');
+      setSelectedChapterTitle('');
+      return;
+    }
+    let isMounted = true;
+    getStorySkeleton(selectedProjectId, effectiveUserId).then(items => {
+      if (isMounted) {
+        setChapters(items);
+      }
+    });
+
+    const unsubscribe = subscribeToStorySkeleton(selectedProjectId, effectiveUserId, (items) => {
+      if (isMounted) {
+        setChapters(items);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [selectedProjectId, effectiveUserId]);
+
+  const handleCreateQuickChapterInFocus = async () => {
+    if (!newChapterTitle.trim() || !selectedProjectId || !effectiveUserId) return;
+    setIsCreatingChapter(true);
+    try {
+      const created = await createQuickChapter(selectedProjectId, effectiveUserId, newChapterTitle.trim());
+      setChapters(prev => {
+        const next = [...prev, created];
+        next.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        return next;
+      });
+      setSelectedChapterId(created.id);
+      setSelectedChapterTitle(created.title);
+      setShowNewChapterInput(false);
+      setNewChapterTitle('');
+    } catch (e) {
+      console.error('Erro ao criar capítulo no Modo Foco:', e);
+      alert('Erro ao criar capítulo.');
+    } finally {
+      setIsCreatingChapter(false);
+    }
+  };
 
   // Ref for interval to clear it properly
   const intervalRef = useRef<number | null>(null);
@@ -58,7 +131,15 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
     // Calculate simple word count
     const wordCount = text.trim().split(/\s+/).filter(w => w.length > 0).length;
 
-    onExit({ startTime: formattedStart, endTime: formattedEnd, text, wordCount });
+    onExit({
+      startTime: formattedStart,
+      endTime: formattedEnd,
+      text,
+      wordCount,
+      projectId: selectedProjectId || undefined,
+      chapterId: selectedChapterId || undefined,
+      chapterTitle: selectedChapterTitle || undefined
+    });
   };
 
   const handlePomodoroComplete = (count: number) => {
@@ -120,6 +201,109 @@ export const FocusMode: React.FC<FocusModeProps> = ({ onExit }) => {
           ) : (
             <PomodoroTimer onComplete={handlePomodoroComplete} />
           )}
+        </div>
+
+        {/* Project & Chapter Context Bar in Focus Mode (Requirement 1) */}
+        <div className="w-full max-w-4xl mb-3 flex items-center justify-between gap-3 flex-wrap bg-slate-800/80 p-3 rounded-2xl border border-slate-700/80 text-xs">
+          <div className="flex items-center gap-2 flex-wrap flex-1">
+            <span className="text-slate-400 font-bold flex items-center gap-1">
+              <span>📚</span>
+              <span>Obra:</span>
+            </span>
+            <select
+              value={selectedProjectId}
+              onChange={(e) => {
+                setSelectedProjectId(e.target.value);
+                setSelectedChapterId('');
+                setSelectedChapterTitle('');
+              }}
+              className="bg-slate-900 text-slate-200 border border-slate-700 rounded-xl px-3 py-1.5 font-medium text-xs outline-none focus:border-teal-400 transition-colors cursor-pointer max-w-[200px]"
+            >
+              <option value="">{t('sessionForm.noProject')}</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+
+            {selectedProjectId && (
+              <>
+                <span className="text-slate-400 font-bold flex items-center gap-1 ml-2">
+                  <span>📖</span>
+                  <span>Capítulo:</span>
+                </span>
+                {!showNewChapterInput ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <select
+                      value={selectedChapterId}
+                      onChange={(e) => {
+                        const cid = e.target.value;
+                        if (!cid) {
+                          setSelectedChapterId('');
+                          setSelectedChapterTitle('');
+                        } else {
+                          const ch = chapters.find(c => c.id === cid);
+                          setSelectedChapterId(cid);
+                          setSelectedChapterTitle(ch ? ch.title : '');
+                        }
+                      }}
+                      className="bg-slate-900 text-slate-200 border border-slate-700 rounded-xl px-3 py-1.5 font-medium text-xs outline-none focus:border-violet-400 transition-colors cursor-pointer max-w-[220px]"
+                    >
+                      <option value="">📌 Geral / Sem capítulo</option>
+                      {chapters.map(ch => (
+                        <option key={ch.id} value={ch.id}>
+                          #{ch.order} - {ch.title}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowNewChapterInput(true)}
+                      className="text-violet-400 hover:text-violet-300 font-bold text-xs hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>+</span>
+                      <span>Novo Capítulo</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input
+                      type="text"
+                      value={newChapterTitle}
+                      onChange={(e) => setNewChapterTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleCreateQuickChapterInFocus();
+                        }
+                      }}
+                      placeholder="Nome do capítulo..."
+                      className="bg-slate-900 text-slate-200 border border-violet-500 rounded-xl px-3 py-1 text-xs outline-none focus:ring-1 focus:ring-violet-400"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCreateQuickChapterInFocus}
+                      disabled={!newChapterTitle.trim() || isCreatingChapter}
+                      className="px-2.5 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-bold text-xs cursor-pointer disabled:opacity-50"
+                    >
+                      {isCreatingChapter ? '...' : 'Criar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowNewChapterInput(false);
+                        setNewChapterTitle('');
+                      }}
+                      className="text-slate-400 hover:text-slate-200 text-xs cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         {/* Writing Area */}

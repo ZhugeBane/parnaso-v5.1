@@ -198,6 +198,8 @@ export interface StoryEnvironment {
 export interface WritingSession {
   id: string;
   projectId?: string; // Link to a Project
+  chapterId?: string; // Link to StorySkeletonItem (Capítulo da Obra)
+  chapterTitle?: string; // Título do capítulo no momento do registro
   date: string; // ISO string for the date of entry
 
   // Section 1

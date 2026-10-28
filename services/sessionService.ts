@@ -137,6 +137,8 @@ export const saveSession = async (session: WritingSession, userId: string): Prom
     const validatedData = {
       ...data,
       projectId: data.projectId ? data.projectId : null,
+      chapterId: data.chapterId ? data.chapterId : null,
+      chapterTitle: data.chapterTitle ? sanitizeText(data.chapterTitle, 250) : null,
       wordCount: safeWordCount,
       stressLevel: safeStressLevel,
       difficultyLevel: safeDifficultyLevel,

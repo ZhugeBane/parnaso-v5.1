@@ -537,6 +537,30 @@ export const reorderStorySkeleton = async (
   }
 };
 
+export const createQuickChapter = async (
+  projectId: string,
+  userId: string,
+  chapterTitle: string
+): Promise<StorySkeletonItem> => {
+  const currentItems = await getStorySkeleton(projectId, userId);
+  const nextOrder = currentItems.length + 1;
+  const initialIdeaId = `idea_skel_${Date.now()}_1`;
+
+  const newItem: StorySkeletonItem = {
+    id: `skel_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    projectId,
+    userId,
+    order: nextOrder,
+    title: chapterTitle.trim(),
+    status: 'draft',
+    content: '',
+    ideas: [{ id: initialIdeaId, content: '' }],
+    createdAt: new Date().toISOString()
+  };
+
+  return await saveStorySkeletonItem(newItem, userId);
+};
+
 // ==========================================
 // 5. PHYSICAL ENVIRONMENTS (Ambientes Físicos / Cenários)
 // ==========================================

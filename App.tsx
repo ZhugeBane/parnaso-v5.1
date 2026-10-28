@@ -321,13 +321,25 @@ function App() {
   };
 
   // Handle data coming back from Focus Mode
-  const handleFocusExit = (sessionData?: { startTime: string; endTime: string; text: string; wordCount: number }) => {
+  const handleFocusExit = (sessionData?: {
+    startTime: string;
+    endTime: string;
+    text: string;
+    wordCount: number;
+    projectId?: string;
+    chapterId?: string;
+    chapterTitle?: string;
+  }) => {
     if (sessionData) {
       setPrefilledData({
         startTime: sessionData.startTime,
         endTime: sessionData.endTime,
         content: sessionData.text, // Persist the text content
         wordCount: sessionData.wordCount, // Persist the word count
+        projectId: sessionData.projectId,
+        chapterId: sessionData.chapterId,
+        chapterTitle: sessionData.chapterTitle,
+        usedSkeleton: !!sessionData.chapterId,
         wasMultitasking: false
       });
       setView('form'); // Go to form to verify and save to DB
@@ -476,6 +488,7 @@ function App() {
         <div className="animate-fade-in">
           <SessionForm
             projects={projects}
+            user={user}
             onSubmit={handleSaveSession}
             onCancel={handleCancel}
             onAddProject={handleSaveProject}
@@ -487,7 +500,11 @@ function App() {
       )}
 
       {view === 'focus' && (
-        <FocusMode onExit={handleFocusExit} />
+        <FocusMode
+          projects={projects}
+          user={user}
+          onExit={handleFocusExit}
+        />
       )}
     </div>
   );

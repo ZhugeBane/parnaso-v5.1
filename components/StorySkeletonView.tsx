@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StorySkeletonItem, SkeletonIdeaBox, SkeletonItemStatus, User } from '../types';
+import { StorySkeletonItem, SkeletonIdeaBox, SkeletonItemStatus, User, WritingSession } from '../types';
 import {
   getStorySkeleton,
   subscribeToStorySkeleton,
@@ -7,13 +7,63 @@ import {
   deleteStorySkeletonItem,
   reorderStorySkeleton
 } from '../services/projectCreativeService';
+import { calculateSessionMinutes, formatMinutesToHours } from '../services/rewardService';
 import { ListTree, Plus, ArrowUp, ArrowDown, Trash2, CheckCircle2, Sparkles, Search, Layers, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface StorySkeletonViewProps {
   projectId: string;
   user: User;
   readOnly?: boolean;
+  sessions?: WritingSession[];
 }
+
+export interface ChapterMetrics {
+  totalWords: number;
+  totalMinutes: number;
+  sessionCount: number;
+  avgStress: number;
+  avgDifficulty: number;
+  avgAutoCorrection: number;
+  avgRating: number;
+  paceWpm: number;
+}
+
+export const getMetricsForChapter = (chapter: StorySkeletonItem, allSessions: WritingSession[] = []): ChapterMetrics => {
+  const chapterSessions = allSessions.filter(s =>
+    s.chapterId === chapter.id ||
+    (s.chapterTitle && chapter.title && s.chapterTitle.trim().toLowerCase() === chapter.title.trim().toLowerCase())
+  );
+  const count = chapterSessions.length;
+  if (count === 0) {
+    return {
+      totalWords: 0,
+      totalMinutes: 0,
+      sessionCount: 0,
+      avgStress: 0,
+      avgDifficulty: 0,
+      avgAutoCorrection: 0,
+      avgRating: 0,
+      paceWpm: 0
+    };
+  }
+  const totalWords = chapterSessions.reduce((acc, s) => acc + (s.wordCount || 0), 0);
+  const totalMinutes = chapterSessions.reduce((acc, s) => acc + calculateSessionMinutes(s.startTime, s.endTime), 0);
+  const totalStress = chapterSessions.reduce((acc, s) => acc + (s.stressLevel || 0), 0);
+  const totalDifficulty = chapterSessions.reduce((acc, s) => acc + (s.difficultyLevel || 0), 0);
+  const totalAutoCorr = chapterSessions.reduce((acc, s) => acc + (s.autoCorrectionFrequency || 0), 0);
+  const totalRating = chapterSessions.reduce((acc, s) => acc + (s.sessionRating || 0), 0);
+
+  return {
+    totalWords,
+    totalMinutes,
+    sessionCount: count,
+    avgStress: Number((totalStress / count).toFixed(1)),
+    avgDifficulty: Number((totalDifficulty / count).toFixed(1)),
+    avgAutoCorrection: Number((totalAutoCorr / count).toFixed(1)),
+    avgRating: Number((totalRating / count).toFixed(1)),
+    paceWpm: totalMinutes > 0 ? Number((totalWords / totalMinutes).toFixed(1)) : 0
+  };
+};
 
 const STATUS_CONFIG: Record<SkeletonItemStatus, {
   label: string;
@@ -99,7 +149,8 @@ export const getItemIdeas = (item: StorySkeletonItem): SkeletonIdeaBox[] => {
 export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
   projectId,
   user,
-  readOnly = false
+  readOnly = false,
+  sessions = []
 }) => {
   const [items, setItems] = useState<StorySkeletonItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -565,6 +616,7 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
             const isCollapsed = collapsedIds.has(item.id);
             const isSaving = savingId === item.id;
             const ideas = getItemIdeas(item);
+            const chapterMetrics = getMetricsForChapter(item, sessions);
 
             return (
               <React.Fragment key={item.id}>
@@ -686,6 +738,43 @@ export const StorySkeletonView: React.FC<StorySkeletonViewProps> = ({
                           </button>
                         )}
                       </div>
+                    </div>
+
+                    {/* Chapter Telemetry / Raio-X strip (Requirement 2) */}
+                    <div className="pt-2 pb-1 flex items-center justify-between gap-2 flex-wrap text-xs text-slate-500">
+                      {chapterMetrics.sessionCount > 0 ? (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="inline-flex items-center gap-1 font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200/80">
+                            <span>📝</span>
+                            <span>{chapterMetrics.totalWords.toLocaleString('pt-BR')} pal.</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1 font-bold text-amber-900 bg-amber-50 border border-amber-200/70 px-2 py-0.5 rounded-md">
+                            <span>⏱️</span>
+                            <span>{formatMinutesToHours(chapterMetrics.totalMinutes)}</span>
+                            <span className="text-amber-700/80 font-medium">({chapterMetrics.sessionCount} {chapterMetrics.sessionCount === 1 ? 'sessão' : 'sessões'})</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1 font-bold text-emerald-800 bg-emerald-50 border border-emerald-200/70 px-2 py-0.5 rounded-md">
+                            <span>⭐</span>
+                            <span>{chapterMetrics.avgRating}/5</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1 font-semibold text-rose-700 bg-rose-50 border border-rose-200/60 px-2 py-0.5 rounded-md text-[11px]">
+                            <span>Estresse:</span>
+                            <span className="font-bold">{chapterMetrics.avgStress}/5</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1 font-semibold text-orange-700 bg-orange-50 border border-orange-200/60 px-2 py-0.5 rounded-md text-[11px]">
+                            <span>Dificuldade:</span>
+                            <span className="font-bold">{chapterMetrics.avgDifficulty}/5</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1 font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/60 px-2 py-0.5 rounded-md text-[11px]">
+                            <span>Autocorr:</span>
+                            <span className="font-bold">{chapterMetrics.avgAutoCorrection}/5</span>
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-400 italic">
+                          0 sessões registradas no capítulo
+                        </span>
+                      )}
                     </div>
 
                     {/* Gaveta Deslizante para Baixo (Slide-Down / Accordion Suave) */}
